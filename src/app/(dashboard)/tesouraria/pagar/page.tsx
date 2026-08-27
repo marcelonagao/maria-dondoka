@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
+import { supabase } from '../../../../lib/supabase';
 
 // Tipagem para o TypeScript não reclamar
 interface Despesa {
