@@ -2,10 +2,21 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
+import { supabase } from '../../lib/supabase';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
+
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+      router.push('/login');
+    } catch (error) {
+      console.error('Erro ao sair:', error);
+    }
+  };
 
   // Atualizamos a estrutura para suportar submenus
   const menuItems = [
@@ -35,8 +46,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
         <nav className="flex-1 px-4 space-y-1 mt-4 overflow-y-auto">
           {menuItems.map((item) => {
-            
-            // Renderização de Item com Submenu (Ex: Tesouraria)
             if (item.subItems) {
               return (
                 <div key={item.name} className="py-2">
@@ -66,7 +75,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               );
             }
 
-            // Renderização de Item Normal (Ex: Dashboard, Vendas)
             const isActive = pathname === item.path || pathname?.startsWith(`${item.path}/`);
             return (
               <div key={item.name} className="py-1">
@@ -87,7 +95,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </nav>
 
         <div className="p-4 border-t border-stone-800">
-          <button className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm text-stone-400 hover:text-stone-100 transition-colors bg-stone-800/50 rounded-lg">
+          <button 
+            onClick={handleLogout}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm text-stone-400 hover:text-stone-100 transition-colors bg-stone-800/50 rounded-lg"
+          >
             <span>🚪</span> Sair do Sistema
           </button>
         </div>
@@ -101,7 +112,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <div className="w-8 h-8 bg-amber-100 text-amber-700 rounded-full flex items-center justify-center font-bold text-sm">
               MD
             </div>
-            <span className="text-sm font-medium text-stone-600">Admin Loja 01</span>
+            <span className="text-sm font-medium text-stone-600">Admin</span>
           </div>
         </header>
         
