@@ -1,12 +1,26 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { supabase } from '../../../../lib/supabase';
+
+// Tipagem para o TypeScript
+interface Recebimento {
+  id: string;
+  description: string;
+  origin: string;
+  expected_date: string;
+  gross_amount: number;
+  fee_amount: number;
+  net_amount: number;
+  status: string;
+}
 
 export default function ContasReceberPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [recebimentos, setRecebimentos] = useState<Recebimento[]>([]);
   
-  // Estado do formulário
   const [formData, setFormData] = useState({
     descricao: '',
     origem: 'Maquininha (Stone)',
@@ -15,12 +29,27 @@ export default function ContasReceberPage() {
     taxa: '0'
   });
 
-  // Dados simulados (Mock) com datas próximas ao contexto atual
-  const [recebimentos, setRecebimentos] = useState([
-    { id: 1, descricao: 'Repasse Lote #442', origem: 'Maquininha (Stone)', previsao: '2026-08-28', valorBruto: 3250.00, taxa: 65.00, valorLiquido: 3185.00, status: 'pendente' },
-    { id: 2, descricao: 'Venda PDV #1092', origem: 'Pix', previsao: '2026-08-27', valorBruto: 450.00, taxa: 0.00, valorLiquido: 450.00, status: 'recebido' },
-    { id: 3, descricao: 'Repasse Ifood Semanal', origem: 'Plataforma (Ifood)', previsao: '2026-08-25', valorBruto: 1200.00, taxa: 144.00, valorLiquido: 1056.00, status: 'atrasado' },
-  ]);
+  // Função para buscar os recebimentos do Supabase
+  const fetchRecebimentos = async () => {
+    try {
+      setIsLoading(true);
+      const { data, error } = await supabase
+        .from('accounts_receivable')
+        .select('*')
+        .order('expected_date', { ascending: true });
+
+      if (error) throw error;
+      setRecebimentos(data || []);
+    } catch (error) {
+      console.error('Erro ao buscar contas a receber:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchRecebimentos();
+  }, []);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
@@ -32,36 +61,41 @@ export default function ContasReceberPage() {
       atrasado: <span className="px-2.5 py-1 bg-red-50 text-red-700 text-xs font-medium rounded-md">Atrasado</span>,
       recebido: <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 text-xs font-medium rounded-md">Recebido</span>,
     };
-    return badges[status] || null;
+    return badges[status] || <span className="px-2.5 py-1 bg-stone-100 text-stone-600 text-xs font-medium rounded-md">{status}</span>;
   };
 
+  // Função para salvar no Supabase
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
 
     try {
+      // Regra de Negócio: Calcula desconto e líquido antes de salvar
       const bruto = parseFloat(formData.valorBruto);
       const taxaPercentual = parseFloat(formData.taxa);
       const valorDesconto = bruto * (taxaPercentual / 100);
       const liquido = bruto - valorDesconto;
 
-      // Simulação de salvamento no Supabase
-      const novoRecebimento = {
-        id: Math.random(),
-        descricao: formData.descricao,
-        origem: formData.origem,
-        previsao: formData.previsao,
-        valorBruto: bruto,
-        taxa: valorDesconto,
-        valorLiquido: liquido,
+      const { error } = await supabase.from('accounts_receivable').insert([{
+        description: formData.descricao,
+        origin: formData.origem,
+        expected_date: formData.previsao,
+        gross_amount: bruto,
+        fee_amount: valorDesconto,
+        net_amount: liquido,
         status: 'pendente'
-      };
+      }]);
+
+      if (error) throw error;
+
+      // Recarrega a tabela após salvar
+      await fetchRecebimentos();
       
-      setRecebimentos([novoRecebimento, ...recebimentos]);
       setIsModalOpen(false);
       setFormData({ descricao: '', origem: 'Maquininha (Stone)', previsao: '', valorBruto: '', taxa: '0' });
     } catch (error) {
       console.error('Erro ao salvar recebimento:', error);
+      alert('Erro ao salvar no banco. Verifique o console.');
     } finally {
       setIsSubmitting(false);
     }
@@ -82,7 +116,7 @@ export default function ContasReceberPage() {
         </button>
       </div>
 
-      <div className="bg-white border border-stone-200 rounded-xl shadow-sm overflow-hidden">
+      <div className="bg-white border border-stone-200 rounded-xl shadow-sm overflow-hidden min-h-[300px]">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm text-stone-600">
             <thead className="bg-stone-50 border-b border-stone-200 text-stone-500 uppercase text-xs font-medium">
@@ -97,17 +131,31 @@ export default function ContasReceberPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-stone-100">
-              {recebimentos.map((item) => (
-                <tr key={item.id} className="hover:bg-stone-50/50 transition-colors">
-                  <td className="px-6 py-4 font-medium text-stone-800">{item.descricao}</td>
-                  <td className="px-6 py-4">{item.origem}</td>
-                  <td className="px-6 py-4">{new Date(item.previsao + 'T00:00:00').toLocaleDateString('pt-BR')}</td>
-                  <td className="px-6 py-4 text-stone-500">{formatCurrency(item.valorBruto)}</td>
-                  <td className="px-6 py-4 text-red-500">- {formatCurrency(item.taxa)}</td>
-                  <td className="px-6 py-4 font-semibold text-emerald-600">{formatCurrency(item.valorLiquido)}</td>
-                  <td className="px-6 py-4">{getStatusBadge(item.status)}</td>
+              {isLoading ? (
+                <tr>
+                  <td colSpan={7} className="px-6 py-8 text-center text-stone-400">
+                    Carregando dados do Supabase...
+                  </td>
                 </tr>
-              ))}
+              ) : recebimentos.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-6 py-8 text-center text-stone-400">
+                    Nenhum recebimento encontrado.
+                  </td>
+                </tr>
+              ) : (
+                recebimentos.map((item) => (
+                  <tr key={item.id} className="hover:bg-stone-50/50 transition-colors">
+                    <td className="px-6 py-4 font-medium text-stone-800">{item.description}</td>
+                    <td className="px-6 py-4">{item.origin}</td>
+                    <td className="px-6 py-4">{new Date(item.expected_date + 'T00:00:00').toLocaleDateString('pt-BR')}</td>
+                    <td className="px-6 py-4 text-stone-500">{formatCurrency(item.gross_amount)}</td>
+                    <td className="px-6 py-4 text-red-500">- {formatCurrency(item.fee_amount)}</td>
+                    <td className="px-6 py-4 font-semibold text-emerald-600">{formatCurrency(item.net_amount)}</td>
+                    <td className="px-6 py-4">{getStatusBadge(item.status)}</td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
@@ -119,9 +167,7 @@ export default function ContasReceberPage() {
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
             <div className="flex justify-between items-center p-6 border-b border-stone-100">
               <h2 className="text-lg font-semibold text-stone-800">Lançar Recebimento</h2>
-              <button onClick={() => setIsModalOpen(false)} className="text-stone-400 hover:text-stone-600">
-                ✕
-              </button>
+              <button onClick={() => setIsModalOpen(false)} className="text-stone-400 hover:text-stone-600">✕</button>
             </div>
             
             <form onSubmit={handleSubmit} className="p-6 space-y-4">
@@ -190,18 +236,6 @@ export default function ContasReceberPage() {
                 </div>
               </div>
 
-              {/* Pré-visualização do cálculo (Opcional para UX) */}
-              {formData.valorBruto && (
-                <div className="p-3 bg-stone-50 border border-stone-200 rounded-lg flex justify-between items-center text-sm">
-                  <span className="text-stone-500">Valor Líquido Projetado:</span>
-                  <span className="font-bold text-emerald-600">
-                    {formatCurrency(
-                      parseFloat(formData.valorBruto) - (parseFloat(formData.valorBruto) * (parseFloat(formData.taxa || '0') / 100))
-                    )}
-                  </span>
-                </div>
-              )}
-
               <div className="pt-4 flex gap-3">
                 <button 
                   type="button" 
@@ -213,7 +247,7 @@ export default function ContasReceberPage() {
                 <button 
                   type="submit" 
                   disabled={isSubmitting}
-                  className="flex-1 px-4 py-2 bg-stone-900 hover:bg-stone-800 text-white rounded-lg font-medium transition-colors disabled:opacity-70"
+                  className="flex-1 px-4 py-2 bg-stone-900 hover:bg-stone-800 text-white rounded-lg font-medium transition-colors disabled:opacity-70 flex justify-center items-center"
                 >
                   {isSubmitting ? 'Salvando...' : 'Salvar'}
                 </button>
