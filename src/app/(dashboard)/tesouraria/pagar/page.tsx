@@ -1,24 +1,52 @@
 'use client';
 
-import React, { useState } from 'react';
-// import { supabase } from '@/lib/supabase'; // Habilitar quando for conectar o banco
+import React, { useState, useEffect } from 'react';
+import { supabase } from '@/lib/supabase';
+
+// Tipagem para o TypeScript não reclamar
+interface Despesa {
+  id: string;
+  description: string;
+  category: string;
+  due_date: string;
+  amount: number;
+  status: string;
+}
 
 export default function ContasPagarPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [despesas, setDespesas] = useState<Despesa[]>([]);
   
-  // Estado do formulário
   const [formData, setFormData] = useState({
-    descricao: '',
-    categoria: 'Infraestrutura',
-    vencimento: '',
-    valor: ''
+    description: '',
+    category: 'Infraestrutura',
+    due_date: '',
+    amount: ''
   });
 
-  const [despesas, setDespesas] = useState([
-    { id: 1, descricao: 'Aluguel Loja Centro', categoria: 'Infraestrutura', vencimento: '2026-08-30', valor: 4500.00, status: 'pendente' },
-    { id: 2, descricao: 'Fornecedor - Essências BR', categoria: 'Estoque', vencimento: '2026-08-27', valor: 2150.00, status: 'vencendo_hoje' },
-  ]);
+  // Função que busca as despesas no Supabase ao carregar a página
+  const fetchDespesas = async () => {
+    try {
+      setIsLoading(true);
+      const { data, error } = await supabase
+        .from('accounts_payable')
+        .select('*')
+        .order('due_date', { ascending: true }); // Ordena pela data mais próxima
+
+      if (error) throw error;
+      setDespesas(data || []);
+    } catch (error) {
+      console.error('Erro ao buscar contas a pagar:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchDespesas();
+  }, []);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
@@ -27,42 +55,36 @@ export default function ContasPagarPage() {
   const getStatusBadge = (status: string) => {
     const badges: Record<string, JSX.Element> = {
       pendente: <span className="px-2.5 py-1 bg-amber-50 text-amber-700 text-xs font-medium rounded-md">Pendente</span>,
-      vencendo_hoje: <span className="px-2.5 py-1 bg-red-50 text-red-700 text-xs font-medium rounded-md">Vence Hoje</span>,
+      pago: <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 text-xs font-medium rounded-md">Pago</span>,
     };
-    return badges[status] || null;
+    return badges[status] || <span className="px-2.5 py-1 bg-stone-100 text-stone-600 text-xs font-medium rounded-md">{status}</span>;
   };
 
+  // Função que envia o dado pro Supabase
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
 
     try {
-      /* PONTO DE INTEGRAÇÃO COM SUPABASE:
-      const { data, error } = await supabase.from('accounts_payable').insert([{
-        description: formData.descricao,
-        category_id: formData.categoria, // Na prática, seria um UUID da categoria
-        due_date: formData.vencimento,
-        amount: parseFloat(formData.valor),
+      const { error } = await supabase.from('accounts_payable').insert([{
+        description: formData.description,
+        category: formData.category,
+        due_date: formData.due_date,
+        amount: parseFloat(formData.amount),
         status: 'pendente'
       }]);
-      if (error) throw error;
-      */
 
-      // Atualização otimista da interface (Simulação)
-      const novaDespesa = {
-        id: Math.random(),
-        descricao: formData.descricao,
-        categoria: formData.categoria,
-        vencimento: formData.vencimento,
-        valor: parseFloat(formData.valor),
-        status: 'pendente'
-      };
+      if (error) throw error;
+
+      // Recarrega a lista do banco após inserir
+      await fetchDespesas();
       
-      setDespesas([novaDespesa, ...despesas]);
+      // Limpa e fecha o modal
       setIsModalOpen(false);
-      setFormData({ descricao: '', categoria: 'Infraestrutura', vencimento: '', valor: '' });
+      setFormData({ description: '', category: 'Infraestrutura', due_date: '', amount: '' });
     } catch (error) {
       console.error('Erro ao salvar despesa:', error);
+      alert('Erro ao salvar no banco. Verifique o console.');
     } finally {
       setIsSubmitting(false);
     }
@@ -83,7 +105,7 @@ export default function ContasPagarPage() {
         </button>
       </div>
 
-      <div className="bg-white border border-stone-200 rounded-xl shadow-sm overflow-hidden">
+      <div className="bg-white border border-stone-200 rounded-xl shadow-sm overflow-hidden min-h-[300px]">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm text-stone-600">
             <thead className="bg-stone-50 border-b border-stone-200 text-stone-500 uppercase text-xs font-medium">
@@ -96,15 +118,29 @@ export default function ContasPagarPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-stone-100">
-              {despesas.map((despesa) => (
-                <tr key={despesa.id} className="hover:bg-stone-50/50 transition-colors">
-                  <td className="px-6 py-4 font-medium text-stone-800">{despesa.descricao}</td>
-                  <td className="px-6 py-4">{despesa.categoria}</td>
-                  <td className="px-6 py-4">{new Date(despesa.vencimento + 'T00:00:00').toLocaleDateString('pt-BR')}</td>
-                  <td className="px-6 py-4 font-medium">{formatCurrency(despesa.valor)}</td>
-                  <td className="px-6 py-4">{getStatusBadge(despesa.status)}</td>
+              {isLoading ? (
+                <tr>
+                  <td colSpan={5} className="px-6 py-8 text-center text-stone-400">
+                    Carregando dados do Supabase...
+                  </td>
                 </tr>
-              ))}
+              ) : despesas.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-6 py-8 text-center text-stone-400">
+                    Nenhuma conta a pagar encontrada.
+                  </td>
+                </tr>
+              ) : (
+                despesas.map((despesa) => (
+                  <tr key={despesa.id} className="hover:bg-stone-50/50 transition-colors">
+                    <td className="px-6 py-4 font-medium text-stone-800">{despesa.description}</td>
+                    <td className="px-6 py-4">{despesa.category}</td>
+                    <td className="px-6 py-4">{new Date(despesa.due_date + 'T00:00:00').toLocaleDateString('pt-BR')}</td>
+                    <td className="px-6 py-4 font-medium text-red-600">{formatCurrency(despesa.amount)}</td>
+                    <td className="px-6 py-4">{getStatusBadge(despesa.status)}</td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
@@ -116,9 +152,7 @@ export default function ContasPagarPage() {
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
             <div className="flex justify-between items-center p-6 border-b border-stone-100">
               <h2 className="text-lg font-semibold text-stone-800">Lançar Nova Despesa</h2>
-              <button onClick={() => setIsModalOpen(false)} className="text-stone-400 hover:text-stone-600">
-                ✕
-              </button>
+              <button onClick={() => setIsModalOpen(false)} className="text-stone-400 hover:text-stone-600">✕</button>
             </div>
             
             <form onSubmit={handleSubmit} className="p-6 space-y-4">
@@ -128,8 +162,8 @@ export default function ContasPagarPage() {
                   type="text" 
                   required 
                   className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
-                  value={formData.descricao}
-                  onChange={e => setFormData({...formData, descricao: e.target.value})}
+                  value={formData.description}
+                  onChange={e => setFormData({...formData, description: e.target.value})}
                   placeholder="Ex: Conta de Internet"
                 />
               </div>
@@ -142,8 +176,8 @@ export default function ContasPagarPage() {
                     step="0.01"
                     required 
                     className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
-                    value={formData.valor}
-                    onChange={e => setFormData({...formData, valor: e.target.value})}
+                    value={formData.amount}
+                    onChange={e => setFormData({...formData, amount: e.target.value})}
                     placeholder="0.00"
                   />
                 </div>
@@ -153,8 +187,8 @@ export default function ContasPagarPage() {
                     type="date" 
                     required 
                     className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none text-stone-700"
-                    value={formData.vencimento}
-                    onChange={e => setFormData({...formData, vencimento: e.target.value})}
+                    value={formData.due_date}
+                    onChange={e => setFormData({...formData, due_date: e.target.value})}
                   />
                 </div>
               </div>
@@ -163,8 +197,8 @@ export default function ContasPagarPage() {
                 <label className="block text-sm font-medium text-stone-700 mb-1">Categoria</label>
                 <select 
                   className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none bg-white text-stone-700"
-                  value={formData.categoria}
-                  onChange={e => setFormData({...formData, categoria: e.target.value})}
+                  value={formData.category}
+                  onChange={e => setFormData({...formData, category: e.target.value})}
                 >
                   <option value="Infraestrutura">Infraestrutura</option>
                   <option value="Estoque">Estoque</option>
@@ -184,7 +218,7 @@ export default function ContasPagarPage() {
                 <button 
                   type="submit" 
                   disabled={isSubmitting}
-                  className="flex-1 px-4 py-2 bg-stone-900 hover:bg-stone-800 text-white rounded-lg font-medium transition-colors disabled:opacity-70"
+                  className="flex-1 px-4 py-2 bg-stone-900 hover:bg-stone-800 text-white rounded-lg font-medium transition-colors disabled:opacity-70 flex justify-center items-center"
                 >
                   {isSubmitting ? 'Salvando...' : 'Salvar Despesa'}
                 </button>
