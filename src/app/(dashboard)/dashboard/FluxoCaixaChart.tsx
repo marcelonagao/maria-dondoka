@@ -72,7 +72,9 @@ export default function FluxoCaixaChart() {
           saidasPorDia.set(p.due_date, (saidasPorDia.get(p.due_date) || 0) + Number(p.amount));
         }
 
-        const todasAsDatas = new Set([...entradasPorDia.keys(), ...saidasPorDia.keys()]);
+        const todasAsDatas = new Set(
+            Array.from(entradasPorDia.keys()).concat(Array.from(saidasPorDia.keys()))
+          );
         const pontosOrdenados = Array.from(todasAsDatas)
           .sort()
           .map((data) => ({
