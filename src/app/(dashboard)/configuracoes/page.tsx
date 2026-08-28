@@ -24,23 +24,29 @@ export default function ConfiguracoesPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [credenciais, setCredenciais] = useState<CredenciaisReveladas | null>(null);
   const [confirmouCopia, setConfirmouCopia] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
 
-  const carregarDispositivos = async () => {
-    try {
-      setIsLoading(true);
-      const res = await fetch('/api/admin/pdv-devices');
-      if (res.status === 401) {
-        setNaoAutorizado(true);
-        return;
-      }
-      const data = await res.json();
-      setDispositivos(data.devices || []);
-    } catch (err) {
-      console.error('Erro ao carregar dispositivos:', err);
-    } finally {
-      setIsLoading(false);
+const carregarDispositivos = async () => {
+  try {
+    setIsLoading(true);
+    setErro(null);
+    const res = await fetch('/api/admin/pdv-devices');
+    if (res.status === 401) {
+      setNaoAutorizado(true);
+      return;
     }
-  };
+    if (!res.ok) {
+      throw new Error(`Resposta inesperada do servidor (status ${res.status})`);
+    }
+    const data = await res.json();
+    setDispositivos(data.devices || []);
+  } catch (err) {
+    console.error('Erro ao carregar dispositivos:', err);
+    setErro('Não foi possível carregar os dispositivos. Tente novamente em instantes.');
+  } finally {
+    setIsLoading(false);
+  }
+};
 
   useEffect(() => {
     carregarDispositivos();
@@ -127,12 +133,14 @@ export default function ConfiguracoesPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-stone-100">
-              {isLoading ? (
-                <tr><td colSpan={4} className="px-6 py-8 text-center text-stone-400">Carregando...</td></tr>
-              ) : dispositivos.length === 0 ? (
-                <tr><td colSpan={4} className="px-6 py-8 text-center text-stone-400">Nenhum dispositivo cadastrado ainda.</td></tr>
-              ) : (
-                dispositivos.map((d) => (
+            {erro ? (
+              <tr><td colSpan={4} className="px-6 py-8 text-center text-red-500">{erro}</td></tr>
+            ) : isLoading ? (
+              <tr><td colSpan={4} className="px-6 py-8 text-center text-stone-400">Carregando...</td></tr>
+            ) : dispositivos.length === 0 ? (
+              <tr><td colSpan={4} className="px-6 py-8 text-center text-stone-400">Nenhum dispositivo cadastrado ainda.</td></tr>
+            ) : (
+              dispositivos.map((d) => (
                   <tr key={d.id} className="hover:bg-stone-50/50 transition-colors">
                     <td className="px-6 py-4 font-medium text-stone-800">{d.device_label}</td>
                     <td className="px-6 py-4">
