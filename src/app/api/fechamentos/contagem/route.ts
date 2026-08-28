@@ -1,0 +1,157 @@
+import { NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
+import { z } from 'zod';
+import { getPerfilAutenticado } from '../../../../lib/server-auth';
+
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  { auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false } }
+);
+
+function somarReconciliado(fechamentos: { valor_vendas_dinheiro: number; valor_vendas_cartao: number; valor_vendas_pix: number }[]) {
+  return fechamentos.reduce(
+    (acc, f) => ({
+      dinheiro: acc.dinheiro + Number(f.valor_vendas_dinheiro || 0),
+      cartao: acc.cartao + Number(f.valor_vendas_cartao || 0),
+      pix: acc.pix + Number(f.valor_vendas_pix || 0),
+    }),
+    { dinheiro: 0, cartao: 0, pix: 0 }
+  );
+}
+
+export async function GET(request: Request) {
+  const perfil = await getPerfilAutenticado();
+  if (!perfil) return NextResponse.json({ error: 'NAO_AUTORIZADO' }, { status: 401 });
+
+  const { searchParams } = new URL(request.url);
+  const data = searchParams.get('data') || new Date().toISOString().slice(0, 10);
+
+  const { data: caixas, error: caixasError } = await supabaseAdmin
+    .from('pdv_devices')
+    .select('id, device_label')
+    .eq('franchise_id', perfil.franchiseId)
+    .eq('is_active', true)
+    .order('device_label');
+  if (caixasError) return NextResponse.json({ error: 'ERRO_INTERNO' }, { status: 500 });
+
+  const { data: acumulados, error: acumuladosError } = await supabaseAdmin
+    .from('vendas_diarias_pdv')
+    .select('pdv_device_id, valor_dinheiro, valor_cartao, valor_pix, atualizado_em')
+    .eq('franchise_id', perfil.franchiseId)
+    .eq('data_venda', data);
+  if (acumuladosError) return NextResponse.json({ error: 'ERRO_INTERNO' }, { status: 500 });
+
+  const { data: fechamentos, error: fechamentosError } = await supabaseAdmin
+    .from('fechamentos_caixa')
+    .select('id, pdv_device_id, valor_vendas_dinheiro, valor_vendas_cartao, valor_vendas_pix, valor_esperado, valor_contado, contado_em')
+    .eq('franchise_id', perfil.franchiseId)
+    .eq('data_fechamento', data)
+    .order('contado_em', { ascending: true });
+  if (fechamentosError) return NextResponse.json({ error: 'ERRO_INTERNO' }, { status: 500 });
+
+  const acumuladoPorCaixa = new Map((acumulados || []).map((a) => [a.pdv_device_id, a]));
+  const fechamentosPorCaixa = new Map<string, typeof fechamentos>();
+  for (const f of fechamentos || []) {
+    const lista = fechamentosPorCaixa.get(f.pdv_device_id) || [];
+    lista.push(f);
+    fechamentosPorCaixa.set(f.pdv_device_id, lista);
+  }
+
+  const resultado = (caixas || []).map((c) => {
+    const acumulado = acumuladoPorCaixa.get(c.id) || null;
+    const historico = fechamentosPorCaixa.get(c.id) || [];
+    const jaReconciliado = somarReconciliado(historico as any);
+
+    const proximoEsperado = acumulado
+      ? {
+          dinheiro: Number(acumulado.valor_dinheiro) - jaReconciliado.dinheiro,
+          cartao: Number(acumulado.valor_cartao) - jaReconciliado.cartao,
+          pix: Number(acumulado.valor_pix) - jaReconciliado.pix,
+        }
+      : null;
+
+    return {
+      pdv_device_id: c.id,
+      device_label: c.device_label,
+      acumulado_atualizado_em: acumulado?.atualizado_em || null,
+      proximo_esperado: proximoEsperado
+        ? { ...proximoEsperado, total: proximoEsperado.dinheiro + proximoEsperado.cartao + proximoEsperado.pix }
+        : null,
+      historico: historico.map((f: any) => ({
+        id: f.id,
+        valor_esperado: Number(f.valor_esperado),
+        valor_contado: Number(f.valor_contado),
+        diferenca: Number(f.valor_contado) - Number(f.valor_esperado),
+        contado_em: f.contado_em,
+      })),
+    };
+  });
+
+  return NextResponse.json({ data, caixas: resultado });
+}
+
+const ContagemSchema = z.object({
+  pdv_device_id: z.string().uuid(),
+  data_fechamento: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  valor_contado: z.number().nonnegative(),
+});
+
+export async function POST(request: Request) {
+  const perfil = await getPerfilAutenticado();
+  if (!perfil) return NextResponse.json({ error: 'NAO_AUTORIZADO' }, { status: 401 });
+
+  const parsed = ContagemSchema.safeParse(await request.json());
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'DADOS_INVALIDOS', detalhe: parsed.error.flatten() }, { status: 400 });
+  }
+  const { pdv_device_id, data_fechamento, valor_contado } = parsed.data;
+
+  const { data: dispositivo } = await supabaseAdmin
+    .from('pdv_devices')
+    .select('id')
+    .eq('id', pdv_device_id)
+    .eq('franchise_id', perfil.franchiseId)
+    .maybeSingle();
+  if (!dispositivo) return NextResponse.json({ error: 'CAIXA_NAO_ENCONTRADO' }, { status: 404 });
+
+  // Recalcula o esperado no servidor, no momento do envio — nunca confia em valor vindo do cliente.
+  const [{ data: acumulado }, { data: fechamentosAnteriores }] = await Promise.all([
+    supabaseAdmin
+      .from('vendas_diarias_pdv')
+      .select('valor_dinheiro, valor_cartao, valor_pix')
+      .eq('franchise_id', perfil.franchiseId)
+      .eq('pdv_device_id', pdv_device_id)
+      .eq('data_venda', data_fechamento)
+      .maybeSingle(),
+    supabaseAdmin
+      .from('fechamentos_caixa')
+      .select('valor_vendas_dinheiro, valor_vendas_cartao, valor_vendas_pix')
+      .eq('franchise_id', perfil.franchiseId)
+      .eq('pdv_device_id', pdv_device_id)
+      .eq('data_fechamento', data_fechamento),
+  ]);
+
+  const jaReconciliado = somarReconciliado((fechamentosAnteriores || []) as any);
+  const esperadoDinheiro = Number(acumulado?.valor_dinheiro || 0) - jaReconciliado.dinheiro;
+  const esperadoCartao = Number(acumulado?.valor_cartao || 0) - jaReconciliado.cartao;
+  const esperadoPix = Number(acumulado?.valor_pix || 0) - jaReconciliado.pix;
+  const esperadoTotal = esperadoDinheiro + esperadoCartao + esperadoPix;
+
+  const { error } = await supabaseAdmin.from('fechamentos_caixa').insert({
+    franchise_id: perfil.franchiseId,
+    pdv_device_id,
+    data_fechamento,
+    pdv_referencia_id: crypto.randomUUID(), // legado — remover quando o agente for reescrito
+    valor_vendas_dinheiro: esperadoDinheiro,
+    valor_vendas_cartao: esperadoCartao,
+    valor_vendas_pix: esperadoPix,
+    valor_esperado: esperadoTotal,
+    valor_contado,
+    contado_por: perfil.userId,
+    contado_em: new Date().toISOString(),
+  });
+
+  if (error) return NextResponse.json({ error: 'ERRO_INTERNO', detalhe: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true });
+}
