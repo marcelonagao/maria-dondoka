@@ -91,8 +91,9 @@ export async function GET(request: Request) {
   
       return NextResponse.json({ data, caixas: resultado });
     } catch (err: any) {
-      return NextResponse.json({ error: 'ERRO_DEBUG', detalhe: String(err?.message || err) }, { status: 500 });
-    }
+        console.error('Erro em GET /api/fechamentos/contagem:', err);
+        return NextResponse.json({ error: 'ERRO_INTERNO' }, { status: 500 });
+      }
   }
 
 const ContagemSchema = z.object({
