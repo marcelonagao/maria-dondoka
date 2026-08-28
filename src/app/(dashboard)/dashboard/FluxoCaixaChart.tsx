@@ -175,7 +175,7 @@ export default function FluxoCaixaChart() {
             <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" vertical={false} />
             <XAxis dataKey="data" tickFormatter={formatDataCurta} stroke="#a8a29e" fontSize={12} />
             <YAxis stroke="#a8a29e" fontSize={12} tickFormatter={(v) => formatCurrency(v)} width={90} />
-            <Tooltip formatter={(value) => formatCurrency(Number(value))} labelFormatter={formatDataCurta} />
+            <Tooltip formatter={(value) => formatCurrency(Number(value))} labelFormatter={(label) => formatDataCurta(String(label))} />
             <Line
               type="monotone"
               dataKey="diferenca"
