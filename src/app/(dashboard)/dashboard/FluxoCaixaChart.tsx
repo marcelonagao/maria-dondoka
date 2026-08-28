@@ -145,9 +145,9 @@ export default function FluxoCaixaChart() {
               tickFormatter={(v) => `R$ ${(v / 1000).toFixed(0)}k`}
             />
             <Tooltip
-              formatter={(value: number) => formatCurrency(value)}
-              labelFormatter={formatDataCurta}
-              contentStyle={{ borderRadius: 8, border: '1px solid #e7e5e4' }}
+                formatter={(value) => formatCurrency(Number(value))}
+                labelFormatter={formatDataCurta}
+                contentStyle={{ borderRadius: 8, border: '1px solid #e7e5e4' }}
             />
             <Legend />
             <Bar dataKey="entradas" name="Entradas" fill="#059669" radius={[4, 4, 0, 0]} />
@@ -176,7 +176,7 @@ export default function FluxoCaixaChart() {
             <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" vertical={false} />
             <XAxis dataKey="data" tickFormatter={formatDataCurta} stroke="#a8a29e" fontSize={12} />
             <YAxis stroke="#a8a29e" fontSize={12} tickFormatter={(v) => formatCurrency(v)} width={90} />
-            <Tooltip formatter={(value: number) => formatCurrency(value)} labelFormatter={formatDataCurta} />
+            <Tooltip formatter={(value) => formatCurrency(Number(value))} labelFormatter={formatDataCurta} />
             <Line
               type="monotone"
               dataKey="diferenca"
