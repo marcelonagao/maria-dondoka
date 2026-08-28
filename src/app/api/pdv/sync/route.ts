@@ -55,10 +55,14 @@ export async function POST(request: Request) {
       .eq('token_hash', sha256Hex(pdvToken))
       .maybeSingle();
 
-    if (deviceError || !device || !device.is_active) {
-      console.error(`[pdv-sync:${requestId}] token não reconhecido`);
-      return NextResponse.json({ error: 'NAO_AUTORIZADO' }, { status: 401 });
-    }
+      if (deviceError) {
+        console.error(`[pdv-sync:${requestId}] ERRO NA CONSULTA:`, deviceError.message, deviceError.code, deviceError.details);
+        return NextResponse.json({ error: 'NAO_AUTORIZADO' }, { status: 401 });
+      }
+      if (!device || !device.is_active) {
+        console.error(`[pdv-sync:${requestId}] token não reconhecido (nenhuma linha encontrada ou inativo)`);
+        return NextResponse.json({ error: 'NAO_AUTORIZADO' }, { status: 401 });
+      }
 
     const expectedSignature = createHmac('sha256', device.secret)
       .update(`${timestamp}.${rawBody}`)
