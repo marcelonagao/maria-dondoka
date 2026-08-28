@@ -1,0 +1,11 @@
+{
+    "name": "maria-dondoka-pdv-agent",
+    "version": "1.0.0",
+    "type": "module",
+    "scripts": { "start": "node index.js" },
+    "dependencies": {
+      "mysql2": "^3.9.0",
+      "dotenv": "^16.4.5",
+      "node-cron": "^3.0.3"
+    }
+  }
