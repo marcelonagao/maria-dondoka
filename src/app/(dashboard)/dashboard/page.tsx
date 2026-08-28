@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../../lib/supabase';
+import FluxoCaixaChart from './FluxoCaixaChart';
 
 export default function DashboardPage() {
   const [metricas, setMetricas] = useState({ aReceber: 0, aPagar: 0, saldo: 0 });
@@ -89,9 +90,8 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Espaço para gráficos ou listagens futuras */}
-      <div className="bg-white border border-stone-200 rounded-xl shadow-sm p-6 mt-8 min-h-[300px] flex items-center justify-center">
-        <p className="text-stone-400 text-sm">Área reservada para o gráfico de fluxo de caixa (Entradas vs Saídas).</p>
+      <div className="mt-8">
+        <FluxoCaixaChart />
       </div>
     </div>
   );
