@@ -1,0 +1,248 @@
+'use client';
+
+import React, { useState, useEffect } from 'react';
+
+interface Dispositivo {
+  id: string;
+  device_label: string;
+  is_active: boolean;
+  last_sync_at: string | null;
+  created_at: string;
+}
+
+interface CredenciaisReveladas {
+  token: string;
+  secret: string;
+}
+
+export default function ConfiguracoesPage() {
+  const [dispositivos, setDispositivos] = useState<Dispositivo[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [naoAutorizado, setNaoAutorizado] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [novoLabel, setNovoLabel] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [credenciais, setCredenciais] = useState<CredenciaisReveladas | null>(null);
+  const [confirmouCopia, setConfirmouCopia] = useState(false);
+
+  const carregarDispositivos = async () => {
+    try {
+      setIsLoading(true);
+      const res = await fetch('/api/admin/pdv-devices');
+      if (res.status === 401) {
+        setNaoAutorizado(true);
+        return;
+      }
+      const data = await res.json();
+      setDispositivos(data.devices || []);
+    } catch (err) {
+      console.error('Erro ao carregar dispositivos:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    carregarDispositivos();
+  }, []);
+
+  const handleCriar = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    try {
+      const res = await fetch('/api/admin/pdv-devices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ device_label: novoLabel }),
+      });
+      if (!res.ok) throw new Error('Falha ao criar dispositivo');
+      const data = await res.json();
+      setCredenciais({ token: data.token, secret: data.secret });
+      setNovoLabel('');
+      setConfirmouCopia(false);
+      await carregarDispositivos();
+    } catch (err) {
+      console.error(err);
+      alert('Erro ao criar dispositivo. Verifique o console.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleAlternarAtivo = async (id: string, ativoAtual: boolean) => {
+    const acao = ativoAtual ? 'revogar' : 'reativar';
+    if (!confirm(`Tem certeza que deseja ${acao} este dispositivo?`)) return;
+
+    try {
+      const res = await fetch('/api/admin/pdv-devices', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, is_active: !ativoAtual }),
+      });
+      if (!res.ok) throw new Error('Falha ao atualizar dispositivo');
+      await carregarDispositivos();
+    } catch (err) {
+      console.error(err);
+      alert('Erro ao atualizar. Verifique o console.');
+    }
+  };
+
+  const fecharModal = () => {
+    setIsModalOpen(false);
+    setCredenciais(null);
+  };
+
+  if (naoAutorizado) {
+    return (
+      <div className="bg-white border border-stone-200 rounded-xl shadow-sm p-8 text-center">
+        <p className="text-stone-500">Esta área é restrita a administradores da franquia.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold text-stone-800">Dispositivos PDV</h1>
+          <p className="text-stone-500 text-sm mt-1">Gerencie os pontos de venda autorizados a sincronizar dados da sua franquia.</p>
+        </div>
+        <button
+          onClick={() => setIsModalOpen(true)}
+          className="bg-stone-900 hover:bg-stone-800 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+        >
+          <span>+</span> Novo Dispositivo
+        </button>
+      </div>
+
+      <div className="bg-white border border-stone-200 rounded-xl shadow-sm overflow-hidden min-h-[200px]">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm text-stone-600">
+            <thead className="bg-stone-50 border-b border-stone-200 text-stone-500 uppercase text-xs font-medium">
+              <tr>
+                <th className="px-6 py-4">Dispositivo</th>
+                <th className="px-6 py-4">Status</th>
+                <th className="px-6 py-4">Última sincronização</th>
+                <th className="px-6 py-4">Ações</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-stone-100">
+              {isLoading ? (
+                <tr><td colSpan={4} className="px-6 py-8 text-center text-stone-400">Carregando...</td></tr>
+              ) : dispositivos.length === 0 ? (
+                <tr><td colSpan={4} className="px-6 py-8 text-center text-stone-400">Nenhum dispositivo cadastrado ainda.</td></tr>
+              ) : (
+                dispositivos.map((d) => (
+                  <tr key={d.id} className="hover:bg-stone-50/50 transition-colors">
+                    <td className="px-6 py-4 font-medium text-stone-800">{d.device_label}</td>
+                    <td className="px-6 py-4">
+                      {d.is_active ? (
+                        <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 text-xs font-medium rounded-md">Ativo</span>
+                      ) : (
+                        <span className="px-2.5 py-1 bg-stone-100 text-stone-500 text-xs font-medium rounded-md">Revogado</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4">
+                      {d.last_sync_at ? new Date(d.last_sync_at).toLocaleString('pt-BR') : 'Nunca sincronizou'}
+                    </td>
+                    <td className="px-6 py-4">
+                      <button
+                        onClick={() => handleAlternarAtivo(d.id, d.is_active)}
+                        className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
+                          d.is_active
+                            ? 'text-red-600 hover:bg-red-50'
+                            : 'text-emerald-600 hover:bg-emerald-50'
+                        }`}
+                      >
+                        {d.is_active ? 'Revogar' : 'Reativar'}
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Modal de criação / revelação de credenciais */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
+            {!credenciais ? (
+              <>
+                <div className="flex justify-between items-center p-6 border-b border-stone-100">
+                  <h2 className="text-lg font-semibold text-stone-800">Novo Dispositivo PDV</h2>
+                  <button onClick={fecharModal} className="text-stone-400 hover:text-stone-600">✕</button>
+                </div>
+                <form onSubmit={handleCriar} className="p-6 space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Nome do dispositivo</label>
+                    <input
+                      type="text"
+                      required
+                      minLength={2}
+                      className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+                      placeholder="Ex: Caixa 1 - Matriz"
+                      value={novoLabel}
+                      onChange={(e) => setNovoLabel(e.target.value)}
+                    />
+                  </div>
+                  <div className="pt-2 flex gap-3">
+                    <button type="button" onClick={fecharModal} className="flex-1 px-4 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-lg font-medium transition-colors">
+                      Cancelar
+                    </button>
+                    <button type="submit" disabled={isSubmitting} className="flex-1 px-4 py-2 bg-stone-900 hover:bg-stone-800 text-white rounded-lg font-medium transition-colors disabled:opacity-70">
+                      {isSubmitting ? 'Gerando...' : 'Gerar Credenciais'}
+                    </button>
+                  </div>
+                </form>
+              </>
+            ) : (
+              <>
+                <div className="p-6 border-b border-stone-100">
+                  <h2 className="text-lg font-semibold text-stone-800">Credenciais geradas</h2>
+                  <p className="text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mt-3">
+                    Copie e guarde estes valores agora. Por segurança, eles não serão exibidos novamente nesta tela.
+                  </p>
+                </div>
+                <div className="p-6 space-y-4">
+                  <div>
+                    <label className="block text-xs font-medium text-stone-500 uppercase tracking-wider mb-1">Token</label>
+                    <code className="block w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-lg text-xs break-all text-stone-800">
+                      {credenciais.token}
+                    </code>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-stone-500 uppercase tracking-wider mb-1">Secret</label>
+                    <code className="block w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-lg text-xs break-all text-stone-800">
+                      {credenciais.secret}
+                    </code>
+                  </div>
+                  <label className="flex items-center gap-2 text-sm text-stone-600 pt-2">
+                    <input
+                      type="checkbox"
+                      checked={confirmouCopia}
+                      onChange={(e) => setConfirmouCopia(e.target.checked)}
+                      className="rounded border-stone-300"
+                    />
+                    Já copiei o token e o secret para um local seguro
+                  </label>
+                </div>
+                <div className="p-6 pt-0">
+                  <button
+                    onClick={fecharModal}
+                    disabled={!confirmouCopia}
+                    className="w-full px-4 py-2 bg-stone-900 hover:bg-stone-800 text-white rounded-lg font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    Concluir
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
