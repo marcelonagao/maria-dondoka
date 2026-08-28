@@ -127,16 +127,16 @@ export default function PrestacaoContasPage() {
                     type="number"
                     step="0.01"
                     placeholder="Valor contado"
-                    disabled={!c.proximo_esperado}
+                    disabled={!c.proximo_esperado || c.proximo_esperado.total === 0}
                     value={valoresDigitados[c.pdv_device_id] || ''}
                     onChange={(e) => setValoresDigitados((prev) => ({ ...prev, [c.pdv_device_id]: e.target.value }))}
                     className="w-32 px-3 py-2 border border-stone-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-400 outline-none disabled:bg-stone-50 disabled:text-stone-300"
                   />
                   <button
-                    onClick={() => handleSalvar(c.pdv_device_id)}
-                    disabled={!c.proximo_esperado || salvandoId === c.pdv_device_id}
-                    className="px-4 py-2 bg-stone-900 hover:bg-stone-800 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
+                onClick={() => handleSalvar(c.pdv_device_id)}
+                disabled={!c.proximo_esperado || c.proximo_esperado.total === 0 || salvandoId === c.pdv_device_id}
+                className="px-4 py-2 bg-stone-900 hover:bg-stone-800 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
                     {salvandoId === c.pdv_device_id ? 'Salvando...' : 'Fechar Caixa'}
                   </button>
                 </div>
