@@ -145,10 +145,9 @@ export default function FluxoCaixaChart() {
               tickFormatter={(v) => `R$ ${(v / 1000).toFixed(0)}k`}
             />
             <Tooltip
-                formatter={(value) => formatCurrency(Number(value))}
-                labelFormatter={formatDataCurta}
-                contentStyle={{ borderRadius: 8, border: '1px solid #e7e5e4' }}
-            />
+  formatter={(value) => formatCurrency(Number(value))}
+  labelFormatter={(label) => formatDataCurta(String(label))}
+/>
             <Legend />
             <Bar dataKey="entradas" name="Entradas" fill="#059669" radius={[4, 4, 0, 0]} />
             <Bar dataKey="saidas" name="Saídas" fill="#ef4444" radius={[4, 4, 0, 0]} />
