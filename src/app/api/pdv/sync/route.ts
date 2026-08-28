@@ -71,4 +71,38 @@ export async function POST(request: Request) {
 
     const parsed = FechamentoSchema.safeParse(JSON.parse(rawBody));
     if (!parsed.success) {
-      console.error(`[pdv-sync:${requestId}]
+      console.error(`[pdv-sync:${requestId}] payload inválido:`, parsed.error.flatten());
+      return NextResponse.json({ error: 'PAYLOAD_INVALIDO' }, { status: 400 });
+    }
+    const fechamento = parsed.data;
+
+    const { error: insertError } = await supabaseAdmin
+      .from('fechamentos_caixa')
+      .upsert({
+        franchise_id: device.franchise_id,
+        pdv_referencia_id: fechamento.id,
+        data_fechamento: fechamento.data,
+        valor_vendas_dinheiro: fechamento.dinheiro,
+        valor_vendas_cartao: fechamento.cartao,
+        valor_vendas_pix: fechamento.pix,
+        valor_esperado: fechamento.esperado,
+        valor_contado: fechamento.contado,
+        raw_payload: fechamento,
+      }, { onConflict: 'franchise_id, pdv_referencia_id' });
+
+    if (insertError) {
+      console.error(`[pdv-sync:${requestId}] erro de gravação:`, insertError.message);
+      return NextResponse.json({ error: 'FALHA_INTERNA' }, { status: 500 });
+    }
+
+    await supabaseAdmin
+      .from('pdv_devices')
+      .update({ last_sync_at: new Date().toISOString() })
+      .eq('token_hash', sha256Hex(pdvToken));
+
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    console.error(`[pdv-sync:${requestId}] erro não tratado:`, err);
+    return NextResponse.json({ error: 'FALHA_INTERNA' }, { status: 500 });
+  }
+}
