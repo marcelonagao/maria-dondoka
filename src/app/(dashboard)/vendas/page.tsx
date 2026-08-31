@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { supabase } from '../../../lib/supabase';
 
 interface HistoricoItem {
   id: string;
@@ -10,11 +11,20 @@ interface HistoricoItem {
   contado_em: string;
 }
 
+interface MovimentacaoPendente {
+  id: string;
+  tipo: 'sangria' | 'suprimento';
+  valor: number;
+  motivo: string;
+  criado_em: string;
+}
+
 interface LinhaCaixa {
   pdv_device_id: string;
   device_label: string;
   acumulado_atualizado_em: string | null;
   proximo_esperado: { dinheiro: number; cartao: number; pix: number; total: number } | null;
+  movimentacoes_pendentes: MovimentacaoPendente[];
   historico: HistoricoItem[];
 }
 
@@ -30,6 +40,9 @@ export default function PrestacaoContasPage() {
   const [valoresDigitados, setValoresDigitados] = useState<Record<string, string>>({});
   const [salvandoId, setSalvandoId] = useState<string | null>(null);
   const [expandido, setExpandido] = useState<string | null>(null);
+  const [modalCaixaId, setModalCaixaId] = useState<string | null>(null);
+  const [formMovimentacao, setFormMovimentacao] = useState({ tipo: 'sangria' as 'sangria' | 'suprimento', valor: '', motivo: '' });
+  const [isSalvandoMovimentacao, setIsSalvandoMovimentacao] = useState(false);
 
   const carregar = async (data: string) => {
     try {
@@ -77,6 +90,40 @@ export default function PrestacaoContasPage() {
     }
   };
 
+  const abrirModalMovimentacao = (pdv_device_id: string) => {
+    setFormMovimentacao({ tipo: 'sangria', valor: '', motivo: '' });
+    setModalCaixaId(pdv_device_id);
+  };
+
+  const handleSalvarMovimentacao = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const valor = parseFloat(formMovimentacao.valor);
+    if (isNaN(valor) || valor <= 0) {
+      alert('Digite um valor válido.');
+      return;
+    }
+    if (!modalCaixaId) return;
+
+    setIsSalvandoMovimentacao(true);
+    try {
+      const { error } = await supabase.from('movimentacoes_caixa').insert([{
+        pdv_device_id: modalCaixaId,
+        tipo: formMovimentacao.tipo,
+        valor,
+        motivo: formMovimentacao.motivo,
+      }]);
+      if (error) throw error;
+
+      setModalCaixaId(null);
+      await carregar(dataSelecionada);
+    } catch (err) {
+      console.error('Erro ao registrar movimentação de caixa:', err);
+      alert('Erro ao salvar no banco. Verifique o console.');
+    } finally {
+      setIsSalvandoMovimentacao(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -117,6 +164,13 @@ export default function PrestacaoContasPage() {
                 </div>
 
                 <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => abrirModalMovimentacao(c.pdv_device_id)}
+                    className="px-3 py-2 border border-stone-300 text-stone-600 hover:bg-stone-50 text-sm font-medium rounded-lg transition-colors"
+                  >
+                    Sangria/Suprimento
+                  </button>
                   <div className="text-right">
                     <p className="text-xs text-stone-400 uppercase tracking-wider">A conferir agora</p>
                     <p className="font-semibold text-stone-800">
@@ -141,6 +195,24 @@ export default function PrestacaoContasPage() {
                   </button>
                 </div>
               </div>
+
+              {c.movimentacoes_pendentes.length > 0 && (
+                <div className="px-6 pb-4 -mt-2 space-y-1.5">
+                  {c.movimentacoes_pendentes.map((m) => (
+                    <div key={m.id} className="flex items-center justify-between text-xs bg-stone-50 rounded-lg px-3 py-2">
+                      <span className="text-stone-600">
+                        <span className={m.tipo === 'sangria' ? 'text-red-600 font-medium' : 'text-emerald-600 font-medium'}>
+                          {m.tipo === 'sangria' ? 'Sangria' : 'Suprimento'}
+                        </span>
+                        {' — '}{m.motivo}
+                      </span>
+                      <span className={`font-medium ${m.tipo === 'sangria' ? 'text-red-600' : 'text-emerald-600'}`}>
+                        {m.tipo === 'sangria' ? '-' : '+'} {formatCurrency(m.valor)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
 
               {c.historico.length > 0 && (
                 <div className="border-t border-stone-100">
@@ -178,6 +250,73 @@ export default function PrestacaoContasPage() {
               )}
             </div>
           ))}
+        </div>
+      )}
+
+      {modalCaixaId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
+            <div className="flex justify-between items-center p-6 border-b border-stone-100">
+              <h2 className="text-lg font-semibold text-stone-800">Sangria / Suprimento</h2>
+              <button onClick={() => setModalCaixaId(null)} className="text-stone-400 hover:text-stone-600">✕</button>
+            </div>
+
+            <form onSubmit={handleSalvarMovimentacao} className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-stone-700 mb-1">Tipo</label>
+                <select
+                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none bg-white text-stone-700"
+                  value={formMovimentacao.tipo}
+                  onChange={(e) => setFormMovimentacao({ ...formMovimentacao, tipo: e.target.value as 'sangria' | 'suprimento' })}
+                >
+                  <option value="sangria">Sangria (retirada de dinheiro)</option>
+                  <option value="suprimento">Suprimento (troco/reforço de dinheiro)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-stone-700 mb-1">Valor (R$)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  required
+                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+                  value={formMovimentacao.valor}
+                  onChange={(e) => setFormMovimentacao({ ...formMovimentacao, valor: e.target.value })}
+                  placeholder="0.00"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-stone-700 mb-1">Motivo</label>
+                <input
+                  type="text"
+                  required
+                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+                  value={formMovimentacao.motivo}
+                  onChange={(e) => setFormMovimentacao({ ...formMovimentacao, motivo: e.target.value })}
+                  placeholder="Ex: Compra de material de limpeza"
+                />
+              </div>
+
+              <div className="pt-4 flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setModalCaixaId(null)}
+                  className="flex-1 px-4 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-lg font-medium transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSalvandoMovimentacao}
+                  className="flex-1 px-4 py-2 bg-stone-900 hover:bg-stone-800 text-white rounded-lg font-medium transition-colors disabled:opacity-70 flex justify-center items-center"
+                >
+                  {isSalvandoMovimentacao ? 'Salvando...' : 'Salvar'}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>
