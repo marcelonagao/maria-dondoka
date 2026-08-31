@@ -17,6 +17,7 @@ export function useRecebimentos() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [recebimentos, setRecebimentos] = useState<Recebimento[]>([]);
   const [formData, setFormData] = useState(initialFormData);
+  const [marcandoRecebidoId, setMarcandoRecebidoId] = useState<string | null>(null);
 
   const fetchRecebimentos = async () => {
     try {
@@ -75,6 +76,23 @@ export function useRecebimentos() {
     }
   };
 
+  const marcarComoRecebido = async (id: string) => {
+    setMarcandoRecebidoId(id);
+    try {
+      const { error } = await supabase
+        .from('accounts_receivable')
+        .update({ status: 'recebido', received_at: new Date().toISOString() })
+        .eq('id', id);
+      if (error) throw error;
+      await fetchRecebimentos();
+    } catch (error) {
+      console.error('Erro ao marcar como recebido:', error);
+      alert('Erro ao atualizar. Verifique o console.');
+    } finally {
+      setMarcandoRecebidoId(null);
+    }
+  };
+
   return {
     isLoading,
     isSubmitting,
@@ -82,5 +100,7 @@ export function useRecebimentos() {
     formData,
     setFormData,
     criarRecebimento,
+    marcandoRecebidoId,
+    marcarComoRecebido,
   };
 }
