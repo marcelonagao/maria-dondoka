@@ -16,9 +16,11 @@ function getStatusBadge(status: string) {
 interface RecebimentosTableProps {
   recebimentos: Recebimento[];
   isLoading: boolean;
+  marcandoRecebidoId: string | null;
+  onMarcarComoRecebido: (id: string) => void;
 }
 
-export default function RecebimentosTable({ recebimentos, isLoading }: RecebimentosTableProps) {
+export default function RecebimentosTable({ recebimentos, isLoading, marcandoRecebidoId, onMarcarComoRecebido }: RecebimentosTableProps) {
   return (
     <div className="bg-white border border-stone-200 rounded-xl shadow-sm overflow-hidden min-h-[300px]">
       <div className="overflow-x-auto">
@@ -32,18 +34,19 @@ export default function RecebimentosTable({ recebimentos, isLoading }: Recebimen
               <th className="px-6 py-4">Taxa/Desc.</th>
               <th className="px-6 py-4">Líquido</th>
               <th className="px-6 py-4">Status</th>
+              <th className="px-6 py-4">Ações</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-stone-100">
             {isLoading ? (
               <tr>
-                <td colSpan={7} className="px-6 py-8 text-center text-stone-400">
+                <td colSpan={8} className="px-6 py-8 text-center text-stone-400">
                   Carregando dados do Supabase...
                 </td>
               </tr>
             ) : recebimentos.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-6 py-8 text-center text-stone-400">
+                <td colSpan={8} className="px-6 py-8 text-center text-stone-400">
                   Nenhum recebimento encontrado.
                 </td>
               </tr>
@@ -57,6 +60,17 @@ export default function RecebimentosTable({ recebimentos, isLoading }: Recebimen
                   <td className="px-6 py-4 text-red-500">- {formatCurrency(item.fee_amount)}</td>
                   <td className="px-6 py-4 font-semibold text-emerald-600">{formatCurrency(item.net_amount)}</td>
                   <td className="px-6 py-4">{getStatusBadge(item.status)}</td>
+                  <td className="px-6 py-4">
+                    {item.status === 'pendente' && (
+                      <button
+                        onClick={() => onMarcarComoRecebido(item.id)}
+                        disabled={marcandoRecebidoId === item.id}
+                        className="text-xs font-medium px-3 py-1.5 rounded-lg transition-colors text-emerald-600 hover:bg-emerald-50 disabled:opacity-50"
+                      >
+                        {marcandoRecebidoId === item.id ? 'Salvando...' : 'Marcar como recebido'}
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))
             )}

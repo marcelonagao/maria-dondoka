@@ -7,7 +7,7 @@ import NovoRecebimentoModal from './NovoRecebimentoModal';
 
 export default function ContasReceberPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const { isLoading, isSubmitting, recebimentos, formData, setFormData, criarRecebimento } = useRecebimentos();
+  const { isLoading, isSubmitting, recebimentos, formData, setFormData, criarRecebimento, marcandoRecebidoId, marcarComoRecebido } = useRecebimentos();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -30,7 +30,12 @@ export default function ContasReceberPage() {
         </button>
       </div>
 
-      <RecebimentosTable recebimentos={recebimentos} isLoading={isLoading} />
+      <RecebimentosTable
+        recebimentos={recebimentos}
+        isLoading={isLoading}
+        marcandoRecebidoId={marcandoRecebidoId}
+        onMarcarComoRecebido={marcarComoRecebido}
+      />
 
       <NovoRecebimentoModal
         isOpen={isModalOpen}
