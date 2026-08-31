@@ -9,6 +9,7 @@ interface HistoricoItem {
   valor_contado: number;
   diferenca: number;
   contado_em: string;
+  funcionario_nome: string | null;
 }
 
 interface MovimentacaoPendente {
@@ -28,6 +29,11 @@ interface LinhaCaixa {
   historico: HistoricoItem[];
 }
 
+interface Funcionario {
+  id: string;
+  nome: string;
+}
+
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
 
@@ -43,6 +49,16 @@ export default function PrestacaoContasPage() {
   const [modalCaixaId, setModalCaixaId] = useState<string | null>(null);
   const [formMovimentacao, setFormMovimentacao] = useState({ tipo: 'sangria' as 'sangria' | 'suprimento', valor: '', motivo: '' });
   const [isSalvandoMovimentacao, setIsSalvandoMovimentacao] = useState(false);
+  const [funcionarios, setFuncionarios] = useState<Funcionario[]>([]);
+  const [funcionarioSelecionado, setFuncionarioSelecionado] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    supabase.from('funcionarios').select('id, nome').eq('ativo', true).order('nome', { ascending: true })
+      .then(({ data, error }) => {
+        if (error) { console.error('Erro ao carregar funcionários:', error); return; }
+        setFuncionarios(data || []);
+      });
+  }, []);
 
   const carregar = async (data: string) => {
     try {
@@ -74,14 +90,16 @@ export default function PrestacaoContasPage() {
 
     setSalvandoId(pdv_device_id);
     try {
+      const funcionario_id = funcionarioSelecionado[pdv_device_id] || undefined;
       const res = await fetch('/api/fechamentos/contagem', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pdv_device_id, data_fechamento: dataSelecionada, valor_contado: valor }),
+        body: JSON.stringify({ pdv_device_id, data_fechamento: dataSelecionada, valor_contado: valor, funcionario_id }),
       });
       if (!res.ok) throw new Error('Falha ao salvar');
       await carregar(dataSelecionada);
       setValoresDigitados((prev) => ({ ...prev, [pdv_device_id]: '' }));
+      setFuncionarioSelecionado((prev) => ({ ...prev, [pdv_device_id]: '' }));
     } catch (err) {
       console.error(err);
       alert('Erro ao salvar a contagem. Verifique o console.');
@@ -140,6 +158,12 @@ export default function PrestacaoContasPage() {
         />
       </div>
 
+      {funcionarios.length === 0 && (
+        <p className="text-xs text-stone-400">
+          Cadastre funcionários em Configurações para rastrear quem fecha o caixa.
+        </p>
+      )}
+
       {erro ? (
         <div className="bg-white border border-stone-200 rounded-xl shadow-sm p-8 text-center text-red-500">{erro}</div>
       ) : isLoading ? (
@@ -177,6 +201,18 @@ export default function PrestacaoContasPage() {
                       {c.proximo_esperado ? formatCurrency(c.proximo_esperado.total) : '—'}
                     </p>
                   </div>
+                  {funcionarios.length > 0 && (
+                    <select
+                      value={funcionarioSelecionado[c.pdv_device_id] || ''}
+                      onChange={(e) => setFuncionarioSelecionado((prev) => ({ ...prev, [c.pdv_device_id]: e.target.value }))}
+                      className="px-3 py-2 border border-stone-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-400 outline-none bg-white text-stone-700"
+                    >
+                      <option value="">Quem está fechando?</option>
+                      {funcionarios.map((f) => (
+                        <option key={f.id} value={f.id}>{f.nome}</option>
+                      ))}
+                    </select>
+                  )}
                   <input
                     type="number"
                     step="0.01"
@@ -230,6 +266,7 @@ export default function PrestacaoContasPage() {
                           <th className="px-6 py-2">Esperado</th>
                           <th className="px-6 py-2">Contado</th>
                           <th className="px-6 py-2">Diferença</th>
+                          <th className="px-6 py-2">Fechado por</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-stone-100">
@@ -241,6 +278,7 @@ export default function PrestacaoContasPage() {
                             <td className={`px-6 py-2 font-medium ${h.diferenca < 0 ? 'text-red-600' : h.diferenca > 0 ? 'text-emerald-600' : 'text-stone-500'}`}>
                               {formatCurrency(h.diferenca)}
                             </td>
+                            <td className="px-6 py-2 text-stone-500">{h.funcionario_nome || '—'}</td>
                           </tr>
                         ))}
                       </tbody>

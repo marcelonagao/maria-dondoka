@@ -57,11 +57,18 @@ export async function GET(request: Request) {
   
       const { data: fechamentos, error: fechamentosError } = await supabaseAdmin
         .from('fechamentos_caixa')
-        .select('id, pdv_device_id, valor_vendas_dinheiro, valor_vendas_cartao, valor_vendas_pix, valor_esperado, valor_contado, contado_em')
+        .select('id, pdv_device_id, valor_vendas_dinheiro, valor_vendas_cartao, valor_vendas_pix, valor_esperado, valor_contado, contado_em, funcionario_id')
         .eq('franchise_id', perfil.franchiseId)
         .eq('data_fechamento', data)
         .order('contado_em', { ascending: true });
       if (fechamentosError) throw new Error(`fechamentos_caixa: ${JSON.stringify(fechamentosError)}`);
+
+      const { data: funcionarios, error: funcionariosError } = await supabaseAdmin
+        .from('funcionarios')
+        .select('id, nome')
+        .eq('franchise_id', perfil.franchiseId);
+      if (funcionariosError) throw new Error(`funcionarios: ${JSON.stringify(funcionariosError)}`);
+      const nomePorFuncionario = new Map((funcionarios || []).map((f) => [f.id, f.nome]));
 
       const caixaIds = (caixas || []).map((c) => c.id);
       const { data: movimentacoesPendentes, error: movimentacoesError } = caixaIds.length
@@ -122,6 +129,7 @@ export async function GET(request: Request) {
             valor_contado: Number(f.valor_contado),
             diferenca: Number(f.valor_contado) - Number(f.valor_esperado),
             contado_em: f.contado_em,
+            funcionario_nome: f.funcionario_id ? nomePorFuncionario.get(f.funcionario_id) || null : null,
           })),
         };
       });
@@ -137,6 +145,7 @@ const ContagemSchema = z.object({
   pdv_device_id: z.string().uuid(),
   data_fechamento: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   valor_contado: z.number().nonnegative(),
+  funcionario_id: z.string().uuid().optional(),
 });
 
 export async function POST(request: Request) {
@@ -147,7 +156,7 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: 'DADOS_INVALIDOS', detalhe: parsed.error.flatten() }, { status: 400 });
   }
-  const { pdv_device_id, data_fechamento, valor_contado } = parsed.data;
+  const { pdv_device_id, data_fechamento, valor_contado, funcionario_id } = parsed.data;
 
   const { data: dispositivo } = await supabaseAdmin
     .from('pdv_devices')
@@ -200,6 +209,7 @@ export async function POST(request: Request) {
       valor_contado,
       contado_por: perfil.userId,
       contado_em: new Date().toISOString(),
+      funcionario_id: funcionario_id || null,
     })
     .select('id')
     .single();
