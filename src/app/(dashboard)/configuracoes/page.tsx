@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { supabase } from '../../../lib/supabase';
 
 interface Dispositivo {
   id: string;
@@ -8,6 +9,12 @@ interface Dispositivo {
   is_active: boolean;
   last_sync_at: string | null;
   created_at: string;
+}
+
+interface Funcionario {
+  id: string;
+  nome: string;
+  ativo: boolean;
 }
 
 interface CredenciaisReveladas {
@@ -48,9 +55,57 @@ const carregarDispositivos = async () => {
   }
 };
 
+  const [funcionarios, setFuncionarios] = useState<Funcionario[]>([]);
+  const [isLoadingFuncionarios, setIsLoadingFuncionarios] = useState(true);
+  const [isModalFuncionarioOpen, setIsModalFuncionarioOpen] = useState(false);
+  const [novoNomeFuncionario, setNovoNomeFuncionario] = useState('');
+  const [isSubmittingFuncionario, setIsSubmittingFuncionario] = useState(false);
+
+  const carregarFuncionarios = async () => {
+    try {
+      setIsLoadingFuncionarios(true);
+      const { data, error } = await supabase.from('funcionarios').select('id, nome, ativo').order('nome', { ascending: true });
+      if (error) throw error;
+      setFuncionarios(data || []);
+    } catch (err) {
+      console.error('Erro ao carregar funcionários:', err);
+    } finally {
+      setIsLoadingFuncionarios(false);
+    }
+  };
+
   useEffect(() => {
     carregarDispositivos();
+    carregarFuncionarios();
   }, []);
+
+  const handleCriarFuncionario = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmittingFuncionario(true);
+    try {
+      const { error } = await supabase.from('funcionarios').insert([{ nome: novoNomeFuncionario }]);
+      if (error) throw error;
+      setNovoNomeFuncionario('');
+      setIsModalFuncionarioOpen(false);
+      await carregarFuncionarios();
+    } catch (err) {
+      console.error('Erro ao cadastrar funcionário:', err);
+      alert('Erro ao salvar no banco. Verifique o console.');
+    } finally {
+      setIsSubmittingFuncionario(false);
+    }
+  };
+
+  const handleAlternarAtivoFuncionario = async (id: string, ativoAtual: boolean) => {
+    try {
+      const { error } = await supabase.from('funcionarios').update({ ativo: !ativoAtual }).eq('id', id);
+      if (error) throw error;
+      await carregarFuncionarios();
+    } catch (err) {
+      console.error('Erro ao atualizar funcionário:', err);
+      alert('Erro ao atualizar. Verifique o console.');
+    }
+  };
 
   const handleCriar = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -108,9 +163,11 @@ const carregarDispositivos = async () => {
 
   return (
     <div className="space-y-6">
+      <h1 className="text-2xl font-semibold text-stone-800">Configurações</h1>
+
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold text-stone-800">Dispositivos PDV</h1>
+          <h2 className="text-xl font-semibold text-stone-800">Dispositivos PDV</h2>
           <p className="text-stone-500 text-sm mt-1">Gerencie os pontos de venda autorizados a sincronizar dados da sua franquia.</p>
         </div>
         <button
@@ -172,6 +229,96 @@ const carregarDispositivos = async () => {
           </table>
         </div>
       </div>
+
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-4">
+        <div>
+          <h2 className="text-xl font-semibold text-stone-800">Funcionários</h2>
+          <p className="text-stone-500 text-sm mt-1">Cadastre quem trabalha na loja para rastrear quem fecha o caixa.</p>
+        </div>
+        <button
+          onClick={() => setIsModalFuncionarioOpen(true)}
+          className="bg-stone-900 hover:bg-stone-800 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+        >
+          <span>+</span> Novo Funcionário
+        </button>
+      </div>
+
+      <div className="bg-white border border-stone-200 rounded-xl shadow-sm overflow-hidden min-h-[150px]">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm text-stone-600">
+            <thead className="bg-stone-50 border-b border-stone-200 text-stone-500 uppercase text-xs font-medium">
+              <tr>
+                <th className="px-6 py-4">Nome</th>
+                <th className="px-6 py-4">Status</th>
+                <th className="px-6 py-4">Ações</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-stone-100">
+              {isLoadingFuncionarios ? (
+                <tr><td colSpan={3} className="px-6 py-8 text-center text-stone-400">Carregando...</td></tr>
+              ) : funcionarios.length === 0 ? (
+                <tr><td colSpan={3} className="px-6 py-8 text-center text-stone-400">Nenhum funcionário cadastrado ainda.</td></tr>
+              ) : (
+                funcionarios.map((f) => (
+                  <tr key={f.id} className="hover:bg-stone-50/50 transition-colors">
+                    <td className="px-6 py-4 font-medium text-stone-800">{f.nome}</td>
+                    <td className="px-6 py-4">
+                      {f.ativo ? (
+                        <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 text-xs font-medium rounded-md">Ativo</span>
+                      ) : (
+                        <span className="px-2.5 py-1 bg-stone-100 text-stone-500 text-xs font-medium rounded-md">Inativo</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4">
+                      <button
+                        onClick={() => handleAlternarAtivoFuncionario(f.id, f.ativo)}
+                        className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
+                          f.ativo ? 'text-red-600 hover:bg-red-50' : 'text-emerald-600 hover:bg-emerald-50'
+                        }`}
+                      >
+                        {f.ativo ? 'Desativar' : 'Reativar'}
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {isModalFuncionarioOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
+            <div className="flex justify-between items-center p-6 border-b border-stone-100">
+              <h2 className="text-lg font-semibold text-stone-800">Novo Funcionário</h2>
+              <button onClick={() => setIsModalFuncionarioOpen(false)} className="text-stone-400 hover:text-stone-600">✕</button>
+            </div>
+            <form onSubmit={handleCriarFuncionario} className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-stone-700 mb-1">Nome</label>
+                <input
+                  type="text"
+                  required
+                  minLength={2}
+                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+                  placeholder="Ex: Maria da Silva"
+                  value={novoNomeFuncionario}
+                  onChange={(e) => setNovoNomeFuncionario(e.target.value)}
+                />
+              </div>
+              <div className="pt-2 flex gap-3">
+                <button type="button" onClick={() => setIsModalFuncionarioOpen(false)} className="flex-1 px-4 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-lg font-medium transition-colors">
+                  Cancelar
+                </button>
+                <button type="submit" disabled={isSubmittingFuncionario} className="flex-1 px-4 py-2 bg-stone-900 hover:bg-stone-800 text-white rounded-lg font-medium transition-colors disabled:opacity-70">
+                  {isSubmittingFuncionario ? 'Salvando...' : 'Salvar'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Modal de criação / revelação de credenciais */}
       {isModalOpen && (
