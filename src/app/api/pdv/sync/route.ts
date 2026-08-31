@@ -9,14 +9,11 @@ const supabaseAdmin = createClient(
   { auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false } }
 );
 
-const FechamentoSchema = z.object({
-  id: z.string().min(1),
+const VendasDiariasSchema = z.object({
   data: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   dinheiro: z.number().nonnegative().default(0),
   cartao: z.number().nonnegative().default(0),
   pix: z.number().nonnegative().default(0),
-  esperado: z.number().nonnegative().default(0),
-  contado: z.number().nonnegative().default(0),
 });
 
 function sha256Hex(input: string) {
@@ -51,7 +48,7 @@ export async function POST(request: Request) {
 
     const { data: device, error: deviceError } = await supabaseAdmin
       .from('pdv_devices')
-      .select('franchise_id, secret, is_active')
+      .select('id, franchise_id, secret, is_active')
       .eq('token_hash', sha256Hex(pdvToken))
       .maybeSingle();
 
@@ -69,36 +66,36 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'NAO_AUTORIZADO' }, { status: 401 });
     }
 
-    const parsed = FechamentoSchema.safeParse(JSON.parse(rawBody));
+    const parsed = VendasDiariasSchema.safeParse(JSON.parse(rawBody));
     if (!parsed.success) {
       console.error(`[pdv-sync:${requestId}] payload inválido:`, parsed.error.flatten());
       return NextResponse.json({ error: 'PAYLOAD_INVALIDO' }, { status: 400 });
     }
-    const fechamento = parsed.data;
+    const vendas = parsed.data;
 
-    const { error: insertError } = await supabaseAdmin
-      .from('fechamentos_caixa')
+    // Substitui o acumulado do dia (não incrementa) — o PDV reporta o total
+    // recalculado a cada ciclo, então reenviar o mesmo valor é inofensivo.
+    const { error: upsertError } = await supabaseAdmin
+      .from('vendas_diarias_pdv')
       .upsert({
         franchise_id: device.franchise_id,
-        pdv_referencia_id: fechamento.id,
-        data_fechamento: fechamento.data,
-        valor_vendas_dinheiro: fechamento.dinheiro,
-        valor_vendas_cartao: fechamento.cartao,
-        valor_vendas_pix: fechamento.pix,
-        valor_esperado: fechamento.esperado,
-        valor_contado: fechamento.contado,
-        raw_payload: fechamento,
-      }, { onConflict: 'franchise_id, pdv_referencia_id' });
+        pdv_device_id: device.id,
+        data_venda: vendas.data,
+        valor_dinheiro: vendas.dinheiro,
+        valor_cartao: vendas.cartao,
+        valor_pix: vendas.pix,
+        atualizado_em: new Date().toISOString(),
+      }, { onConflict: 'franchise_id, pdv_device_id, data_venda' });
 
-    if (insertError) {
-      console.error(`[pdv-sync:${requestId}] erro de gravação:`, insertError.message);
+    if (upsertError) {
+      console.error(`[pdv-sync:${requestId}] erro de gravação:`, upsertError.message);
       return NextResponse.json({ error: 'FALHA_INTERNA' }, { status: 500 });
     }
 
     await supabaseAdmin
       .from('pdv_devices')
       .update({ last_sync_at: new Date().toISOString() })
-      .eq('token_hash', sha256Hex(pdvToken));
+      .eq('id', device.id);
 
     return NextResponse.json({ ok: true });
   } catch (err) {
