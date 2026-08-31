@@ -17,6 +17,15 @@ interface Funcionario {
   ativo: boolean;
 }
 
+interface CategoriaContas {
+  id: string;
+  franchise_id: string | null;
+  nome: string;
+  tipo: 'receita' | 'custo' | 'despesa';
+  categoria_pai_id: string | null;
+  is_active: boolean;
+}
+
 interface CredenciaisReveladas {
   token: string;
   secret: string;
@@ -113,10 +122,33 @@ const carregarDispositivos = async () => {
     }
   };
 
+  const [planoContas, setPlanoContas] = useState<CategoriaContas[]>([]);
+  const [isLoadingPlanoContas, setIsLoadingPlanoContas] = useState(true);
+  const [isModalCategoriaOpen, setIsModalCategoriaOpen] = useState(false);
+  const [novaCategoria, setNovaCategoria] = useState({ nome: '', tipo: 'despesa' as CategoriaContas['tipo'], categoria_pai_id: '' });
+  const [isSubmittingCategoria, setIsSubmittingCategoria] = useState(false);
+
+  const carregarPlanoContas = async () => {
+    try {
+      setIsLoadingPlanoContas(true);
+      const { data, error } = await supabase
+        .from('plano_contas')
+        .select('id, franchise_id, nome, tipo, categoria_pai_id, is_active')
+        .order('ordem', { ascending: true });
+      if (error) throw error;
+      setPlanoContas(data || []);
+    } catch (err) {
+      console.error('Erro ao carregar plano de contas:', err);
+    } finally {
+      setIsLoadingPlanoContas(false);
+    }
+  };
+
   useEffect(() => {
     carregarDispositivos();
     carregarFuncionarios();
     carregarSyncUrl();
+    carregarPlanoContas();
   }, []);
 
   const handleCriarFuncionario = async (e: React.FormEvent) => {
@@ -144,6 +176,38 @@ const carregarDispositivos = async () => {
     } catch (err) {
       console.error('Erro ao atualizar funcionário:', err);
       alert('Erro ao atualizar. Verifique o console.');
+    }
+  };
+
+  const handleCriarCategoria = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmittingCategoria(true);
+    try {
+      const { error } = await supabase.from('plano_contas').insert([{
+        nome: novaCategoria.nome,
+        tipo: novaCategoria.tipo,
+        categoria_pai_id: novaCategoria.categoria_pai_id || null,
+      }]);
+      if (error) throw error;
+      setNovaCategoria({ nome: '', tipo: 'despesa', categoria_pai_id: '' });
+      setIsModalCategoriaOpen(false);
+      await carregarPlanoContas();
+    } catch (err) {
+      console.error('Erro ao cadastrar categoria:', err);
+      alert('Erro ao salvar no banco. Verifique o console.');
+    } finally {
+      setIsSubmittingCategoria(false);
+    }
+  };
+
+  const handleAlternarAtivoCategoria = async (id: string, ativoAtual: boolean) => {
+    try {
+      const { error } = await supabase.from('plano_contas').update({ is_active: !ativoAtual }).eq('id', id);
+      if (error) throw error;
+      await carregarPlanoContas();
+    } catch (err) {
+      console.error('Erro ao atualizar categoria:', err);
+      alert('Erro ao atualizar. Verifique o console — categorias globais não podem ser editadas.');
     }
   };
 
@@ -353,6 +417,169 @@ const carregarDispositivos = async () => {
                 </button>
                 <button type="submit" disabled={isSubmittingFuncionario} className="flex-1 px-4 py-2 bg-stone-900 hover:bg-stone-800 text-white rounded-lg font-medium transition-colors disabled:opacity-70">
                   {isSubmittingFuncionario ? 'Salvando...' : 'Salvar'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-4">
+        <div>
+          <h2 className="text-xl font-semibold text-stone-800">Plano de Contas</h2>
+          <p className="text-stone-500 text-sm mt-1">Categorias usadas em Contas a Pagar. As globais valem para todas as franquias; adicione as suas próprias abaixo.</p>
+        </div>
+        <button
+          onClick={() => setIsModalCategoriaOpen(true)}
+          className="bg-stone-900 hover:bg-stone-800 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+        >
+          <span>+</span> Nova Categoria
+        </button>
+      </div>
+
+      <div className="bg-white border border-stone-200 rounded-xl shadow-sm overflow-hidden min-h-[150px]">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm text-stone-600">
+            <thead className="bg-stone-50 border-b border-stone-200 text-stone-500 uppercase text-xs font-medium">
+              <tr>
+                <th className="px-6 py-4">Categoria</th>
+                <th className="px-6 py-4">Tipo</th>
+                <th className="px-6 py-4">Origem</th>
+                <th className="px-6 py-4">Status</th>
+                <th className="px-6 py-4">Ações</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-stone-100">
+              {isLoadingPlanoContas ? (
+                <tr><td colSpan={5} className="px-6 py-8 text-center text-stone-400">Carregando...</td></tr>
+              ) : planoContas.filter((c) => !c.categoria_pai_id).length === 0 ? (
+                <tr><td colSpan={5} className="px-6 py-8 text-center text-stone-400">Nenhuma categoria cadastrada ainda.</td></tr>
+              ) : (
+                planoContas.filter((c) => !c.categoria_pai_id).flatMap((pai) => {
+                  const filhos = planoContas.filter((c) => c.categoria_pai_id === pai.id);
+                  const linhaPai = (
+                    <tr key={pai.id} className="hover:bg-stone-50/50 transition-colors bg-stone-50/30">
+                      <td className="px-6 py-4 font-semibold text-stone-800">{pai.nome}</td>
+                      <td className="px-6 py-4 capitalize">{pai.tipo}</td>
+                      <td className="px-6 py-4">
+                        {pai.franchise_id === null ? (
+                          <span className="px-2.5 py-1 bg-stone-100 text-stone-500 text-xs font-medium rounded-md">Global</span>
+                        ) : (
+                          <span className="px-2.5 py-1 bg-amber-50 text-amber-700 text-xs font-medium rounded-md">Própria</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4">
+                        {pai.is_active ? (
+                          <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 text-xs font-medium rounded-md">Ativa</span>
+                        ) : (
+                          <span className="px-2.5 py-1 bg-stone-100 text-stone-500 text-xs font-medium rounded-md">Inativa</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4">
+                        {pai.franchise_id !== null && (
+                          <button
+                            onClick={() => handleAlternarAtivoCategoria(pai.id, pai.is_active)}
+                            className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
+                              pai.is_active ? 'text-red-600 hover:bg-red-50' : 'text-emerald-600 hover:bg-emerald-50'
+                            }`}
+                          >
+                            {pai.is_active ? 'Desativar' : 'Reativar'}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                  const linhasFilhos = filhos.map((f) => (
+                    <tr key={f.id} className="hover:bg-stone-50/50 transition-colors">
+                      <td className="px-6 py-4 pl-10 text-stone-600">{f.nome}</td>
+                      <td className="px-6 py-4 capitalize text-stone-400">{f.tipo}</td>
+                      <td className="px-6 py-4">
+                        {f.franchise_id === null ? (
+                          <span className="px-2.5 py-1 bg-stone-100 text-stone-500 text-xs font-medium rounded-md">Global</span>
+                        ) : (
+                          <span className="px-2.5 py-1 bg-amber-50 text-amber-700 text-xs font-medium rounded-md">Própria</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4">
+                        {f.is_active ? (
+                          <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 text-xs font-medium rounded-md">Ativa</span>
+                        ) : (
+                          <span className="px-2.5 py-1 bg-stone-100 text-stone-500 text-xs font-medium rounded-md">Inativa</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4">
+                        {f.franchise_id !== null && (
+                          <button
+                            onClick={() => handleAlternarAtivoCategoria(f.id, f.is_active)}
+                            className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
+                              f.is_active ? 'text-red-600 hover:bg-red-50' : 'text-emerald-600 hover:bg-emerald-50'
+                            }`}
+                          >
+                            {f.is_active ? 'Desativar' : 'Reativar'}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ));
+                  return [linhaPai, ...linhasFilhos];
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {isModalCategoriaOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
+            <div className="flex justify-between items-center p-6 border-b border-stone-100">
+              <h2 className="text-lg font-semibold text-stone-800">Nova Categoria</h2>
+              <button onClick={() => setIsModalCategoriaOpen(false)} className="text-stone-400 hover:text-stone-600">✕</button>
+            </div>
+            <form onSubmit={handleCriarCategoria} className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-stone-700 mb-1">Nome</label>
+                <input
+                  type="text"
+                  required
+                  minLength={2}
+                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+                  placeholder="Ex: Frete"
+                  value={novaCategoria.nome}
+                  onChange={(e) => setNovaCategoria({ ...novaCategoria, nome: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-stone-700 mb-1">Tipo</label>
+                <select
+                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none bg-white text-stone-700"
+                  value={novaCategoria.tipo}
+                  onChange={(e) => setNovaCategoria({ ...novaCategoria, tipo: e.target.value as CategoriaContas['tipo'] })}
+                >
+                  <option value="receita">Receita</option>
+                  <option value="custo">Custo</option>
+                  <option value="despesa">Despesa</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-stone-700 mb-1">Categoria-pai</label>
+                <select
+                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none bg-white text-stone-700"
+                  value={novaCategoria.categoria_pai_id}
+                  onChange={(e) => setNovaCategoria({ ...novaCategoria, categoria_pai_id: e.target.value })}
+                >
+                  <option value="">Nenhuma (é uma categoria-pai)</option>
+                  {planoContas.filter((c) => !c.categoria_pai_id && c.is_active).map((pai) => (
+                    <option key={pai.id} value={pai.id}>{pai.nome}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="pt-2 flex gap-3">
+                <button type="button" onClick={() => setIsModalCategoriaOpen(false)} className="flex-1 px-4 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-lg font-medium transition-colors">
+                  Cancelar
+                </button>
+                <button type="submit" disabled={isSubmittingCategoria} className="flex-1 px-4 py-2 bg-stone-900 hover:bg-stone-800 text-white rounded-lg font-medium transition-colors disabled:opacity-70">
+                  {isSubmittingCategoria ? 'Salvando...' : 'Salvar'}
                 </button>
               </div>
             </form>
