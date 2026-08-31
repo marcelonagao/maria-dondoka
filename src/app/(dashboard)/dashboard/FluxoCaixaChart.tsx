@@ -23,7 +23,11 @@ const formatCurrency = (value: number) =>
 const formatDataCurta = (isoDate: string) =>
   new Date(isoDate + 'T00:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
 
-export default function FluxoCaixaChart() {
+interface FluxoCaixaChartProps {
+  franchiseId?: string;
+}
+
+export default function FluxoCaixaChart({ franchiseId }: FluxoCaixaChartProps = {}) {
   const [pontos, setPontos] = useState<PontoFluxo[]>([]);
   const [discrepancias, setDiscrepancias] = useState<Discrepancia[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -39,18 +43,23 @@ export default function FluxoCaixaChart() {
         desde.setDate(desde.getDate() - 30);
         const desdeISO = desde.toISOString().slice(0, 10);
 
-        const [fechamentosRes, pagarRes] = await Promise.all([
-          supabase
-            .from('fechamentos_caixa')
-            .select('data_fechamento, valor_vendas_dinheiro, valor_vendas_cartao, valor_vendas_pix, valor_esperado, valor_contado')
-            .gte('data_fechamento', desdeISO)
-            .order('data_fechamento', { ascending: true }),
-          supabase
-            .from('accounts_payable')
-            .select('due_date, amount, status')
-            .eq('status', 'pago')
-            .gte('due_date', desdeISO),
-        ]);
+        let fechamentosQuery = supabase
+          .from('fechamentos_caixa')
+          .select('data_fechamento, valor_vendas_dinheiro, valor_vendas_cartao, valor_vendas_pix, valor_esperado, valor_contado')
+          .gte('data_fechamento', desdeISO)
+          .order('data_fechamento', { ascending: true });
+        let pagarQuery = supabase
+          .from('accounts_payable')
+          .select('due_date, amount, status')
+          .eq('status', 'pago')
+          .gte('due_date', desdeISO);
+
+        if (franchiseId) {
+          fechamentosQuery = fechamentosQuery.eq('franchise_id', franchiseId);
+          pagarQuery = pagarQuery.eq('franchise_id', franchiseId);
+        }
+
+        const [fechamentosRes, pagarRes] = await Promise.all([fechamentosQuery, pagarQuery]);
 
         if (fechamentosRes.error) throw fechamentosRes.error;
         if (pagarRes.error) throw pagarRes.error;
@@ -98,7 +107,7 @@ export default function FluxoCaixaChart() {
     }
 
     carregar();
-  }, []);
+  }, [franchiseId]);
 
   const totalDiscrepancia = discrepancias.reduce((acc, d) => acc + d.diferenca, 0);
   const temFalta = totalDiscrepancia < -0.01;
