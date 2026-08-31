@@ -34,7 +34,8 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith('/tesouraria') ||
     pathname.startsWith('/vendas') ||
     pathname.startsWith('/configuracoes') ||
-    pathname.startsWith('/consolidado');
+    pathname.startsWith('/consolidado') ||
+    pathname.startsWith('/produtos');
 
   if (!user && isProtectedRoute) {
     const url = request.nextUrl.clone();
