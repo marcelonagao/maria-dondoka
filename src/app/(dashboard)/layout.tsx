@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { supabase } from '../../lib/supabase';
@@ -9,17 +9,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const pathname = usePathname();
   const router = useRouter();
   const [menuAberto, setMenuAberto] = useState(false);
-  const [isSocio, setIsSocio] = useState(false);
-
-  useEffect(() => {
-    async function checarSocio() {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      const { data } = await supabase.from('profiles').select('is_socio').eq('id', user.id).maybeSingle();
-      setIsSocio(!!data?.is_socio);
-    }
-    checarSocio();
-  }, []);
 
   const handleLogout = async () => {
     try {
@@ -42,7 +31,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     },
     { name: 'Vendas (PDV)', path: '/vendas', icon: '🛍️' },
     { name: 'Configurações', path: '/configuracoes', icon: '⚙️' },
-    ...(isSocio ? [{ name: 'Consolidado', path: '/consolidado', icon: '🏢' }] : []),
   ];
 
   const fecharMenu = () => setMenuAberto(false);
