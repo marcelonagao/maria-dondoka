@@ -32,6 +32,45 @@ export default function ConfiguracoesPage() {
   const [credenciais, setCredenciais] = useState<CredenciaisReveladas | null>(null);
   const [confirmouCopia, setConfirmouCopia] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  const [syncUrl, setSyncUrl] = useState('');
+  const [isSavingSyncUrl, setIsSavingSyncUrl] = useState(false);
+  const [syncUrlSalva, setSyncUrlSalva] = useState(false);
+
+  // Não dá pra confiar em .maybeSingle() sem filtro aqui: quem é sócio enxerga
+  // TODAS as franquias (política aditiva de sócio), não só a própria — por isso
+  // buscamos o franchise_id em profiles antes de tocar em franchises.
+  const obterProprioFranchiseId = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return null;
+    const { data } = await supabase.from('profiles').select('franchise_id').eq('id', user.id).maybeSingle();
+    return data?.franchise_id || null;
+  };
+
+  const carregarSyncUrl = async () => {
+    const franchiseId = await obterProprioFranchiseId();
+    if (!franchiseId) return;
+    const { data, error } = await supabase.from('franchises').select('sync_url').eq('id', franchiseId).maybeSingle();
+    if (error) { console.error('Erro ao carregar URL de sincronização:', error); return; }
+    setSyncUrl(data?.sync_url || '');
+  };
+
+  const handleSalvarSyncUrl = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSavingSyncUrl(true);
+    setSyncUrlSalva(false);
+    try {
+      const franchiseId = await obterProprioFranchiseId();
+      if (!franchiseId) throw new Error('Franquia não encontrada');
+      const { error } = await supabase.from('franchises').update({ sync_url: syncUrl || null }).eq('id', franchiseId);
+      if (error) throw error;
+      setSyncUrlSalva(true);
+    } catch (err) {
+      console.error('Erro ao salvar URL de sincronização:', err);
+      alert('Erro ao salvar no banco. Verifique o console.');
+    } finally {
+      setIsSavingSyncUrl(false);
+    }
+  };
 
 const carregarDispositivos = async () => {
   try {
@@ -77,6 +116,7 @@ const carregarDispositivos = async () => {
   useEffect(() => {
     carregarDispositivos();
     carregarFuncionarios();
+    carregarSyncUrl();
   }, []);
 
   const handleCriarFuncionario = async (e: React.FormEvent) => {
@@ -319,6 +359,29 @@ const carregarDispositivos = async () => {
           </div>
         </div>
       )}
+
+      <div className="pt-4">
+        <h2 className="text-xl font-semibold text-stone-800">Sincronização Automática</h2>
+        <p className="text-stone-500 text-sm mt-1">
+          URL pública onde o script de sincronização do PDV fica hospedado (ex: na Locaweb). Usada pelo botão &quot;Sincronizar agora&quot; em Vendas.
+        </p>
+      </div>
+      <form onSubmit={handleSalvarSyncUrl} className="bg-white border border-stone-200 rounded-xl shadow-sm p-6 flex flex-col sm:flex-row gap-3">
+        <input
+          type="url"
+          placeholder="https://sualoja.com.br/sync-pdv.php"
+          value={syncUrl}
+          onChange={(e) => { setSyncUrl(e.target.value); setSyncUrlSalva(false); }}
+          className="flex-1 px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+        />
+        <button
+          type="submit"
+          disabled={isSavingSyncUrl}
+          className="px-4 py-2 bg-stone-900 hover:bg-stone-800 text-white rounded-lg font-medium transition-colors disabled:opacity-70 whitespace-nowrap"
+        >
+          {isSavingSyncUrl ? 'Salvando...' : syncUrlSalva ? 'Salvo ✓' : 'Salvar'}
+        </button>
+      </form>
 
       {/* Modal de criação / revelação de credenciais */}
       {isModalOpen && (

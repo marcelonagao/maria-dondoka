@@ -51,6 +51,26 @@ export default function PrestacaoContasPage() {
   const [isSalvandoMovimentacao, setIsSalvandoMovimentacao] = useState(false);
   const [funcionarios, setFuncionarios] = useState<Funcionario[]>([]);
   const [funcionarioSelecionado, setFuncionarioSelecionado] = useState<Record<string, string>>({});
+  const [isSincronizando, setIsSincronizando] = useState(false);
+
+  const handleSincronizarAgora = async () => {
+    setIsSincronizando(true);
+    try {
+      const res = await fetch('/api/pdv/trigger-sync', { method: 'POST' });
+      const json = await res.json();
+      if (!res.ok) {
+        alert(json.detalhe || 'Não foi possível sincronizar agora.');
+        return;
+      }
+      alert(json.resposta || 'Sincronização concluída.');
+      await carregar(dataSelecionada);
+    } catch (err) {
+      console.error('Erro ao sincronizar agora:', err);
+      alert('Erro ao sincronizar. Verifique o console.');
+    } finally {
+      setIsSincronizando(false);
+    }
+  };
 
   useEffect(() => {
     supabase.from('funcionarios').select('id, nome').eq('ativo', true).order('nome', { ascending: true })
@@ -149,13 +169,23 @@ export default function PrestacaoContasPage() {
           <h1 className="text-2xl font-semibold text-stone-800">Prestação de Contas</h1>
           <p className="text-stone-500 text-sm mt-1">Registre a contagem física de cada caixa. Um caixa pode ser fechado mais de uma vez no mesmo dia.</p>
         </div>
-        <input
-          type="date"
-          value={dataSelecionada}
-          max={hoje}
-          onChange={(e) => setDataSelecionada(e.target.value)}
-          className="px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none text-stone-700"
-        />
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={handleSincronizarAgora}
+            disabled={isSincronizando}
+            className="px-4 py-2 border border-stone-300 text-stone-600 hover:bg-stone-50 text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
+          >
+            {isSincronizando ? 'Sincronizando...' : 'Sincronizar agora'}
+          </button>
+          <input
+            type="date"
+            value={dataSelecionada}
+            max={hoje}
+            onChange={(e) => setDataSelecionada(e.target.value)}
+            className="px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none text-stone-700"
+          />
+        </div>
       </div>
 
       {funcionarios.length === 0 && (
