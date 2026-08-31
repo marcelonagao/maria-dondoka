@@ -9,11 +9,19 @@ const supabaseAdmin = createClient(
   { auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false } }
 );
 
+const RetiradaSchema = z.object({
+  origem_id: z.string().min(1),
+  valor: z.number().positive(),
+  motivo: z.string().min(1),
+  criado_em: z.string().optional(),
+});
+
 const VendasDiariasSchema = z.object({
   data: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   dinheiro: z.number().nonnegative().default(0),
   cartao: z.number().nonnegative().default(0),
   pix: z.number().nonnegative().default(0),
+  retiradas: z.array(RetiradaSchema).default([]),
 });
 
 function sha256Hex(input: string) {
@@ -90,6 +98,30 @@ export async function POST(request: Request) {
     if (upsertError) {
       console.error(`[pdv-sync:${requestId}] erro de gravação:`, upsertError.message);
       return NextResponse.json({ error: 'FALHA_INTERNA' }, { status: 500 });
+    }
+
+    // Retiradas vêm como eventos discretos do sistema de origem (não um total
+    // recalculado como as vendas), então dedupe por origem_id — reenviar a
+    // mesma retirada em ciclos futuros é ignorado silenciosamente.
+    if (vendas.retiradas.length > 0) {
+      const { error: retiradasError } = await supabaseAdmin
+        .from('movimentacoes_caixa')
+        .upsert(
+          vendas.retiradas.map((r) => ({
+            franchise_id: device.franchise_id,
+            pdv_device_id: device.id,
+            tipo: 'sangria',
+            valor: r.valor,
+            motivo: r.motivo,
+            origem_id: r.origem_id,
+            ...(r.criado_em ? { criado_em: r.criado_em } : {}),
+          })),
+          { onConflict: 'pdv_device_id, origem_id', ignoreDuplicates: true }
+        );
+
+      if (retiradasError) {
+        console.error(`[pdv-sync:${requestId}] erro ao gravar retiradas:`, retiradasError.message);
+      }
     }
 
     await supabaseAdmin
