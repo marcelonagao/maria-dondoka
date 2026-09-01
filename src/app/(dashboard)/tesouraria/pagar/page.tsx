@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../../../lib/supabase';
+import { hojeBrasilia, dataParaTimestampBrasilia } from '../../../../lib/date';
 
 interface Despesa {
   id: string;
@@ -35,6 +36,8 @@ export default function ContasPagarPage() {
   const [podeLancarParaOutras, setPodeLancarParaOutras] = useState(false);
   const [franquias, setFranquias] = useState<Franquia[]>([]);
   const [marcandoPagoId, setMarcandoPagoId] = useState<string | null>(null);
+  const [contaParaPagar, setContaParaPagar] = useState<Despesa | null>(null);
+  const [dataPagamento, setDataPagamento] = useState(hojeBrasilia());
 
   const [formData, setFormData] = useState({
     description: '',
@@ -67,6 +70,7 @@ export default function ContasPagarPage() {
       .from('plano_contas')
       .select('id, nome, categoria_pai_id')
       .eq('is_active', true)
+      .in('tipo', ['despesa', 'custo'])
       .order('ordem', { ascending: true });
     if (error) { console.error('Erro ao buscar plano de contas:', error); return; }
     setPlanoContas(data || []);
@@ -150,15 +154,22 @@ export default function ContasPagarPage() {
     }
   };
 
-  const handleMarcarComoPago = async (id: string) => {
-    setMarcandoPagoId(id);
+  const abrirMarcarComoPago = (despesa: Despesa) => {
+    setContaParaPagar(despesa);
+    setDataPagamento(hojeBrasilia());
+  };
+
+  const confirmarMarcarComoPago = async () => {
+    if (!contaParaPagar) return;
+    setMarcandoPagoId(contaParaPagar.id);
     try {
       const { error } = await supabase
         .from('accounts_payable')
-        .update({ status: 'pago', paid_at: new Date().toISOString() })
-        .eq('id', id);
+        .update({ status: 'pago', paid_at: dataParaTimestampBrasilia(dataPagamento) })
+        .eq('id', contaParaPagar.id);
       if (error) throw error;
       await fetchDespesas();
+      setContaParaPagar(null);
     } catch (error) {
       console.error('Erro ao marcar como pago:', error);
       alert('Erro ao atualizar. Verifique o console.');
@@ -223,7 +234,7 @@ export default function ContasPagarPage() {
                     <td className="px-6 py-4">
                       {despesa.status === 'pendente' && (
                         <button
-                          onClick={() => handleMarcarComoPago(despesa.id)}
+                          onClick={() => abrirMarcarComoPago(despesa)}
                           disabled={marcandoPagoId === despesa.id}
                           className="text-xs font-medium px-3 py-1.5 rounded-lg transition-colors text-emerald-600 hover:bg-emerald-50 disabled:opacity-50"
                         >
@@ -353,6 +364,49 @@ export default function ContasPagarPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Marcar como Pago */}
+      {contaParaPagar && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden">
+            <div className="flex justify-between items-center p-6 border-b border-stone-100">
+              <h2 className="text-lg font-semibold text-stone-800">Marcar como pago</h2>
+              <button onClick={() => setContaParaPagar(null)} className="text-stone-400 hover:text-stone-600">✕</button>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-stone-600">{contaParaPagar.description} — {formatCurrency(contaParaPagar.amount)}</p>
+              <div>
+                <label className="block text-sm font-medium text-stone-700 mb-1">Data do pagamento</label>
+                <input
+                  type="date"
+                  required
+                  max={hojeBrasilia()}
+                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none text-stone-700"
+                  value={dataPagamento}
+                  onChange={e => setDataPagamento(e.target.value)}
+                />
+              </div>
+              <div className="pt-2 flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setContaParaPagar(null)}
+                  className="flex-1 px-4 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-lg font-medium transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmarMarcarComoPago}
+                  disabled={marcandoPagoId === contaParaPagar.id}
+                  className="flex-1 px-4 py-2 bg-stone-900 hover:bg-stone-800 text-white rounded-lg font-medium transition-colors disabled:opacity-70 flex justify-center items-center"
+                >
+                  {marcandoPagoId === contaParaPagar.id ? 'Salvando...' : 'Confirmar'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

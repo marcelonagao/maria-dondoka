@@ -17,7 +17,7 @@ interface RecebimentosTableProps {
   recebimentos: Recebimento[];
   isLoading: boolean;
   marcandoRecebidoId: string | null;
-  onMarcarComoRecebido: (id: string) => void;
+  onMarcarComoRecebido: (item: Recebimento) => void;
 }
 
 export default function RecebimentosTable({ recebimentos, isLoading, marcandoRecebidoId, onMarcarComoRecebido }: RecebimentosTableProps) {
@@ -63,7 +63,7 @@ export default function RecebimentosTable({ recebimentos, isLoading, marcandoRec
                   <td className="px-6 py-4">
                     {item.status === 'pendente' && (
                       <button
-                        onClick={() => onMarcarComoRecebido(item.id)}
+                        onClick={() => onMarcarComoRecebido(item)}
                         disabled={marcandoRecebidoId === item.id}
                         className="text-xs font-medium px-3 py-1.5 rounded-lg transition-colors text-emerald-600 hover:bg-emerald-50 disabled:opacity-50"
                       >
