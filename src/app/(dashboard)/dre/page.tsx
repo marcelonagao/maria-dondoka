@@ -1,8 +1,9 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
+import Link from 'next/link';
 import { supabase } from '../../../lib/supabase';
-import { mesAtualBrasilia } from '../../../lib/date';
+import { mesAtualBrasilia, intervaloDoMes } from '../../../lib/date';
 
 interface CategoriaContas {
   id: string;
@@ -19,14 +20,6 @@ interface Franquia {
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
 
-function intervaloDoMes(mesAno: string) {
-  const [ano, mes] = mesAno.split('-').map(Number);
-  const inicio = `${mesAno}-01`;
-  const ultimoDia = new Date(ano, mes, 0).getDate();
-  const fim = `${mesAno}-${String(ultimoDia).padStart(2, '0')}`;
-  return { inicio, fim };
-}
-
 export default function DrePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [podeVerVariasFranquias, setPodeVerVariasFranquias] = useState(false);
@@ -35,7 +28,8 @@ export default function DrePage() {
   const [mesSelecionado, setMesSelecionado] = useState(mesAtualBrasilia());
 
   const [receitaBruta, setReceitaBruta] = useState(0);
-  const [custoTotal, setCustoTotal] = useState(0);
+  const [cmv, setCmv] = useState(0);
+  const [impostos, setImpostos] = useState(0);
   const [despesasPorCategoria, setDespesasPorCategoria] = useState<Record<string, number>>({});
 
   useEffect(() => {
@@ -61,14 +55,14 @@ export default function DrePage() {
 
         const { inicio, fim } = intervaloDoMes(mesSelecionado);
 
-        const [planoContasRes, receberRes, pagarRes] = await Promise.all([
+        const [planoContasRes, vendasItensRes, pagarRes] = await Promise.all([
           supabase.from('plano_contas').select('id, nome, tipo, categoria_pai_id'),
-          supabase.from('accounts_receivable').select('net_amount, franchise_id, received_at').not('received_at', 'is', null).gte('received_at', inicio).lte('received_at', fim + 'T23:59:59'),
+          supabase.from('vendas_itens').select('valor_total, quantidade, custo_unitario, aliquota_icm, franchise_id').gte('data_venda', inicio).lte('data_venda', fim),
           supabase.from('accounts_payable').select('amount, franchise_id, paid_at, plano_conta_id').not('paid_at', 'is', null).gte('paid_at', inicio).lte('paid_at', fim + 'T23:59:59'),
         ]);
 
         if (planoContasRes.error) throw planoContasRes.error;
-        if (receberRes.error) throw receberRes.error;
+        if (vendasItensRes.error) throw vendasItensRes.error;
         if (pagarRes.error) throw pagarRes.error;
 
         const mapaContas = new Map<string, CategoriaContas>((planoContasRes.data || []).map((c) => [c.id, c as CategoriaContas]));
@@ -76,28 +70,28 @@ export default function DrePage() {
         const filtrarPorFranquia = <T extends { franchise_id: string }>(linhas: T[]) =>
           franquiaSelecionada ? linhas.filter((l) => l.franchise_id === franquiaSelecionada) : linhas;
 
-        const receberFiltrado = filtrarPorFranquia(receberRes.data || []);
-        setReceitaBruta(receberFiltrado.reduce((acc, r) => acc + Number(r.net_amount), 0));
+        const vendasFiltradas = filtrarPorFranquia(vendasItensRes.data || []);
+        const receita = vendasFiltradas.reduce((acc, v) => acc + Number(v.valor_total), 0);
+        const custoVendido = vendasFiltradas.reduce((acc, v) => acc + Number(v.quantidade) * Number(v.custo_unitario), 0);
+        const impostosVendas = vendasFiltradas.reduce((acc, v) => acc + Number(v.valor_total) * (Number(v.aliquota_icm) || 0) / 100, 0);
+
+        setReceitaBruta(receita);
+        setCmv(custoVendido);
+        setImpostos(impostosVendas);
 
         const pagarFiltrado = filtrarPorFranquia((pagarRes.data || []) as any[]);
 
-        let custos = 0;
         const despesas: Record<string, number> = {};
 
         for (const p of pagarFiltrado) {
           const conta = p.plano_conta_id ? mapaContas.get(p.plano_conta_id) : null;
-          if (!conta) continue;
+          if (!conta || conta.tipo !== 'despesa') continue;
 
-          if (conta.tipo === 'custo') {
-            custos += Number(p.amount);
-          } else if (conta.tipo === 'despesa') {
-            const pai = conta.categoria_pai_id ? mapaContas.get(conta.categoria_pai_id) : conta;
-            const nomeGrupo = pai?.nome || conta.nome;
-            despesas[nomeGrupo] = (despesas[nomeGrupo] || 0) + Number(p.amount);
-          }
+          const pai = conta.categoria_pai_id ? mapaContas.get(conta.categoria_pai_id) : conta;
+          const nomeGrupo = pai?.nome || conta.nome;
+          despesas[nomeGrupo] = (despesas[nomeGrupo] || 0) + Number(p.amount);
         }
 
-        setCustoTotal(custos);
         setDespesasPorCategoria(despesas);
       } catch (error) {
         console.error('Erro ao carregar DRE:', error);
@@ -109,11 +103,12 @@ export default function DrePage() {
     carregar();
   }, [mesSelecionado, franquiaSelecionada]);
 
+  const margemBruta = receitaBruta - cmv - impostos;
   const totalDespesas = useMemo(
     () => Object.values(despesasPorCategoria).reduce((acc, v) => acc + v, 0),
     [despesasPorCategoria]
   );
-  const resultado = receitaBruta - custoTotal - totalDespesas;
+  const resultado = margemBruta - totalDespesas;
 
   return (
     <div className="space-y-6">
@@ -153,15 +148,25 @@ export default function DrePage() {
           <table className="w-full text-left text-sm text-stone-600">
             <tbody className="divide-y divide-stone-100">
               <tr className="bg-stone-50">
-                <td className="px-6 py-4 font-semibold text-stone-800">Receita Bruta</td>
+                <td className="px-6 py-4 font-semibold text-stone-800">Receita Bruta (Vendas)</td>
                 <td className="px-6 py-4 text-right font-semibold text-emerald-600">{formatCurrency(receitaBruta)}</td>
               </tr>
               <tr>
                 <td className="px-6 py-4 text-stone-600">(−) Custo da Mercadoria Vendida (CMV)</td>
-                <td className="px-6 py-4 text-right text-red-500">{formatCurrency(custoTotal)}</td>
+                <td className="px-6 py-4 text-right text-red-500">{formatCurrency(cmv)}</td>
+              </tr>
+              <tr>
+                <td className="px-6 py-4 text-stone-600">(−) Impostos sobre Vendas</td>
+                <td className="px-6 py-4 text-right text-red-500">{formatCurrency(impostos)}</td>
               </tr>
               <tr className="bg-stone-50">
-                <td className="px-6 py-4 font-medium text-stone-700">(−) Despesas</td>
+                <td className="px-6 py-4 font-semibold text-stone-800">(=) Margem Bruta</td>
+                <td className={`px-6 py-4 text-right font-semibold ${margemBruta >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                  {formatCurrency(margemBruta)}
+                </td>
+              </tr>
+              <tr>
+                <td className="px-6 py-4 font-medium text-stone-700">(−) Despesas Operacionais</td>
                 <td className="px-6 py-4 text-right font-medium text-red-500">{formatCurrency(totalDespesas)}</td>
               </tr>
               {Object.entries(despesasPorCategoria).map(([nome, valor]) => (
@@ -180,6 +185,12 @@ export default function DrePage() {
           </table>
         </div>
       )}
+
+      <div>
+        <Link href="/dre/margem-marcas" className="text-sm font-medium text-amber-600 hover:text-amber-700">
+          Ver Top 10 Marcas por Margem Bruta →
+        </Link>
+      </div>
     </div>
   );
 }

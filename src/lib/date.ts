@@ -9,3 +9,11 @@ export function dataParaTimestampBrasilia(data: string): string {
 export function mesAtualBrasilia(): string {
   return hojeBrasilia().slice(0, 7);
 }
+
+export function intervaloDoMes(mesAno: string): { inicio: string; fim: string } {
+  const [ano, mes] = mesAno.split('-').map(Number);
+  const inicio = `${mesAno}-01`;
+  const ultimoDia = new Date(ano, mes, 0).getDate();
+  const fim = `${mesAno}-${String(ultimoDia).padStart(2, '0')}`;
+  return { inicio, fim };
+}
