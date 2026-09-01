@@ -18,9 +18,10 @@ interface RecebimentosTableProps {
   isLoading: boolean;
   marcandoRecebidoId: string | null;
   onMarcarComoRecebido: (item: Recebimento) => void;
+  onExcluir: (item: Recebimento) => void;
 }
 
-export default function RecebimentosTable({ recebimentos, isLoading, marcandoRecebidoId, onMarcarComoRecebido }: RecebimentosTableProps) {
+export default function RecebimentosTable({ recebimentos, isLoading, marcandoRecebidoId, onMarcarComoRecebido, onExcluir }: RecebimentosTableProps) {
   return (
     <div className="bg-white border border-stone-200 rounded-xl shadow-sm overflow-hidden min-h-[300px]">
       <div className="overflow-x-auto">
@@ -62,13 +63,21 @@ export default function RecebimentosTable({ recebimentos, isLoading, marcandoRec
                   <td className="px-6 py-4">{getStatusBadge(item.status)}</td>
                   <td className="px-6 py-4">
                     {item.status === 'pendente' && (
-                      <button
-                        onClick={() => onMarcarComoRecebido(item)}
-                        disabled={marcandoRecebidoId === item.id}
-                        className="text-xs font-medium px-3 py-1.5 rounded-lg transition-colors text-emerald-600 hover:bg-emerald-50 disabled:opacity-50"
-                      >
-                        {marcandoRecebidoId === item.id ? 'Salvando...' : 'Marcar como recebido'}
-                      </button>
+                      <>
+                        <button
+                          onClick={() => onMarcarComoRecebido(item)}
+                          disabled={marcandoRecebidoId === item.id}
+                          className="text-xs font-medium px-3 py-1.5 rounded-lg transition-colors text-emerald-600 hover:bg-emerald-50 disabled:opacity-50"
+                        >
+                          {marcandoRecebidoId === item.id ? 'Salvando...' : 'Marcar como recebido'}
+                        </button>
+                        <button
+                          onClick={() => onExcluir(item)}
+                          className="text-xs font-medium px-3 py-1.5 rounded-lg transition-colors text-stone-400 hover:bg-red-50 hover:text-red-600"
+                        >
+                          Excluir
+                        </button>
+                      </>
                     )}
                   </td>
                 </tr>

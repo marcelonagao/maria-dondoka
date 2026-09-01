@@ -13,6 +13,7 @@ export default function ContasReceberPage() {
     isLoading, isSubmitting, recebimentos, formData, setFormData, criarRecebimento,
     marcandoRecebidoId, recebimentoParaMarcar, dataRecebimento, setDataRecebimento,
     abrirMarcarComoRecebido, confirmarMarcarComoRecebido, fecharMarcarComoRecebido,
+    excluirRecebimento,
   } = useRecebimentos();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -41,6 +42,7 @@ export default function ContasReceberPage() {
         isLoading={isLoading}
         marcandoRecebidoId={marcandoRecebidoId}
         onMarcarComoRecebido={abrirMarcarComoRecebido}
+        onExcluir={excluirRecebimento}
       />
 
       <NovoRecebimentoModal
