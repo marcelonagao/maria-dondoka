@@ -44,6 +44,9 @@ export default function ConfiguracoesPage() {
   const [syncUrl, setSyncUrl] = useState('');
   const [isSavingSyncUrl, setIsSavingSyncUrl] = useState(false);
   const [syncUrlSalva, setSyncUrlSalva] = useState(false);
+  const [dispositivoParaEditar, setDispositivoParaEditar] = useState<Dispositivo | null>(null);
+  const [novoNomeEdicao, setNovoNomeEdicao] = useState('');
+  const [isSalvandoEdicao, setIsSalvandoEdicao] = useState(false);
 
   // Não dá pra confiar em .maybeSingle() sem filtro aqui: quem é sócio enxerga
   // TODAS as franquias (política aditiva de sócio), não só a própria — por isso
@@ -271,6 +274,32 @@ const carregarDispositivos = async () => {
     }
   };
 
+  const abrirEdicaoDispositivo = (dispositivo: Dispositivo) => {
+    setDispositivoParaEditar(dispositivo);
+    setNovoNomeEdicao(dispositivo.device_label);
+  };
+
+  const handleSalvarEdicaoDispositivo = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!dispositivoParaEditar) return;
+    setIsSalvandoEdicao(true);
+    try {
+      const res = await fetch('/api/admin/pdv-devices', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: dispositivoParaEditar.id, device_label: novoNomeEdicao }),
+      });
+      if (!res.ok) throw new Error('Falha ao renomear dispositivo');
+      setDispositivoParaEditar(null);
+      await carregarDispositivos();
+    } catch (err) {
+      console.error(err);
+      alert('Erro ao renomear. Verifique o console.');
+    } finally {
+      setIsSalvandoEdicao(false);
+    }
+  };
+
   const handleAlternarAtivo = async (id: string, ativoAtual: boolean) => {
     const acao = ativoAtual ? 'revogar' : 'reativar';
     if (!confirm(`Tem certeza que deseja ${acao} este dispositivo?`)) return;
@@ -373,6 +402,12 @@ const carregarDispositivos = async () => {
                       {d.last_sync_at ? new Date(d.last_sync_at).toLocaleString('pt-BR') : 'Nunca sincronizou'}
                     </td>
                     <td className="px-6 py-4 space-x-1">
+                      <button
+                        onClick={() => abrirEdicaoDispositivo(d)}
+                        className="text-xs font-medium px-3 py-1.5 rounded-lg transition-colors text-stone-500 hover:bg-stone-100"
+                      >
+                        Editar
+                      </button>
                       <button
                         onClick={() => handleAlternarAtivo(d.id, d.is_active)}
                         className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
@@ -771,6 +806,39 @@ const carregarDispositivos = async () => {
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Modal de edição de nome do dispositivo */}
+      {dispositivoParaEditar && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
+            <div className="flex justify-between items-center p-6 border-b border-stone-100">
+              <h2 className="text-lg font-semibold text-stone-800">Editar Dispositivo</h2>
+              <button onClick={() => setDispositivoParaEditar(null)} className="text-stone-400 hover:text-stone-600">✕</button>
+            </div>
+            <form onSubmit={handleSalvarEdicaoDispositivo} className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-stone-700 mb-1">Nome do dispositivo</label>
+                <input
+                  type="text"
+                  required
+                  minLength={2}
+                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+                  value={novoNomeEdicao}
+                  onChange={(e) => setNovoNomeEdicao(e.target.value)}
+                />
+              </div>
+              <div className="pt-2 flex gap-3">
+                <button type="button" onClick={() => setDispositivoParaEditar(null)} className="flex-1 px-4 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-lg font-medium transition-colors">
+                  Cancelar
+                </button>
+                <button type="submit" disabled={isSalvandoEdicao} className="flex-1 px-4 py-2 bg-stone-900 hover:bg-stone-800 text-white rounded-lg font-medium transition-colors disabled:opacity-70">
+                  {isSalvandoEdicao ? 'Salvando...' : 'Salvar'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
