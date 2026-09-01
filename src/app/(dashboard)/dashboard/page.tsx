@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../../lib/supabase';
 import { formatCurrency } from '../../../lib/format';
 import FluxoCaixaChart from './FluxoCaixaChart';
+import IndexedMetricsChart from './IndexedMetricsChart';
 
 interface Franquia {
   id: string;
@@ -196,7 +197,11 @@ export default function DashboardPage() {
       )}
 
       <div className="mt-8">
-        <FluxoCaixaChart franchiseId={isSocio ? (franquiaSelecionada || undefined) : undefined} />
+        {isSocio && !franquiaSelecionada ? (
+          <IndexedMetricsChart />
+        ) : (
+          <FluxoCaixaChart franchiseId={isSocio ? (franquiaSelecionada || undefined) : undefined} />
+        )}
       </div>
     </div>
   );
