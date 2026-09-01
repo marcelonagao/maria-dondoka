@@ -3,6 +3,18 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../../lib/supabase';
 import { hojeBrasilia } from '../../../lib/date';
+import { labelFormaPagamento } from '../../../lib/formasPagamento';
+
+interface FormaPagamentoValor {
+  forma_pagamento: string;
+  valor: number;
+}
+
+interface FormaPagamentoFechamento {
+  forma_pagamento: string;
+  valor_esperado: number;
+  valor_contado: number | null;
+}
 
 interface HistoricoItem {
   id: string;
@@ -11,6 +23,7 @@ interface HistoricoItem {
   diferenca: number;
   contado_em: string;
   funcionario_nome: string | null;
+  formas: FormaPagamentoFechamento[];
 }
 
 interface MovimentacaoPendente {
@@ -25,7 +38,7 @@ interface LinhaCaixa {
   pdv_device_id: string;
   device_label: string;
   acumulado_atualizado_em: string | null;
-  proximo_esperado: { dinheiro: number; cartao: number; pix: number; total: number } | null;
+  proximo_esperado: { dinheiro: number; formas_informativas: FormaPagamentoValor[]; total: number } | null;
   movimentacoes_pendentes: MovimentacaoPendente[];
   historico: HistoricoItem[];
 }
@@ -115,7 +128,7 @@ export default function PrestacaoContasPage() {
       const res = await fetch('/api/fechamentos/contagem', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pdv_device_id, data_fechamento: dataSelecionada, valor_contado: valor, funcionario_id }),
+        body: JSON.stringify({ pdv_device_id, data_fechamento: dataSelecionada, valor_contado_dinheiro: valor, funcionario_id }),
       });
       if (!res.ok) throw new Error('Falha ao salvar');
       await carregar(dataSelecionada);
@@ -227,9 +240,9 @@ export default function PrestacaoContasPage() {
                     Sangria/Suprimento
                   </button>
                   <div className="text-right">
-                    <p className="text-xs text-stone-400 uppercase tracking-wider">A conferir agora</p>
+                    <p className="text-xs text-stone-400 uppercase tracking-wider">Dinheiro esperado</p>
                     <p className="font-semibold text-stone-800">
-                      {c.proximo_esperado ? formatCurrency(c.proximo_esperado.total) : '—'}
+                      {c.proximo_esperado ? formatCurrency(c.proximo_esperado.dinheiro) : '—'}
                     </p>
                   </div>
                   {funcionarios.length > 0 && (
@@ -248,20 +261,32 @@ export default function PrestacaoContasPage() {
                     type="number"
                     step="0.01"
                     placeholder="Valor contado"
-                    disabled={!c.proximo_esperado || c.proximo_esperado.total === 0}
+                    disabled={!c.proximo_esperado || c.proximo_esperado.dinheiro === 0}
                     value={valoresDigitados[c.pdv_device_id] || ''}
                     onChange={(e) => setValoresDigitados((prev) => ({ ...prev, [c.pdv_device_id]: e.target.value }))}
                     className="w-32 px-3 py-2 border border-stone-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-400 outline-none disabled:bg-stone-50 disabled:text-stone-300"
                   />
                   <button
                 onClick={() => handleSalvar(c.pdv_device_id)}
-                disabled={!c.proximo_esperado || c.proximo_esperado.total === 0 || salvandoId === c.pdv_device_id}
+                disabled={!c.proximo_esperado || c.proximo_esperado.dinheiro === 0 || salvandoId === c.pdv_device_id}
                 className="px-4 py-2 bg-stone-900 hover:bg-stone-800 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                     {salvandoId === c.pdv_device_id ? 'Salvando...' : 'Fechar Caixa'}
                   </button>
                 </div>
               </div>
+
+              {c.proximo_esperado && c.proximo_esperado.formas_informativas.some((f) => f.valor !== 0) && (
+                <div className="px-6 pb-4 -mt-2 flex flex-wrap gap-2">
+                  {c.proximo_esperado.formas_informativas
+                    .filter((f) => f.valor !== 0)
+                    .map((f) => (
+                      <span key={f.forma_pagamento} className="text-xs bg-stone-50 text-stone-500 rounded-lg px-3 py-1.5">
+                        {labelFormaPagamento(f.forma_pagamento)}: <span className="font-medium text-stone-600">{formatCurrency(f.valor)}</span>
+                      </span>
+                    ))}
+                </div>
+              )}
 
               {c.movimentacoes_pendentes.length > 0 && (
                 <div className="px-6 pb-4 -mt-2 space-y-1.5">
@@ -301,17 +326,29 @@ export default function PrestacaoContasPage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-stone-100">
-                        {c.historico.map((h) => (
-                          <tr key={h.id}>
-                            <td className="px-6 py-2">{new Date(h.contado_em).toLocaleTimeString('pt-BR')}</td>
-                            <td className="px-6 py-2">{formatCurrency(h.valor_esperado)}</td>
-                            <td className="px-6 py-2">{formatCurrency(h.valor_contado)}</td>
-                            <td className={`px-6 py-2 font-medium ${h.diferenca < 0 ? 'text-red-600' : h.diferenca > 0 ? 'text-emerald-600' : 'text-stone-500'}`}>
-                              {formatCurrency(h.diferenca)}
-                            </td>
-                            <td className="px-6 py-2 text-stone-500">{h.funcionario_nome || '—'}</td>
-                          </tr>
-                        ))}
+                        {c.historico.map((h) => {
+                          const outrasFormas = h.formas.filter((f) => f.forma_pagamento !== 'dinheiro' && f.valor_esperado !== 0);
+                          return (
+                            <React.Fragment key={h.id}>
+                              <tr>
+                                <td className="px-6 py-2">{new Date(h.contado_em).toLocaleTimeString('pt-BR')}</td>
+                                <td className="px-6 py-2">{formatCurrency(h.valor_esperado)}</td>
+                                <td className="px-6 py-2">{formatCurrency(h.valor_contado)}</td>
+                                <td className={`px-6 py-2 font-medium ${h.diferenca < 0 ? 'text-red-600' : h.diferenca > 0 ? 'text-emerald-600' : 'text-stone-500'}`}>
+                                  {formatCurrency(h.diferenca)}
+                                </td>
+                                <td className="px-6 py-2 text-stone-500">{h.funcionario_nome || '—'}</td>
+                              </tr>
+                              {outrasFormas.length > 0 && (
+                                <tr>
+                                  <td colSpan={5} className="px-6 pb-2 pt-0 text-xs text-stone-400">
+                                    {outrasFormas.map((f) => `${labelFormaPagamento(f.forma_pagamento)}: ${formatCurrency(f.valor_esperado)}`).join(' · ')}
+                                  </td>
+                                </tr>
+                              )}
+                            </React.Fragment>
+                          );
+                        })}
                       </tbody>
                     </table>
                   )}

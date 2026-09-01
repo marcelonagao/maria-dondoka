@@ -45,9 +45,13 @@ export default function FluxoCaixaChart({ franchiseId }: FluxoCaixaChartProps = 
 
         let fechamentosQuery = supabase
           .from('fechamentos_caixa')
-          .select('data_fechamento, valor_vendas_dinheiro, valor_vendas_cartao, valor_vendas_pix, valor_esperado, valor_contado')
+          .select('data_fechamento, valor_esperado, valor_contado')
           .gte('data_fechamento', desdeISO)
           .order('data_fechamento', { ascending: true });
+        let formasQuery = supabase
+          .from('fechamentos_formas_pagamento')
+          .select('valor_esperado, fechamentos_caixa!inner(data_fechamento, franchise_id)')
+          .gte('fechamentos_caixa.data_fechamento', desdeISO);
         let pagarQuery = supabase
           .from('accounts_payable')
           .select('due_date, amount, status')
@@ -56,22 +60,29 @@ export default function FluxoCaixaChart({ franchiseId }: FluxoCaixaChartProps = 
 
         if (franchiseId) {
           fechamentosQuery = fechamentosQuery.eq('franchise_id', franchiseId);
+          formasQuery = formasQuery.eq('fechamentos_caixa.franchise_id', franchiseId);
           pagarQuery = pagarQuery.eq('franchise_id', franchiseId);
         }
 
-        const [fechamentosRes, pagarRes] = await Promise.all([fechamentosQuery, pagarQuery]);
+        const [fechamentosRes, formasRes, pagarRes] = await Promise.all([fechamentosQuery, formasQuery, pagarQuery]);
 
         if (fechamentosRes.error) throw fechamentosRes.error;
+        if (formasRes.error) throw formasRes.error;
         if (pagarRes.error) throw pagarRes.error;
 
-        // Agrega entradas por dia (soma dos PDVs, caso haja mais de um por franquia)
+        // Agrega entradas por dia (soma de todas as formas de pagamento, dos PDVs, caso haja mais de um por franquia)
         const entradasPorDia = new Map<string, number>();
         const discrepanciaPorDia = new Map<string, number>();
 
-        for (const f of fechamentosRes.data || []) {
-          const entrada = Number(f.valor_vendas_dinheiro) + Number(f.valor_vendas_cartao) + Number(f.valor_vendas_pix);
-          entradasPorDia.set(f.data_fechamento, (entradasPorDia.get(f.data_fechamento) || 0) + entrada);
+        for (const linha of formasRes.data || []) {
+          const dataFechamento = (linha as any).fechamentos_caixa?.data_fechamento;
+          if (!dataFechamento) continue;
+          entradasPorDia.set(dataFechamento, (entradasPorDia.get(dataFechamento) || 0) + Number(linha.valor_esperado));
+        }
 
+        // Diferença de caixa é só sobre dinheiro em espécie — valor_esperado/valor_contado
+        // de fechamentos_caixa já nascem escopados a dinheiro (única forma contada fisicamente).
+        for (const f of fechamentosRes.data || []) {
           const diff = Number(f.valor_contado) - Number(f.valor_esperado);
           discrepanciaPorDia.set(f.data_fechamento, (discrepanciaPorDia.get(f.data_fechamento) || 0) + diff);
         }
@@ -167,7 +178,7 @@ export default function FluxoCaixaChart({ franchiseId }: FluxoCaixaChartProps = 
       <div className="bg-white border border-stone-200 rounded-xl shadow-sm p-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-medium text-stone-500 uppercase tracking-wider">
-            Diferença de Caixa (contado vs. esperado)
+            Diferença de Caixa (dinheiro em espécie)
           </h3>
           {(temFalta || temSobra) && (
             <span

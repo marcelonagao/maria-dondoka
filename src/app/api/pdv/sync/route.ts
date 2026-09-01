@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createHash, createHmac, timingSafeEqual } from 'crypto';
 import { z } from 'zod';
+import { FORMAS_PAGAMENTO } from '../../../../lib/formasPagamento';
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -16,11 +17,14 @@ const RetiradaSchema = z.object({
   criado_em: z.string().optional(),
 });
 
+const FormaPagamentoValorSchema = z.object({
+  forma_pagamento: z.enum(FORMAS_PAGAMENTO),
+  valor: z.number().nonnegative(),
+});
+
 const VendasDiariasSchema = z.object({
   data: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  dinheiro: z.number().nonnegative().default(0),
-  cartao: z.number().nonnegative().default(0),
-  pix: z.number().nonnegative().default(0),
+  formas: z.array(FormaPagamentoValorSchema).min(1),
   retiradas: z.array(RetiradaSchema).default([]),
 });
 
@@ -83,17 +87,20 @@ export async function POST(request: Request) {
 
     // Substitui o acumulado do dia (não incrementa) — o PDV reporta o total
     // recalculado a cada ciclo, então reenviar o mesmo valor é inofensivo.
+    const atualizadoEm = new Date().toISOString();
     const { error: upsertError } = await supabaseAdmin
-      .from('vendas_diarias_pdv')
-      .upsert({
-        franchise_id: device.franchise_id,
-        pdv_device_id: device.id,
-        data_venda: vendas.data,
-        valor_dinheiro: vendas.dinheiro,
-        valor_cartao: vendas.cartao,
-        valor_pix: vendas.pix,
-        atualizado_em: new Date().toISOString(),
-      }, { onConflict: 'franchise_id, pdv_device_id, data_venda' });
+      .from('vendas_diarias_formas_pagamento')
+      .upsert(
+        vendas.formas.map((f) => ({
+          franchise_id: device.franchise_id,
+          pdv_device_id: device.id,
+          data_venda: vendas.data,
+          forma_pagamento: f.forma_pagamento,
+          valor: f.valor,
+          atualizado_em: atualizadoEm,
+        })),
+        { onConflict: 'franchise_id, pdv_device_id, data_venda, forma_pagamento' }
+      );
 
     if (upsertError) {
       console.error(`[pdv-sync:${requestId}] erro de gravação:`, upsertError.message);
