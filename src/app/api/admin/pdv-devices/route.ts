@@ -95,9 +95,12 @@ export async function POST(request: Request) {
   return NextResponse.json({ id: data.id, token, secret });
 }
 
-const RevokeSchema = z.object({
+const PatchSchema = z.object({
   id: z.string().uuid(),
-  is_active: z.boolean(),
+  is_active: z.boolean().optional(),
+  device_label: z.string().min(2, 'Nome muito curto').max(80).optional(),
+}).refine((data) => data.is_active !== undefined || data.device_label !== undefined, {
+  message: 'Informe is_active ou device_label.',
 });
 
 export async function PATCH(request: Request) {
@@ -106,14 +109,18 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: 'NAO_AUTORIZADO' }, { status: 401 });
   }
 
-  const parsed = RevokeSchema.safeParse(await request.json());
+  const parsed = PatchSchema.safeParse(await request.json());
   if (!parsed.success) {
     return NextResponse.json({ error: 'DADOS_INVALIDOS' }, { status: 400 });
   }
 
+  const atualizacao: Record<string, unknown> = {};
+  if (parsed.data.is_active !== undefined) atualizacao.is_active = parsed.data.is_active;
+  if (parsed.data.device_label !== undefined) atualizacao.device_label = parsed.data.device_label;
+
   const { error } = await supabaseAdmin
     .from('pdv_devices')
-    .update({ is_active: parsed.data.is_active })
+    .update(atualizacao)
     .eq('id', parsed.data.id)
     .eq('franchise_id', profile.franchise_id); // trava: só mexe em dispositivo da própria franquia
 
