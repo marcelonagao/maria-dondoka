@@ -79,6 +79,18 @@ export function useRecebimentos() {
     }
   };
 
+  const excluirRecebimento = async (recebimento: Recebimento) => {
+    if (!confirm(`Excluir permanentemente "${recebimento.description}"? Não é possível desfazer.`)) return;
+    try {
+      const { error } = await supabase.from('accounts_receivable').delete().eq('id', recebimento.id);
+      if (error) throw error;
+      await fetchRecebimentos();
+    } catch (error) {
+      console.error('Erro ao excluir recebimento:', error);
+      alert('Erro ao excluir. Verifique o console.');
+    }
+  };
+
   const abrirMarcarComoRecebido = (recebimento: Recebimento) => {
     setRecebimentoParaMarcar(recebimento);
     setDataRecebimento(hojeBrasilia());
@@ -117,5 +129,6 @@ export function useRecebimentos() {
     abrirMarcarComoRecebido,
     confirmarMarcarComoRecebido,
     fecharMarcarComoRecebido: () => setRecebimentoParaMarcar(null),
+    excluirRecebimento,
   };
 }

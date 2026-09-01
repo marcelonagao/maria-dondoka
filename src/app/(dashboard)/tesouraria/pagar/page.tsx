@@ -159,6 +159,18 @@ export default function ContasPagarPage() {
     setDataPagamento(hojeBrasilia());
   };
 
+  const handleExcluir = async (despesa: Despesa) => {
+    if (!confirm(`Excluir permanentemente "${despesa.description}"? Não é possível desfazer.`)) return;
+    try {
+      const { error } = await supabase.from('accounts_payable').delete().eq('id', despesa.id);
+      if (error) throw error;
+      await fetchDespesas();
+    } catch (error) {
+      console.error('Erro ao excluir despesa:', error);
+      alert('Erro ao excluir. Verifique o console.');
+    }
+  };
+
   const confirmarMarcarComoPago = async () => {
     if (!contaParaPagar) return;
     setMarcandoPagoId(contaParaPagar.id);
@@ -233,13 +245,21 @@ export default function ContasPagarPage() {
                     <td className="px-6 py-4">{getStatusBadge(despesa.status)}</td>
                     <td className="px-6 py-4">
                       {despesa.status === 'pendente' && (
-                        <button
-                          onClick={() => abrirMarcarComoPago(despesa)}
-                          disabled={marcandoPagoId === despesa.id}
-                          className="text-xs font-medium px-3 py-1.5 rounded-lg transition-colors text-emerald-600 hover:bg-emerald-50 disabled:opacity-50"
-                        >
-                          {marcandoPagoId === despesa.id ? 'Salvando...' : 'Marcar como pago'}
-                        </button>
+                        <>
+                          <button
+                            onClick={() => abrirMarcarComoPago(despesa)}
+                            disabled={marcandoPagoId === despesa.id}
+                            className="text-xs font-medium px-3 py-1.5 rounded-lg transition-colors text-emerald-600 hover:bg-emerald-50 disabled:opacity-50"
+                          >
+                            {marcandoPagoId === despesa.id ? 'Salvando...' : 'Marcar como pago'}
+                          </button>
+                          <button
+                            onClick={() => handleExcluir(despesa)}
+                            className="text-xs font-medium px-3 py-1.5 rounded-lg transition-colors text-stone-400 hover:bg-red-50 hover:text-red-600"
+                          >
+                            Excluir
+                          </button>
+                        </>
                       )}
                     </td>
                   </tr>

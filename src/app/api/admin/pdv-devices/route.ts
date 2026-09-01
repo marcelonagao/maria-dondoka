@@ -122,3 +122,34 @@ export async function PATCH(request: Request) {
   }
   return NextResponse.json({ ok: true });
 }
+
+const DeleteSchema = z.object({
+  id: z.string().uuid(),
+});
+
+export async function DELETE(request: Request) {
+  const profile = await getAdminProfile();
+  if (!profile) {
+    return NextResponse.json({ error: 'NAO_AUTORIZADO' }, { status: 401 });
+  }
+
+  const parsed = DeleteSchema.safeParse(await request.json());
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'DADOS_INVALIDOS' }, { status: 400 });
+  }
+
+  const { error } = await supabaseAdmin
+    .from('pdv_devices')
+    .delete()
+    .eq('id', parsed.data.id)
+    .eq('franchise_id', profile.franchise_id); // trava: só mexe em dispositivo da própria franquia
+
+  if (error) {
+    // 23503 = violação de FK — dispositivo já tem fechamentos/movimentações/vendas registradas.
+    if (error.code === '23503') {
+      return NextResponse.json({ error: 'EM_USO' }, { status: 409 });
+    }
+    return NextResponse.json({ error: 'ERRO_INTERNO' }, { status: 500 });
+  }
+  return NextResponse.json({ ok: true });
+}

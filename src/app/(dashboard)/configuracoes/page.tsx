@@ -179,6 +179,22 @@ const carregarDispositivos = async () => {
     }
   };
 
+  const handleExcluirFuncionario = async (id: string, nome: string) => {
+    if (!confirm(`Excluir permanentemente "${nome}"? Não é possível desfazer.`)) return;
+    try {
+      const { error } = await supabase.from('funcionarios').delete().eq('id', id);
+      if (error) throw error;
+      await carregarFuncionarios();
+    } catch (err: any) {
+      if (err?.code === '23503') {
+        alert('Não é possível excluir: este funcionário já tem fechamentos de caixa registrados. Desative-o em vez de excluir.');
+        return;
+      }
+      console.error('Erro ao excluir funcionário:', err);
+      alert('Erro ao excluir. Verifique o console.');
+    }
+  };
+
   const handleCriarCategoria = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmittingCategoria(true);
@@ -208,6 +224,27 @@ const carregarDispositivos = async () => {
     } catch (err) {
       console.error('Erro ao atualizar categoria:', err);
       alert('Erro ao atualizar. Verifique o console — categorias globais não podem ser editadas.');
+    }
+  };
+
+  const handleExcluirCategoria = async (id: string, nome: string) => {
+    const numeroFilhos = planoContas.filter((c) => c.categoria_pai_id === id).length;
+    const aviso = numeroFilhos > 0
+      ? `Excluir "${nome}" também vai excluir as ${numeroFilhos} subcategoria(s) abaixo dela. Não é possível desfazer. Continuar?`
+      : `Excluir permanentemente "${nome}"? Não é possível desfazer.`;
+    if (!confirm(aviso)) return;
+
+    try {
+      const { error } = await supabase.from('plano_contas').delete().eq('id', id);
+      if (error) throw error;
+      await carregarPlanoContas();
+    } catch (err: any) {
+      if (err?.code === '23503') {
+        alert('Não é possível excluir: essa categoria (ou uma subcategoria dela) já está em uso em contas a pagar. Desative-a em vez de excluir.');
+        return;
+      }
+      console.error('Erro ao excluir categoria:', err);
+      alert('Erro ao excluir. Verifique o console.');
     }
   };
 
@@ -249,6 +286,27 @@ const carregarDispositivos = async () => {
     } catch (err) {
       console.error(err);
       alert('Erro ao atualizar. Verifique o console.');
+    }
+  };
+
+  const handleExcluirDispositivo = async (id: string, label: string) => {
+    if (!confirm(`Excluir permanentemente "${label}"? Vendas do dia ainda não fechadas deste dispositivo também serão perdidas. Não é possível desfazer.`)) return;
+
+    try {
+      const res = await fetch('/api/admin/pdv-devices', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      if (res.status === 409) {
+        alert('Não é possível excluir: este dispositivo já tem fechamentos, sangrias/suprimentos ou vendas registradas. Revogue-o em vez de excluir.');
+        return;
+      }
+      if (!res.ok) throw new Error('Falha ao excluir dispositivo');
+      await carregarDispositivos();
+    } catch (err) {
+      console.error(err);
+      alert('Erro ao excluir. Verifique o console.');
     }
   };
 
@@ -314,7 +372,7 @@ const carregarDispositivos = async () => {
                     <td className="px-6 py-4">
                       {d.last_sync_at ? new Date(d.last_sync_at).toLocaleString('pt-BR') : 'Nunca sincronizou'}
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-6 py-4 space-x-1">
                       <button
                         onClick={() => handleAlternarAtivo(d.id, d.is_active)}
                         className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
@@ -324,6 +382,12 @@ const carregarDispositivos = async () => {
                         }`}
                       >
                         {d.is_active ? 'Revogar' : 'Reativar'}
+                      </button>
+                      <button
+                        onClick={() => handleExcluirDispositivo(d.id, d.device_label)}
+                        className="text-xs font-medium px-3 py-1.5 rounded-lg transition-colors text-stone-400 hover:bg-red-50 hover:text-red-600"
+                      >
+                        Excluir
                       </button>
                     </td>
                   </tr>
@@ -373,7 +437,7 @@ const carregarDispositivos = async () => {
                         <span className="px-2.5 py-1 bg-stone-100 text-stone-500 text-xs font-medium rounded-md">Inativo</span>
                       )}
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-6 py-4 space-x-1">
                       <button
                         onClick={() => handleAlternarAtivoFuncionario(f.id, f.ativo)}
                         className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
@@ -381,6 +445,12 @@ const carregarDispositivos = async () => {
                         }`}
                       >
                         {f.ativo ? 'Desativar' : 'Reativar'}
+                      </button>
+                      <button
+                        onClick={() => handleExcluirFuncionario(f.id, f.nome)}
+                        className="text-xs font-medium px-3 py-1.5 rounded-lg transition-colors text-stone-400 hover:bg-red-50 hover:text-red-600"
+                      >
+                        Excluir
                       </button>
                     </td>
                   </tr>
@@ -475,16 +545,24 @@ const carregarDispositivos = async () => {
                           <span className="px-2.5 py-1 bg-stone-100 text-stone-500 text-xs font-medium rounded-md">Inativa</span>
                         )}
                       </td>
-                      <td className="px-6 py-4">
+                      <td className="px-6 py-4 space-x-1">
                         {pai.franchise_id !== null && (
-                          <button
-                            onClick={() => handleAlternarAtivoCategoria(pai.id, pai.is_active)}
-                            className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
-                              pai.is_active ? 'text-red-600 hover:bg-red-50' : 'text-emerald-600 hover:bg-emerald-50'
-                            }`}
-                          >
-                            {pai.is_active ? 'Desativar' : 'Reativar'}
-                          </button>
+                          <>
+                            <button
+                              onClick={() => handleAlternarAtivoCategoria(pai.id, pai.is_active)}
+                              className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
+                                pai.is_active ? 'text-red-600 hover:bg-red-50' : 'text-emerald-600 hover:bg-emerald-50'
+                              }`}
+                            >
+                              {pai.is_active ? 'Desativar' : 'Reativar'}
+                            </button>
+                            <button
+                              onClick={() => handleExcluirCategoria(pai.id, pai.nome)}
+                              className="text-xs font-medium px-3 py-1.5 rounded-lg transition-colors text-stone-400 hover:bg-red-50 hover:text-red-600"
+                            >
+                              Excluir
+                            </button>
+                          </>
                         )}
                       </td>
                     </tr>
@@ -507,16 +585,24 @@ const carregarDispositivos = async () => {
                           <span className="px-2.5 py-1 bg-stone-100 text-stone-500 text-xs font-medium rounded-md">Inativa</span>
                         )}
                       </td>
-                      <td className="px-6 py-4">
+                      <td className="px-6 py-4 space-x-1">
                         {f.franchise_id !== null && (
-                          <button
-                            onClick={() => handleAlternarAtivoCategoria(f.id, f.is_active)}
-                            className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
-                              f.is_active ? 'text-red-600 hover:bg-red-50' : 'text-emerald-600 hover:bg-emerald-50'
-                            }`}
-                          >
-                            {f.is_active ? 'Desativar' : 'Reativar'}
-                          </button>
+                          <>
+                            <button
+                              onClick={() => handleAlternarAtivoCategoria(f.id, f.is_active)}
+                              className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
+                                f.is_active ? 'text-red-600 hover:bg-red-50' : 'text-emerald-600 hover:bg-emerald-50'
+                              }`}
+                            >
+                              {f.is_active ? 'Desativar' : 'Reativar'}
+                            </button>
+                            <button
+                              onClick={() => handleExcluirCategoria(f.id, f.nome)}
+                              className="text-xs font-medium px-3 py-1.5 rounded-lg transition-colors text-stone-400 hover:bg-red-50 hover:text-red-600"
+                            >
+                              Excluir
+                            </button>
+                          </>
                         )}
                       </td>
                     </tr>
