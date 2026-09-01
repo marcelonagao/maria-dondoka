@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../../lib/supabase';
+import { hojeBrasilia } from '../../../lib/date';
 
 interface HistoricoItem {
   id: string;
@@ -38,7 +39,7 @@ const formatCurrency = (value: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
 
 export default function PrestacaoContasPage() {
-  const hoje = new Date().toISOString().slice(0, 10);
+  const hoje = hojeBrasilia();
   const [dataSelecionada, setDataSelecionada] = useState(hoje);
   const [caixas, setCaixas] = useState<LinhaCaixa[]>([]);
   const [isLoading, setIsLoading] = useState(true);

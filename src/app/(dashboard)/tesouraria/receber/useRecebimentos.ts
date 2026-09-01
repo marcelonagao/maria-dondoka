@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '../../../../lib/supabase';
+import { hojeBrasilia, dataParaTimestampBrasilia } from '../../../../lib/date';
 import type { Recebimento } from './types';
 
 const initialFormData = {
@@ -18,6 +19,8 @@ export function useRecebimentos() {
   const [recebimentos, setRecebimentos] = useState<Recebimento[]>([]);
   const [formData, setFormData] = useState(initialFormData);
   const [marcandoRecebidoId, setMarcandoRecebidoId] = useState<string | null>(null);
+  const [recebimentoParaMarcar, setRecebimentoParaMarcar] = useState<Recebimento | null>(null);
+  const [dataRecebimento, setDataRecebimento] = useState(hojeBrasilia());
 
   const fetchRecebimentos = async () => {
     try {
@@ -76,15 +79,22 @@ export function useRecebimentos() {
     }
   };
 
-  const marcarComoRecebido = async (id: string) => {
-    setMarcandoRecebidoId(id);
+  const abrirMarcarComoRecebido = (recebimento: Recebimento) => {
+    setRecebimentoParaMarcar(recebimento);
+    setDataRecebimento(hojeBrasilia());
+  };
+
+  const confirmarMarcarComoRecebido = async () => {
+    if (!recebimentoParaMarcar) return;
+    setMarcandoRecebidoId(recebimentoParaMarcar.id);
     try {
       const { error } = await supabase
         .from('accounts_receivable')
-        .update({ status: 'recebido', received_at: new Date().toISOString() })
-        .eq('id', id);
+        .update({ status: 'recebido', received_at: dataParaTimestampBrasilia(dataRecebimento) })
+        .eq('id', recebimentoParaMarcar.id);
       if (error) throw error;
       await fetchRecebimentos();
+      setRecebimentoParaMarcar(null);
     } catch (error) {
       console.error('Erro ao marcar como recebido:', error);
       alert('Erro ao atualizar. Verifique o console.');
@@ -101,6 +111,11 @@ export function useRecebimentos() {
     setFormData,
     criarRecebimento,
     marcandoRecebidoId,
-    marcarComoRecebido,
+    recebimentoParaMarcar,
+    dataRecebimento,
+    setDataRecebimento,
+    abrirMarcarComoRecebido,
+    confirmarMarcarComoRecebido,
+    fecharMarcarComoRecebido: () => setRecebimentoParaMarcar(null),
   };
 }

@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../../lib/supabase';
+import { mesAtualBrasilia } from '../../../lib/date';
 
 interface CategoriaContas {
   id: string;
@@ -18,11 +19,6 @@ interface Franquia {
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
 
-function mesAtual() {
-  const hoje = new Date();
-  return `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}`;
-}
-
 function intervaloDoMes(mesAno: string) {
   const [ano, mes] = mesAno.split('-').map(Number);
   const inicio = `${mesAno}-01`;
@@ -36,7 +32,7 @@ export default function DrePage() {
   const [podeVerVariasFranquias, setPodeVerVariasFranquias] = useState(false);
   const [franquias, setFranquias] = useState<Franquia[]>([]);
   const [franquiaSelecionada, setFranquiaSelecionada] = useState('');
-  const [mesSelecionado, setMesSelecionado] = useState(mesAtual());
+  const [mesSelecionado, setMesSelecionado] = useState(mesAtualBrasilia());
 
   const [receitaBruta, setReceitaBruta] = useState(0);
   const [custoTotal, setCustoTotal] = useState(0);
