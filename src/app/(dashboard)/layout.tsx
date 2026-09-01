@@ -30,6 +30,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       ],
     },
     { name: 'Vendas (PDV)', path: '/vendas', icon: '🛍️' },
+    { name: 'DRE', path: '/dre', icon: '📈' },
     { name: 'Configurações', path: '/configuracoes', icon: '⚙️' },
   ];
 
