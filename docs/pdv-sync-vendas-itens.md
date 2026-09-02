@@ -1,51 +1,23 @@
-# Referência: sincronização de `vendas_itens` a partir do PDV (A7 Pharma / Alpha 7)
+# Referência: sincronização do PDV (A7 Pharma / Alpha 7)
 
-**Status: não implementado.** Este documento só registra as queries de referência pro
-futuro agente de sincronização. Bloqueado até termos um servidor com IP fixo
-provisionado (mesma limitação que já bloqueou o agente de sincronização original,
-resolvida na época rodando o PHP dentro do próprio hosting Locaweb — aqui a leitura
-é mais pesada, então a abordagem de sync pode precisar ser revisitada).
+## Formas de pagamento por usuário — implementado (PHP em produção, `/api/pdv/sync`)
 
-Quando o agente for construído, ele vai precisar ler três tabelas por franquia no
-banco MySQL do PDV: `movprods`, `movimento` e `produtos`.
-
-## Vendas granulares (para `vendas_itens`)
+1 dispositivo/credencial por franquia (não mais por vendedor). O script PHP roda
+dentro do hosting Locaweb e agrupa por `usuario` no MySQL, mandando tudo numa
+chamada só — a granularidade por operador vem do campo `usuario`, não de
+credenciais separadas.
 
 ```sql
-SELECT
-  mp.data,
-  SUBSTRING_INDEX(SUBSTRING_INDEX(mp.historico, 'vd:', -1), ' ', 1) AS venda_referencia,
-  mp.produto AS produto_codigo_pdv,
-  p.referencia AS produto_sku,
-  mp.marca,
-  mp.qtd AS quantidade,
-  mp.unitario AS valor_unitario,
-  mp.vlr_total AS valor_total,
-  mp.custo AS custo_unitario,
-  p.icm AS aliquota_icm,
-  mp.vendedor
-FROM movprods mp
-LEFT JOIN produtos p ON p.codigo = mp.produto
-WHERE mp.es = 'S'
-  AND mp.historico LIKE 'Saida vd:%'
-  AND (mp.cancelado IS NULL OR mp.cancelado = 0)
-  AND mp.data = CURDATE(); -- ajustar para o período de sincronização real
-```
+-- Formas de pagamento do dia, agrupadas por usuário (não faz loop, uma query só)
+SELECT usuario, conta, COALESCE(SUM(valor), 0) AS total
+FROM movimento
+WHERE data = CURDATE() AND es = 'E'
+GROUP BY usuario, conta;
 
-Mapeamento pra `vendas_itens`: `data` → `data_venda`, `produto_codigo_pdv` → `produto_codigo_pdv`,
-`p.referencia` → `produto_sku` (se o produto já estiver mapeado no nosso catálogo),
-`mp.custo`/`cmedio` → `custo_unitario` (custo histórico no momento da venda, não o custo atual).
-
-## Dinheiro em espécie do dia (para `vendas_diarias_pdv` / batimento de caixa)
-
-```sql
-SELECT SUM(valor) FROM movimento WHERE conta = 1 AND data = CURDATE();
-```
-
-## Outras formas de pagamento (para `vendas_diarias_pdv`)
-
-```sql
-SELECT conta, SUM(valor) FROM movimento WHERE conta IN (8,9,10,11,12) AND data = CURDATE() GROUP BY conta;
+-- Retiradas (sangria) do dia, por usuário
+SELECT id, valor, historico, usuario, data_hora
+FROM movimento
+WHERE data = CURDATE() AND es = 'S' AND conta = 1;
 ```
 
 Mapeamento de `conta` (confirmado em produção, tabela `conta` do A7 Pharma):
@@ -59,9 +31,47 @@ Mapeamento de `conta` (confirmado em produção, tabela `conta` do A7 Pharma):
 | 11     | Depósito                |
 | 12     | Pix                     |
 
-## Quando o agente for construído
+Payload enviado pro webhook: `formas: [{ usuario, forma_pagamento, valor }]` e
+`retiradas: [{ origem_id, valor, motivo, usuario, criado_em }]` — `usuario` em cada
+entrada, não um campo único do payload (uma sincronização cobre a loja inteira, todos
+os operadores do dia).
 
-Ele vai usar exatamente os filtros e mapeamentos acima, por franquia (cada franquia
-tem seu próprio banco/credenciais MySQL, igual ao padrão já usado no sync de
-`vendas_diarias_pdv`/`movimentacoes_caixa`). A escrita em `vendas_itens` deve ser
-feita via `service_role` (sem policy de INSERT para `authenticated` nesta tabela).
+## Vendas granulares (para `vendas_itens`) — não implementado
+
+**Status: não implementado.** Só registra a query de referência pro futuro agente de
+sincronização granular por produto. Bloqueado até termos um servidor com IP fixo
+provisionado (mesma limitação que já bloqueou o agente original, resolvida na época
+rodando o PHP dentro do próprio hosting Locaweb — aqui a leitura é mais pesada, então
+a abordagem de sync pode precisar ser revisitada).
+
+```sql
+SELECT
+  mp.data,
+  SUBSTRING_INDEX(SUBSTRING_INDEX(mp.historico, 'vd:', -1), ' ', 1) AS venda_referencia,
+  mp.produto AS produto_codigo_pdv,
+  p.referencia AS produto_sku,
+  mp.marca,
+  mp.qtd AS quantidade,
+  mp.unitario AS valor_unitario,
+  mp.vlr_total AS valor_total,
+  mp.custo AS custo_unitario,
+  p.icm AS aliquota_icm,
+  mp.usuario
+FROM movprods mp
+LEFT JOIN produtos p ON p.codigo = mp.produto
+WHERE mp.es = 'S'
+  AND mp.historico LIKE 'Saida vd:%'
+  AND (mp.cancelado IS NULL OR mp.cancelado = 0)
+  AND mp.data = CURDATE(); -- ajustar para o período de sincronização real
+```
+
+Mapeamento pra `vendas_itens`: `data` → `data_venda`, `produto_codigo_pdv` → `produto_codigo_pdv`,
+`p.referencia` → `produto_sku` (se o produto já estiver mapeado no nosso catálogo),
+`mp.custo`/`cmedio` → `custo_unitario` (custo histórico no momento da venda, não o custo
+atual), `mp.usuario` → `usuario` (coluna já existe na tabela, informativo).
+
+## Quando o agente de `vendas_itens` for construído
+
+Vai usar exatamente os filtros e mapeamentos acima, por franquia (cada franquia tem
+seu próprio banco/credenciais MySQL). A escrita em `vendas_itens` deve ser feita via
+`service_role` (sem policy de INSERT para `authenticated` nesta tabela).
