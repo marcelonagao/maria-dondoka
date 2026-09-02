@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 import { randomBytes, createHash } from 'crypto';
 import { z } from 'zod';
+import { getPerfilAutenticado } from '../../../../lib/server-auth';
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -59,17 +60,27 @@ export async function GET() {
 
 const CreateDeviceSchema = z.object({
   device_label: z.string().min(2, 'Nome muito curto').max(80),
+  franchise_id: z.string().uuid().optional(),
 });
 
 export async function POST(request: Request) {
-  const profile = await getAdminProfile();
-  if (!profile) {
-    return NextResponse.json({ error: 'NAO_AUTORIZADO' }, { status: 401 });
-  }
-
   const parsed = CreateDeviceSchema.safeParse(await request.json());
   if (!parsed.success) {
     return NextResponse.json({ error: 'DADOS_INVALIDOS', detalhe: parsed.error.flatten() }, { status: 400 });
+  }
+
+  // Fluxo de onboarding: Matriz cria o dispositivo em nome de uma franquia recém-criada,
+  // que ela mesma não pertence — mesma trava (env var) que já protege /api/admin/franquias,
+  // não o role='admin' da própria franquia de quem chama.
+  let franchiseId: string;
+  if (parsed.data.franchise_id && process.env.SUPER_ADMIN_MODE === 'true') {
+    const perfil = await getPerfilAutenticado();
+    if (!perfil) return NextResponse.json({ error: 'NAO_AUTORIZADO' }, { status: 401 });
+    franchiseId = parsed.data.franchise_id;
+  } else {
+    const profile = await getAdminProfile();
+    if (!profile) return NextResponse.json({ error: 'NAO_AUTORIZADO' }, { status: 401 });
+    franchiseId = profile.franchise_id;
   }
 
   const token = randomBytes(24).toString('hex');
@@ -79,7 +90,7 @@ export async function POST(request: Request) {
   const { data, error } = await supabaseAdmin
     .from('pdv_devices')
     .insert({
-      franchise_id: profile.franchise_id,
+      franchise_id: franchiseId,
       device_label: parsed.data.device_label,
       token_hash: tokenHash,
       secret,
