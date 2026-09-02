@@ -40,8 +40,11 @@ export async function POST(request: Request) {
 
   const { data: convite, error: conviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(email_admin);
   if (conviteError || !convite.user) {
-    // Reverte a franquia se o convite falhar, pra não deixar registro órfão
-    await supabaseAdmin.from('franchises').delete().eq('id', franquia.id);
+    // Reverte a franquia se o convite falhar, pra não deixar registro órfão.
+    const { error: rollbackError } = await supabaseAdmin.from('franchises').delete().eq('id', franquia.id);
+    if (rollbackError) {
+      console.error('Falha ao reverter franquia após convite falhar:', rollbackError, { franchiseId: franquia.id });
+    }
     return NextResponse.json({ error: 'ERRO_CONVIDAR_ADMIN', detalhe: conviteError?.message }, { status: 500 });
   }
 
@@ -49,6 +52,18 @@ export async function POST(request: Request) {
     .from('profiles')
     .insert({ id: convite.user.id, franchise_id: franquia.id, role: 'admin' });
   if (profileError) {
+    // Reverte franquia e usuário já convidado — sem perfil ele não conseguiria logar
+    // mesmo assim, então não faz sentido deixar nenhum dos dois pra trás.
+    const [{ error: rollbackFranquiaError }, { error: rollbackUserError }] = await Promise.all([
+      supabaseAdmin.from('franchises').delete().eq('id', franquia.id),
+      supabaseAdmin.auth.admin.deleteUser(convite.user.id),
+    ]);
+    if (rollbackFranquiaError) {
+      console.error('Falha ao reverter franquia após erro ao vincular perfil:', rollbackFranquiaError, { franchiseId: franquia.id });
+    }
+    if (rollbackUserError) {
+      console.error('Falha ao reverter usuário convidado após erro ao vincular perfil:', rollbackUserError, { userId: convite.user.id });
+    }
     return NextResponse.json({ error: 'ERRO_VINCULAR_PERFIL', detalhe: profileError.message }, { status: 500 });
   }
 
