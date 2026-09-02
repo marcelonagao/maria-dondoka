@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { supabase } from '../../../lib/supabase';
 import { mesAtualBrasilia, intervaloDoMes } from '../../../lib/date';
+import { buscarTodosVendasItens } from '../../../lib/vendasItens';
 
 interface CategoriaContas {
   id: string;
@@ -55,14 +56,18 @@ export default function DrePage() {
 
         const { inicio, fim } = intervaloDoMes(mesSelecionado);
 
-        const [planoContasRes, vendasItensRes, pagarRes] = await Promise.all([
+        const [planoContasRes, vendasItens, pagarRes] = await Promise.all([
           supabase.from('plano_contas').select('id, nome, tipo, categoria_pai_id'),
-          supabase.from('vendas_itens').select('valor_total, quantidade, custo_unitario, aliquota_icm, franchise_id').gte('data_venda', inicio).lte('data_venda', fim),
+          buscarTodosVendasItens<{ valor_total: number; quantidade: number; custo_unitario: number; aliquota_icm: number | null; franchise_id: string }>(
+            supabase,
+            'valor_total, quantidade, custo_unitario, aliquota_icm, franchise_id',
+            inicio,
+            fim
+          ),
           supabase.from('accounts_payable').select('amount, franchise_id, paid_at, plano_conta_id').not('paid_at', 'is', null).gte('paid_at', inicio).lte('paid_at', fim + 'T23:59:59'),
         ]);
 
         if (planoContasRes.error) throw planoContasRes.error;
-        if (vendasItensRes.error) throw vendasItensRes.error;
         if (pagarRes.error) throw pagarRes.error;
 
         const mapaContas = new Map<string, CategoriaContas>((planoContasRes.data || []).map((c) => [c.id, c as CategoriaContas]));
@@ -70,7 +75,7 @@ export default function DrePage() {
         const filtrarPorFranquia = <T extends { franchise_id: string }>(linhas: T[]) =>
           franquiaSelecionada ? linhas.filter((l) => l.franchise_id === franquiaSelecionada) : linhas;
 
-        const vendasFiltradas = filtrarPorFranquia(vendasItensRes.data || []);
+        const vendasFiltradas = filtrarPorFranquia(vendasItens);
         const receita = vendasFiltradas.reduce((acc, v) => acc + Number(v.valor_total), 0);
         const custoVendido = vendasFiltradas.reduce((acc, v) => acc + Number(v.quantidade) * Number(v.custo_unitario), 0);
         const impostosVendas = vendasFiltradas.reduce((acc, v) => acc + Number(v.valor_total) * (Number(v.aliquota_icm) || 0) / 100, 0);

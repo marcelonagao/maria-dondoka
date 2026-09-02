@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { supabase } from '../../../../lib/supabase';
 import { mesAtualBrasilia, intervaloDoMes } from '../../../../lib/date';
+import { buscarTodosVendasItens } from '../../../../lib/vendasItens';
 
 interface Franquia {
   id: string;
@@ -52,18 +53,14 @@ export default function MargemMarcasPage() {
 
         const { inicio, fim } = intervaloDoMes(mesSelecionado);
 
-        let query = supabase
-          .from('vendas_itens')
-          .select('marca, valor_total, quantidade, custo_unitario, franchise_id')
-          .gte('data_venda', inicio)
-          .lte('data_venda', fim);
+        const dados = await buscarTodosVendasItens<{ marca: string | null; valor_total: number; quantidade: number; custo_unitario: number; franchise_id: string }>(
+          supabase,
+          'marca, valor_total, quantidade, custo_unitario, franchise_id',
+          inicio,
+          fim
+        );
 
-        if (franquiaSelecionada) {
-          query = query.eq('franchise_id', franquiaSelecionada);
-        }
-
-        const { data, error } = await query;
-        if (error) throw error;
+        const data = franquiaSelecionada ? dados.filter((d) => d.franchise_id === franquiaSelecionada) : dados;
 
         const porMarca = new Map<string, { receita: number; cmv: number }>();
         for (const item of data || []) {

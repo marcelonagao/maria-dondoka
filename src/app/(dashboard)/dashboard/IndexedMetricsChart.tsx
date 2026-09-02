@@ -6,6 +6,7 @@ import {
 } from 'recharts';
 import { supabase } from '../../../lib/supabase';
 import { hojeBrasilia } from '../../../lib/date';
+import { buscarTodosVendasItens } from '../../../lib/vendasItens';
 
 interface PontoIndexado {
   data: string;
@@ -37,12 +38,11 @@ export default function IndexedMetricsChart() {
 
         const desde = ultimos30DiasDesde();
 
-        const { data, error } = await supabase
-          .from('vendas_itens')
-          .select('data_venda, venda_referencia, valor_total, quantidade, custo_unitario, aliquota_icm')
-          .gte('data_venda', desde);
-
-        if (error) throw error;
+        const data = await buscarTodosVendasItens<{ data_venda: string; venda_referencia: string; valor_total: number; quantidade: number; custo_unitario: number; aliquota_icm: number | null }>(
+          supabase,
+          'data_venda, venda_referencia, valor_total, quantidade, custo_unitario, aliquota_icm',
+          desde
+        );
 
         const porDia = new Map<string, { faturamento: number; cmv: number; impostos: number; vendas: Set<string> }>();
         for (const item of data || []) {
