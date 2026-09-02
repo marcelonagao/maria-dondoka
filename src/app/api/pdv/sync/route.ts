@@ -27,16 +27,19 @@ const FormaPagamentoValorSchema = z.object({
 const ItemVendaSchema = z.object({
   venda_referencia: z.string().min(1),
   produto_codigo_pdv: z.string().min(1),
-  produto_sku: z.string().optional(),
-  marca: z.string().optional(),
+  // Nullable (não só optional): o script PHP manda `null` explícito quando o produto
+  // não está cadastrado em `produtos` (LEFT JOIN) ou não tem ICM — omitir a distinção
+  // faz o zod rejeitar o payload inteiro (400) só por causa de um item sem esses dados.
+  produto_sku: z.string().nullable().optional(),
+  marca: z.string().nullable().optional(),
   quantidade: z.number(),
   valor_unitario: z.number(),
   valor_total: z.number(),
   custo_unitario: z.number(),
-  aliquota_icm: z.number().optional(),
-  usuario: z.string().optional(),
-  vendedor: z.string().optional(),
-  origem_id: z.string().optional(),
+  aliquota_icm: z.number().nullable().optional(),
+  usuario: z.string().nullable().optional(),
+  vendedor: z.string().nullable().optional(),
+  origem_id: z.string().nullable().optional(),
 });
 
 const VendasDiariasSchema = z.object({
