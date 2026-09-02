@@ -15,10 +15,22 @@ WHERE data = CURDATE() AND es = 'E'
 GROUP BY usuario, conta;
 
 -- Retiradas (sangria) do dia, por usuário
-SELECT id, valor, historico, usuario, data_hora
+SELECT auto, valor, historico, usuario
 FROM movimento
 WHERE data = CURDATE() AND es = 'S' AND conta = 1;
 ```
+
+**Achado em produção (2026-09-02, corrigido em campo)**: a documentação original assumia
+colunas `id` e `data_hora` em `movimento`, baseado só nas telas vistas antes — erradas.
+A chave primária real é **`auto`** (`int auto_increment`), e **não existe coluna de
+hora** (só `data`, tipo `DATE`) — por isso o payload de retiradas não manda `criado_em`
+(o webhook usa o horário da sincronização como aproximação). Estrutura real completa de
+`movimento` (via `SHOW COLUMNS`, banco `brtestes` de produção):
+`auto` (PK), `data`, `conta`, `cliente`, `partida`, `valor`, `es`, `historico`, `compra`,
+`usuario`, `venda`, `vendedor`, `comissão`, `recibo`, `banco`, `cheque`, `agencia`, `tipo`,
+`desconto_cheque`, `data_desconto`, `responsavel`, `comissão_resp`, `principal`, `juros`,
+`juros_calc`, `empresa`. Vale conferir contra essa lista antes de assumir outros nomes de
+coluna nesta tabela no futuro (ex: pro agente de `vendas_itens`).
 
 Mapeamento de `conta` (confirmado em produção, tabela `conta` do A7 Pharma):
 
@@ -32,7 +44,8 @@ Mapeamento de `conta` (confirmado em produção, tabela `conta` do A7 Pharma):
 | 12     | Pix                     |
 
 Payload enviado pro webhook: `formas: [{ usuario, forma_pagamento, valor }]` e
-`retiradas: [{ origem_id, valor, motivo, usuario, criado_em }]` — `usuario` em cada
+`retiradas: [{ origem_id, valor, motivo, usuario }]` (`criado_em` é opcional no schema
+e não é enviado — `movimento` não tem coluna de hora, só de data) — `usuario` em cada
 entrada, não um campo único do payload (uma sincronização cobre a loja inteira, todos
 os operadores do dia).
 
