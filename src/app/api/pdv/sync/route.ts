@@ -26,7 +26,7 @@ const FormaPagamentoValorSchema = z.object({
 
 const VendasDiariasSchema = z.object({
   data: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  formas: z.array(FormaPagamentoValorSchema).min(1),
+  formas: z.array(FormaPagamentoValorSchema).default([]),
   retiradas: z.array(RetiradaSchema).default([]),
 });
 
@@ -88,26 +88,29 @@ export async function POST(request: Request) {
     const vendas = parsed.data;
 
     // Substitui o acumulado do dia (não incrementa) — o PDV reporta o total
-    // recalculado a cada ciclo, então reenviar o mesmo valor é inofensivo.
-    const atualizadoEm = new Date().toISOString();
-    const { error: upsertError } = await supabaseAdmin
-      .from('vendas_diarias_formas_pagamento')
-      .upsert(
-        vendas.formas.map((f) => ({
-          franchise_id: device.franchise_id,
-          pdv_device_id: device.id,
-          usuario: f.usuario,
-          data_venda: vendas.data,
-          forma_pagamento: f.forma_pagamento,
-          valor: f.valor,
-          atualizado_em: atualizadoEm,
-        })),
-        { onConflict: 'franchise_id, usuario, data_venda, forma_pagamento' }
-      );
+    // recalculado a cada ciclo, então reenviar o mesmo valor é inofensivo. Pode vir
+    // vazio (ex: sincronização antes da primeira venda do dia) — nada a gravar.
+    if (vendas.formas.length > 0) {
+      const atualizadoEm = new Date().toISOString();
+      const { error: upsertError } = await supabaseAdmin
+        .from('vendas_diarias_formas_pagamento')
+        .upsert(
+          vendas.formas.map((f) => ({
+            franchise_id: device.franchise_id,
+            pdv_device_id: device.id,
+            usuario: f.usuario,
+            data_venda: vendas.data,
+            forma_pagamento: f.forma_pagamento,
+            valor: f.valor,
+            atualizado_em: atualizadoEm,
+          })),
+          { onConflict: 'franchise_id, usuario, data_venda, forma_pagamento' }
+        );
 
-    if (upsertError) {
-      console.error(`[pdv-sync:${requestId}] erro de gravação:`, upsertError.message);
-      return NextResponse.json({ error: 'FALHA_INTERNA' }, { status: 500 });
+      if (upsertError) {
+        console.error(`[pdv-sync:${requestId}] erro de gravação:`, upsertError.message);
+        return NextResponse.json({ error: 'FALHA_INTERNA' }, { status: 500 });
+      }
     }
 
     // Retiradas vêm como eventos discretos do sistema de origem (não um total
