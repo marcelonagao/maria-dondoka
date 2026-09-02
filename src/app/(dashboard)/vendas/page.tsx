@@ -34,9 +34,8 @@ interface MovimentacaoPendente {
   criado_em: string;
 }
 
-interface LinhaCaixa {
-  pdv_device_id: string;
-  device_label: string;
+interface LinhaUsuario {
+  usuario: string;
   acumulado_atualizado_em: string | null;
   proximo_esperado: { dinheiro: number; formas_informativas: FormaPagamentoValor[]; total: number } | null;
   movimentacoes_pendentes: MovimentacaoPendente[];
@@ -54,13 +53,13 @@ const formatCurrency = (value: number) =>
 export default function PrestacaoContasPage() {
   const hoje = hojeBrasilia();
   const [dataSelecionada, setDataSelecionada] = useState(hoje);
-  const [caixas, setCaixas] = useState<LinhaCaixa[]>([]);
+  const [usuarios, setUsuarios] = useState<LinhaUsuario[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
   const [valoresDigitados, setValoresDigitados] = useState<Record<string, string>>({});
   const [salvandoId, setSalvandoId] = useState<string | null>(null);
   const [expandido, setExpandido] = useState<string | null>(null);
-  const [modalCaixaId, setModalCaixaId] = useState<string | null>(null);
+  const [modalUsuario, setModalUsuario] = useState<string | null>(null);
   const [formMovimentacao, setFormMovimentacao] = useState({ tipo: 'sangria' as 'sangria' | 'suprimento', valor: '', motivo: '' });
   const [isSalvandoMovimentacao, setIsSalvandoMovimentacao] = useState(false);
   const [funcionarios, setFuncionarios] = useState<Funcionario[]>([]);
@@ -101,7 +100,7 @@ export default function PrestacaoContasPage() {
       const res = await fetch(`/api/fechamentos/contagem?data=${data}`);
       if (!res.ok) throw new Error(`status ${res.status}`);
       const json = await res.json();
-      setCaixas(json.caixas || []);
+      setUsuarios(json.caixas || []);
     } catch (err) {
       console.error('Erro ao carregar prestação de contas:', err);
       setErro('Não foi possível carregar os dados. Tente novamente.');
@@ -114,26 +113,26 @@ export default function PrestacaoContasPage() {
     carregar(dataSelecionada);
   }, [dataSelecionada]);
 
-  const handleSalvar = async (pdv_device_id: string) => {
-    const valorTexto = valoresDigitados[pdv_device_id];
+  const handleSalvar = async (usuario: string) => {
+    const valorTexto = valoresDigitados[usuario];
     const valor = parseFloat(valorTexto);
     if (isNaN(valor) || valor < 0) {
       alert('Digite um valor válido para a contagem.');
       return;
     }
 
-    setSalvandoId(pdv_device_id);
+    setSalvandoId(usuario);
     try {
-      const funcionario_id = funcionarioSelecionado[pdv_device_id] || undefined;
+      const funcionario_id = funcionarioSelecionado[usuario] || undefined;
       const res = await fetch('/api/fechamentos/contagem', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pdv_device_id, data_fechamento: dataSelecionada, valor_contado_dinheiro: valor, funcionario_id }),
+        body: JSON.stringify({ usuario, data_fechamento: dataSelecionada, valor_contado_dinheiro: valor, funcionario_id }),
       });
       if (!res.ok) throw new Error('Falha ao salvar');
       await carregar(dataSelecionada);
-      setValoresDigitados((prev) => ({ ...prev, [pdv_device_id]: '' }));
-      setFuncionarioSelecionado((prev) => ({ ...prev, [pdv_device_id]: '' }));
+      setValoresDigitados((prev) => ({ ...prev, [usuario]: '' }));
+      setFuncionarioSelecionado((prev) => ({ ...prev, [usuario]: '' }));
     } catch (err) {
       console.error(err);
       alert('Erro ao salvar a contagem. Verifique o console.');
@@ -142,9 +141,9 @@ export default function PrestacaoContasPage() {
     }
   };
 
-  const abrirModalMovimentacao = (pdv_device_id: string) => {
+  const abrirModalMovimentacao = (usuario: string) => {
     setFormMovimentacao({ tipo: 'sangria', valor: '', motivo: '' });
-    setModalCaixaId(pdv_device_id);
+    setModalUsuario(usuario);
   };
 
   const handleSalvarMovimentacao = async (e: React.FormEvent) => {
@@ -154,19 +153,19 @@ export default function PrestacaoContasPage() {
       alert('Digite um valor válido.');
       return;
     }
-    if (!modalCaixaId) return;
+    if (!modalUsuario) return;
 
     setIsSalvandoMovimentacao(true);
     try {
       const { error } = await supabase.from('movimentacoes_caixa').insert([{
-        pdv_device_id: modalCaixaId,
+        usuario: modalUsuario,
         tipo: formMovimentacao.tipo,
         valor,
         motivo: formMovimentacao.motivo,
       }]);
       if (error) throw error;
 
-      setModalCaixaId(null);
+      setModalUsuario(null);
       await carregar(dataSelecionada);
     } catch (err) {
       console.error('Erro ao registrar movimentação de caixa:', err);
@@ -176,12 +175,15 @@ export default function PrestacaoContasPage() {
     }
   };
 
+  const totalPendente = usuarios.reduce((acc, u) => acc + (u.proximo_esperado?.dinheiro || 0), 0);
+  const usuariosPendentes = usuarios.filter((u) => (u.proximo_esperado?.dinheiro || 0) > 0.005).map((u) => u.usuario);
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold text-stone-800">Prestação de Contas</h1>
-          <p className="text-stone-500 text-sm mt-1">Registre a contagem física de cada caixa. Um caixa pode ser fechado mais de uma vez no mesmo dia.</p>
+          <p className="text-stone-500 text-sm mt-1">Registre a contagem física por operador. O mesmo usuário pode fechar mais de uma vez no mesmo dia.</p>
         </div>
         <div className="flex items-center gap-3">
           <button
@@ -208,33 +210,45 @@ export default function PrestacaoContasPage() {
         </p>
       )}
 
+      {!isLoading && !erro && usuarios.length > 0 && (
+        totalPendente > 0.005 ? (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl px-6 py-4 text-amber-800 text-sm font-medium">
+            {formatCurrency(totalPendente)} ainda não conferidos hoje — pendente: {usuariosPendentes.join(', ')}
+          </div>
+        ) : (
+          <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-6 py-4 text-emerald-700 text-sm font-medium">
+            Tudo conferido hoje.
+          </div>
+        )
+      )}
+
       {erro ? (
         <div className="bg-white border border-stone-200 rounded-xl shadow-sm p-8 text-center text-red-500">{erro}</div>
       ) : isLoading ? (
         <div className="bg-white border border-stone-200 rounded-xl shadow-sm p-8 text-center text-stone-400">Carregando...</div>
-      ) : caixas.length === 0 ? (
+      ) : usuarios.length === 0 ? (
         <div className="bg-white border border-stone-200 rounded-xl shadow-sm p-8 text-center text-stone-400">
-          Nenhum caixa cadastrado. Cadastre em Configurações.
+          Nenhuma venda sincronizada para este dia.
         </div>
       ) : (
         <div className="space-y-4">
-          {caixas.map((c) => (
-            <div key={c.pdv_device_id} className="bg-white border border-stone-200 rounded-xl shadow-sm overflow-hidden">
+          {usuarios.map((u) => (
+            <div key={u.usuario} className="bg-white border border-stone-200 rounded-xl shadow-sm overflow-hidden">
               <div className="p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                  <h3 className="font-medium text-stone-800">{c.device_label}</h3>
+                  <h3 className="font-medium text-stone-800">{u.usuario}</h3>
                   <p className="text-xs text-stone-400 mt-1">
-                    {c.acumulado_atualizado_em
-                      ? `Vendas atualizadas em ${new Date(c.acumulado_atualizado_em).toLocaleTimeString('pt-BR')}`
+                    {u.acumulado_atualizado_em
+                      ? `Vendas atualizadas em ${new Date(u.acumulado_atualizado_em).toLocaleTimeString('pt-BR')}`
                       : 'Vendas ainda não sincronizadas para este dia'}
-                    {c.historico.length > 0 && ` · ${c.historico.length} fechamento(s) já registrado(s) hoje`}
+                    {u.historico.length > 0 && ` · ${u.historico.length} fechamento(s) já registrado(s) hoje`}
                   </p>
                 </div>
 
                 <div className="flex items-center gap-3">
                   <button
                     type="button"
-                    onClick={() => abrirModalMovimentacao(c.pdv_device_id)}
+                    onClick={() => abrirModalMovimentacao(u.usuario)}
                     className="px-3 py-2 border border-stone-300 text-stone-600 hover:bg-stone-50 text-sm font-medium rounded-lg transition-colors"
                   >
                     Sangria/Suprimento
@@ -242,13 +256,13 @@ export default function PrestacaoContasPage() {
                   <div className="text-right">
                     <p className="text-xs text-stone-400 uppercase tracking-wider">Dinheiro esperado</p>
                     <p className="font-semibold text-stone-800">
-                      {c.proximo_esperado ? formatCurrency(c.proximo_esperado.dinheiro) : '—'}
+                      {u.proximo_esperado ? formatCurrency(u.proximo_esperado.dinheiro) : '—'}
                     </p>
                   </div>
                   {funcionarios.length > 0 && (
                     <select
-                      value={funcionarioSelecionado[c.pdv_device_id] || ''}
-                      onChange={(e) => setFuncionarioSelecionado((prev) => ({ ...prev, [c.pdv_device_id]: e.target.value }))}
+                      value={funcionarioSelecionado[u.usuario] || ''}
+                      onChange={(e) => setFuncionarioSelecionado((prev) => ({ ...prev, [u.usuario]: e.target.value }))}
                       className="px-3 py-2 border border-stone-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-400 outline-none bg-white text-stone-700"
                     >
                       <option value="">Quem está fechando?</option>
@@ -261,24 +275,24 @@ export default function PrestacaoContasPage() {
                     type="number"
                     step="0.01"
                     placeholder="Valor contado"
-                    disabled={!c.proximo_esperado || c.proximo_esperado.dinheiro === 0}
-                    value={valoresDigitados[c.pdv_device_id] || ''}
-                    onChange={(e) => setValoresDigitados((prev) => ({ ...prev, [c.pdv_device_id]: e.target.value }))}
+                    disabled={!u.proximo_esperado || u.proximo_esperado.dinheiro === 0}
+                    value={valoresDigitados[u.usuario] || ''}
+                    onChange={(e) => setValoresDigitados((prev) => ({ ...prev, [u.usuario]: e.target.value }))}
                     className="w-32 px-3 py-2 border border-stone-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-400 outline-none disabled:bg-stone-50 disabled:text-stone-300"
                   />
                   <button
-                onClick={() => handleSalvar(c.pdv_device_id)}
-                disabled={!c.proximo_esperado || c.proximo_esperado.dinheiro === 0 || salvandoId === c.pdv_device_id}
+                onClick={() => handleSalvar(u.usuario)}
+                disabled={!u.proximo_esperado || u.proximo_esperado.dinheiro === 0 || salvandoId === u.usuario}
                 className="px-4 py-2 bg-stone-900 hover:bg-stone-800 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                    {salvandoId === c.pdv_device_id ? 'Salvando...' : 'Fechar Caixa'}
+                    {salvandoId === u.usuario ? 'Salvando...' : 'Fechar Caixa'}
                   </button>
                 </div>
               </div>
 
-              {c.proximo_esperado && c.proximo_esperado.formas_informativas.some((f) => f.valor !== 0) && (
+              {u.proximo_esperado && u.proximo_esperado.formas_informativas.some((f) => f.valor !== 0) && (
                 <div className="px-6 pb-4 -mt-2 flex flex-wrap gap-2">
-                  {c.proximo_esperado.formas_informativas
+                  {u.proximo_esperado.formas_informativas
                     .filter((f) => f.valor !== 0)
                     .map((f) => (
                       <span key={f.forma_pagamento} className="text-xs bg-stone-50 text-stone-500 rounded-lg px-3 py-1.5">
@@ -288,9 +302,9 @@ export default function PrestacaoContasPage() {
                 </div>
               )}
 
-              {c.movimentacoes_pendentes.length > 0 && (
+              {u.movimentacoes_pendentes.length > 0 && (
                 <div className="px-6 pb-4 -mt-2 space-y-1.5">
-                  {c.movimentacoes_pendentes.map((m) => (
+                  {u.movimentacoes_pendentes.map((m) => (
                     <div key={m.id} className="flex items-center justify-between text-xs bg-stone-50 rounded-lg px-3 py-2">
                       <span className="text-stone-600">
                         <span className={m.tipo === 'sangria' ? 'text-red-600 font-medium' : 'text-emerald-600 font-medium'}>
@@ -306,15 +320,15 @@ export default function PrestacaoContasPage() {
                 </div>
               )}
 
-              {c.historico.length > 0 && (
+              {u.historico.length > 0 && (
                 <div className="border-t border-stone-100">
                   <button
-                    onClick={() => setExpandido(expandido === c.pdv_device_id ? null : c.pdv_device_id)}
+                    onClick={() => setExpandido(expandido === u.usuario ? null : u.usuario)}
                     className="w-full px-6 py-3 text-xs text-stone-500 hover:bg-stone-50 transition-colors text-left"
                   >
-                    {expandido === c.pdv_device_id ? '▾' : '▸'} Ver fechamentos de hoje
+                    {expandido === u.usuario ? '▾' : '▸'} Ver fechamentos de hoje
                   </button>
-                  {expandido === c.pdv_device_id && (
+                  {expandido === u.usuario && (
                     <table className="w-full text-left text-sm text-stone-600">
                       <thead className="bg-stone-50 text-stone-500 uppercase text-xs">
                         <tr>
@@ -326,7 +340,7 @@ export default function PrestacaoContasPage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-stone-100">
-                        {c.historico.map((h) => {
+                        {u.historico.map((h) => {
                           const outrasFormas = h.formas.filter((f) => f.forma_pagamento !== 'dinheiro' && f.valor_esperado !== 0);
                           return (
                             <React.Fragment key={h.id}>
@@ -359,12 +373,12 @@ export default function PrestacaoContasPage() {
         </div>
       )}
 
-      {modalCaixaId && (
+      {modalUsuario && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/50 backdrop-blur-sm">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
             <div className="flex justify-between items-center p-6 border-b border-stone-100">
-              <h2 className="text-lg font-semibold text-stone-800">Sangria / Suprimento</h2>
-              <button onClick={() => setModalCaixaId(null)} className="text-stone-400 hover:text-stone-600">✕</button>
+              <h2 className="text-lg font-semibold text-stone-800">Sangria / Suprimento — {modalUsuario}</h2>
+              <button onClick={() => setModalUsuario(null)} className="text-stone-400 hover:text-stone-600">✕</button>
             </div>
 
             <form onSubmit={handleSalvarMovimentacao} className="p-6 space-y-4">
@@ -408,7 +422,7 @@ export default function PrestacaoContasPage() {
               <div className="pt-4 flex gap-3">
                 <button
                   type="button"
-                  onClick={() => setModalCaixaId(null)}
+                  onClick={() => setModalUsuario(null)}
                   className="flex-1 px-4 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-lg font-medium transition-colors"
                 >
                   Cancelar

@@ -14,10 +14,12 @@ const RetiradaSchema = z.object({
   origem_id: z.string().min(1),
   valor: z.number().positive(),
   motivo: z.string().min(1),
+  usuario: z.string().min(1),
   criado_em: z.string().optional(),
 });
 
 const FormaPagamentoValorSchema = z.object({
+  usuario: z.string().min(1),
   forma_pagamento: z.enum(FORMAS_PAGAMENTO),
   valor: z.number().nonnegative(),
 });
@@ -94,12 +96,13 @@ export async function POST(request: Request) {
         vendas.formas.map((f) => ({
           franchise_id: device.franchise_id,
           pdv_device_id: device.id,
+          usuario: f.usuario,
           data_venda: vendas.data,
           forma_pagamento: f.forma_pagamento,
           valor: f.valor,
           atualizado_em: atualizadoEm,
         })),
-        { onConflict: 'franchise_id, pdv_device_id, data_venda, forma_pagamento' }
+        { onConflict: 'franchise_id, usuario, data_venda, forma_pagamento' }
       );
 
     if (upsertError) {
@@ -117,6 +120,7 @@ export async function POST(request: Request) {
           vendas.retiradas.map((r) => ({
             franchise_id: device.franchise_id,
             pdv_device_id: device.id,
+            usuario: r.usuario,
             tipo: 'sangria',
             valor: r.valor,
             motivo: r.motivo,

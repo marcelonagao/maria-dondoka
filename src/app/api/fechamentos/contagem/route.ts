@@ -18,7 +18,7 @@ function acumularPorForma(linhas: { forma_pagamento: string; valor: number }[]):
 }
 
 // Sangria/suprimento só afetam o dinheiro físico da gaveta — as demais formas não têm gaveta.
-function somarMovimentacoesPendentes(movimentacoes: { tipo: string; valor: number }[]) {
+function somarMovimentacoes(movimentacoes: { tipo: string; valor: number }[]) {
   return movimentacoes.reduce(
     (acc, m) => {
       if (m.tipo === 'sangria') return { ...acc, sangrias: acc.sangrias + Number(m.valor) };
@@ -29,17 +29,30 @@ function somarMovimentacoesPendentes(movimentacoes: { tipo: string; valor: numbe
   );
 }
 
+// jaReconciliado precisa refletir o valor BRUTO (antes de sangria/suprimento) já fechado,
+// não só o valor_esperado registrado no fechamento — senão o efeito da sangria "some" do
+// lado do acumulado mas nunca é somado de volta aqui, e o resíduo (= valor da sangria)
+// fica pendente pra sempre em todo cálculo futuro, mesmo com o caixa já batido. Por isso
+// somamos de volta a sangria/suprimento que cada fechamento passado já reconciliou.
 function calcularEsperadoPorForma(
   acumulado: Map<string, number>,
-  jaReconciliado: Map<string, number>,
-  sangrias: number,
-  suprimentos: number
+  jaReconciliadoBase: Map<string, number>,
+  sangriaReconciliadaAnteriormente: number,
+  suprimentoReconciliadoAnteriormente: number,
+  sangriasPendentes: number,
+  suprimentosPendentes: number
 ): Map<string, number> {
+  const jaReconciliado = new Map(jaReconciliadoBase);
+  const ajusteHistorico = sangriaReconciliadaAnteriormente - suprimentoReconciliadoAnteriormente;
+  if (ajusteHistorico !== 0) {
+    jaReconciliado.set('dinheiro', (jaReconciliado.get('dinheiro') || 0) + ajusteHistorico);
+  }
+
   const formas = new Set(Array.from(acumulado.keys()).concat(Array.from(jaReconciliado.keys())));
   const esperado = new Map<string, number>();
   formas.forEach((forma) => {
-    const ajuste = forma === 'dinheiro' ? sangrias - suprimentos : 0;
-    esperado.set(forma, (acumulado.get(forma) || 0) - (jaReconciliado.get(forma) || 0) - ajuste);
+    const ajustePendente = forma === 'dinheiro' ? sangriasPendentes - suprimentosPendentes : 0;
+    esperado.set(forma, (acumulado.get(forma) || 0) - (jaReconciliado.get(forma) || 0) - ajustePendente);
   });
   return esperado;
 }
@@ -52,24 +65,16 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const data = searchParams.get('data') || new Date().toISOString().slice(0, 10);
 
-    const { data: caixas, error: caixasError } = await supabaseAdmin
-      .from('pdv_devices')
-      .select('id, device_label')
-      .eq('franchise_id', perfil.franchiseId)
-      .eq('is_active', true)
-      .order('device_label');
-    if (caixasError) throw new Error(`pdv_devices: ${JSON.stringify(caixasError)}`);
-
     const { data: acumulados, error: acumuladosError } = await supabaseAdmin
       .from('vendas_diarias_formas_pagamento')
-      .select('pdv_device_id, forma_pagamento, valor, atualizado_em')
+      .select('usuario, forma_pagamento, valor, atualizado_em')
       .eq('franchise_id', perfil.franchiseId)
       .eq('data_venda', data);
     if (acumuladosError) throw new Error(`vendas_diarias_formas_pagamento: ${JSON.stringify(acumuladosError)}`);
 
     const { data: fechamentos, error: fechamentosError } = await supabaseAdmin
       .from('fechamentos_caixa')
-      .select('id, pdv_device_id, contado_em, funcionario_id')
+      .select('id, usuario, contado_em, funcionario_id')
       .eq('franchise_id', perfil.franchiseId)
       .eq('data_fechamento', data)
       .order('contado_em', { ascending: true });
@@ -91,15 +96,22 @@ export async function GET(request: Request) {
     if (funcionariosError) throw new Error(`funcionarios: ${JSON.stringify(funcionariosError)}`);
     const nomePorFuncionario = new Map((funcionarios || []).map((f) => [f.id, f.nome]));
 
-    const caixaIds = (caixas || []).map((c) => c.id);
-    const { data: movimentacoesPendentes, error: movimentacoesError } = caixaIds.length
-      ? await supabaseAdmin
-          .from('movimentacoes_caixa')
-          .select('id, pdv_device_id, tipo, valor, motivo, criado_em')
-          .in('pdv_device_id', caixaIds)
-          .is('fechamento_id', null)
-      : { data: [], error: null };
+    // Pendentes (ainda não fechadas) + as que já foram reconciliadas por um fechamento de
+    // HOJE (necessário pra jaReconciliado poder somar essa sangria/suprimento de volta —
+    // ver calcularEsperadoPorForma). Movimentações reconciliadas em dias anteriores não
+    // entram, já que não afetam o cálculo de hoje.
+    const filtroMovimentacoes = fechamentoIds.length
+      ? `fechamento_id.is.null,fechamento_id.in.(${fechamentoIds.join(',')})`
+      : 'fechamento_id.is.null';
+    const { data: movimentacoesRelevantes, error: movimentacoesError } = await supabaseAdmin
+      .from('movimentacoes_caixa')
+      .select('id, usuario, tipo, valor, motivo, criado_em, fechamento_id')
+      .eq('franchise_id', perfil.franchiseId)
+      .or(filtroMovimentacoes);
     if (movimentacoesError) throw new Error(`movimentacoes_caixa: ${JSON.stringify(movimentacoesError)}`);
+
+    const movimentacoesPendentes = (movimentacoesRelevantes || []).filter((m) => m.fechamento_id === null);
+    const movimentacoesReconciliadas = (movimentacoesRelevantes || []).filter((m) => m.fechamento_id !== null);
 
     const formasPorFechamento = new Map<string, typeof formasFechamentos>();
     for (const f of formasFechamentos || []) {
@@ -108,58 +120,65 @@ export async function GET(request: Request) {
       formasPorFechamento.set(f.fechamento_id, lista);
     }
 
-    const acumuladoPorCaixa = new Map<string, { forma_pagamento: string; valor: number }[]>();
-    const atualizadoEmPorCaixa = new Map<string, string>();
+    const acumuladoPorUsuario = new Map<string, { forma_pagamento: string; valor: number }[]>();
+    const atualizadoEmPorUsuario = new Map<string, string>();
     for (const a of acumulados || []) {
-      const lista = acumuladoPorCaixa.get(a.pdv_device_id) || [];
+      const lista = acumuladoPorUsuario.get(a.usuario) || [];
       lista.push({ forma_pagamento: a.forma_pagamento, valor: Number(a.valor) });
-      acumuladoPorCaixa.set(a.pdv_device_id, lista);
-      const atual = atualizadoEmPorCaixa.get(a.pdv_device_id);
-      if (!atual || a.atualizado_em > atual) atualizadoEmPorCaixa.set(a.pdv_device_id, a.atualizado_em);
+      acumuladoPorUsuario.set(a.usuario, lista);
+      const atual = atualizadoEmPorUsuario.get(a.usuario);
+      if (!atual || a.atualizado_em > atual) atualizadoEmPorUsuario.set(a.usuario, a.atualizado_em);
     }
 
-    const fechamentosPorCaixa = new Map<string, typeof fechamentos>();
+    const fechamentosPorUsuario = new Map<string, typeof fechamentos>();
     for (const f of fechamentos || []) {
-      const lista = fechamentosPorCaixa.get(f.pdv_device_id) || [];
+      const lista = fechamentosPorUsuario.get(f.usuario) || [];
       lista.push(f);
-      fechamentosPorCaixa.set(f.pdv_device_id, lista);
+      fechamentosPorUsuario.set(f.usuario, lista);
     }
-    const movimentacoesPorCaixa = new Map<string, typeof movimentacoesPendentes>();
-    for (const m of movimentacoesPendentes || []) {
-      const lista = movimentacoesPorCaixa.get(m.pdv_device_id) || [];
+    const movimentacoesPorUsuario = new Map<string, typeof movimentacoesPendentes>();
+    for (const m of movimentacoesPendentes) {
+      const lista = movimentacoesPorUsuario.get(m.usuario) || [];
       lista.push(m);
-      movimentacoesPorCaixa.set(m.pdv_device_id, lista);
+      movimentacoesPorUsuario.set(m.usuario, lista);
+    }
+    const movimentacoesReconciliadasPorUsuario = new Map<string, typeof movimentacoesReconciliadas>();
+    for (const m of movimentacoesReconciliadas) {
+      const lista = movimentacoesReconciliadasPorUsuario.get(m.usuario) || [];
+      lista.push(m);
+      movimentacoesReconciliadasPorUsuario.set(m.usuario, lista);
     }
 
-    const resultado = (caixas || []).map((c) => {
-      const acumuladoLinhas = acumuladoPorCaixa.get(c.id) || [];
+    const usuarios = Array.from(acumuladoPorUsuario.keys()).sort();
+
+    const resultado = usuarios.map((usuario) => {
+      const acumuladoLinhas = acumuladoPorUsuario.get(usuario) || [];
       const acumuladoMapa = acumularPorForma(acumuladoLinhas);
-      const historico = fechamentosPorCaixa.get(c.id) || [];
+      const historico = fechamentosPorUsuario.get(usuario) || [];
 
       const jaReconciliadoLinhas = historico.flatMap((f: any) =>
         (formasPorFechamento.get(f.id) || []).map((ff: any) => ({ forma_pagamento: ff.forma_pagamento, valor: Number(ff.valor_esperado) }))
       );
       const jaReconciliadoMapa = acumularPorForma(jaReconciliadoLinhas);
 
-      const pendentes = movimentacoesPorCaixa.get(c.id) || [];
-      const { sangrias, suprimentos } = somarMovimentacoesPendentes(pendentes as any);
+      const pendentes = movimentacoesPorUsuario.get(usuario) || [];
+      const { sangrias, suprimentos } = somarMovimentacoes(pendentes as any);
+      const reconciliadas = movimentacoesReconciliadasPorUsuario.get(usuario) || [];
+      const { sangrias: sangriasReconciliadas, suprimentos: suprimentosReconciliados } = somarMovimentacoes(reconciliadas as any);
 
-      let proximoEsperado: { dinheiro: number; formas_informativas: { forma_pagamento: string; valor: number }[]; total: number } | null = null;
-      if (acumuladoLinhas.length > 0) {
-        const esperadoPorForma = calcularEsperadoPorForma(acumuladoMapa, jaReconciliadoMapa, sangrias, suprimentos);
-        const dinheiro = esperadoPorForma.get('dinheiro') || 0;
-        const formasInformativas = Array.from(esperadoPorForma.entries())
-          .filter(([forma]) => forma !== 'dinheiro')
-          .map(([forma_pagamento, valor]) => ({ forma_pagamento, valor }));
-        const total = Array.from(esperadoPorForma.values()).reduce((acc, v) => acc + v, 0);
-        proximoEsperado = { dinheiro, formas_informativas: formasInformativas, total };
-      }
+      const esperadoPorForma = calcularEsperadoPorForma(
+        acumuladoMapa, jaReconciliadoMapa, sangriasReconciliadas, suprimentosReconciliados, sangrias, suprimentos
+      );
+      const dinheiro = esperadoPorForma.get('dinheiro') || 0;
+      const formasInformativas = Array.from(esperadoPorForma.entries())
+        .filter(([forma]) => forma !== 'dinheiro')
+        .map(([forma_pagamento, valor]) => ({ forma_pagamento, valor }));
+      const total = Array.from(esperadoPorForma.values()).reduce((acc, v) => acc + v, 0);
 
       return {
-        pdv_device_id: c.id,
-        device_label: c.device_label,
-        acumulado_atualizado_em: atualizadoEmPorCaixa.get(c.id) || null,
-        proximo_esperado: proximoEsperado,
+        usuario,
+        acumulado_atualizado_em: atualizadoEmPorUsuario.get(usuario) || null,
+        proximo_esperado: { dinheiro, formas_informativas: formasInformativas, total },
         movimentacoes_pendentes: pendentes.map((m: any) => ({
           id: m.id,
           tipo: m.tipo,
@@ -197,7 +216,7 @@ export async function GET(request: Request) {
 }
 
 const ContagemSchema = z.object({
-  pdv_device_id: z.string().uuid(),
+  usuario: z.string().min(1),
   data_fechamento: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   valor_contado_dinheiro: z.number().nonnegative(),
   funcionario_id: z.string().uuid().optional(),
@@ -211,15 +230,7 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: 'DADOS_INVALIDOS', detalhe: parsed.error.flatten() }, { status: 400 });
   }
-  const { pdv_device_id, data_fechamento, valor_contado_dinheiro, funcionario_id } = parsed.data;
-
-  const { data: dispositivo } = await supabaseAdmin
-    .from('pdv_devices')
-    .select('id')
-    .eq('id', pdv_device_id)
-    .eq('franchise_id', perfil.franchiseId)
-    .maybeSingle();
-  if (!dispositivo) return NextResponse.json({ error: 'CAIXA_NAO_ENCONTRADO' }, { status: 404 });
+  const { usuario, data_fechamento, valor_contado_dinheiro, funcionario_id } = parsed.data;
 
   // Recalcula o esperado no servidor, no momento do envio — nunca confia em valor vindo do cliente.
   const [{ data: acumulado }, { data: fechamentosAnteriores }, { data: movimentacoesPendentes }] = await Promise.all([
@@ -227,20 +238,29 @@ export async function POST(request: Request) {
       .from('vendas_diarias_formas_pagamento')
       .select('forma_pagamento, valor')
       .eq('franchise_id', perfil.franchiseId)
-      .eq('pdv_device_id', pdv_device_id)
+      .eq('usuario', usuario)
       .eq('data_venda', data_fechamento),
     supabaseAdmin
       .from('fechamentos_caixa')
       .select('id, fechamentos_formas_pagamento(forma_pagamento, valor_esperado)')
       .eq('franchise_id', perfil.franchiseId)
-      .eq('pdv_device_id', pdv_device_id)
+      .eq('usuario', usuario)
       .eq('data_fechamento', data_fechamento),
     supabaseAdmin
       .from('movimentacoes_caixa')
       .select('id, tipo, valor')
-      .eq('pdv_device_id', pdv_device_id)
+      .eq('franchise_id', perfil.franchiseId)
+      .eq('usuario', usuario)
       .is('fechamento_id', null),
   ]);
+
+  const fechamentoIdsAnteriores = (fechamentosAnteriores || []).map((f: any) => f.id);
+  const { data: movimentacoesReconciliadas } = fechamentoIdsAnteriores.length
+    ? await supabaseAdmin
+        .from('movimentacoes_caixa')
+        .select('tipo, valor')
+        .in('fechamento_id', fechamentoIdsAnteriores)
+    : { data: [] };
 
   const acumuladoMapa = acumularPorForma(
     (acumulado || []).map((a: any) => ({ forma_pagamento: a.forma_pagamento, valor: Number(a.valor) }))
@@ -249,15 +269,18 @@ export async function POST(request: Request) {
     (f.fechamentos_formas_pagamento || []).map((ff: any) => ({ forma_pagamento: ff.forma_pagamento, valor: Number(ff.valor_esperado) }))
   );
   const jaReconciliadoMapa = acumularPorForma(jaReconciliadoLinhas);
-  const { sangrias, suprimentos } = somarMovimentacoesPendentes((movimentacoesPendentes || []) as any);
-  const esperadoPorForma = calcularEsperadoPorForma(acumuladoMapa, jaReconciliadoMapa, sangrias, suprimentos);
+  const { sangrias, suprimentos } = somarMovimentacoes((movimentacoesPendentes || []) as any);
+  const { sangrias: sangriasReconciliadas, suprimentos: suprimentosReconciliados } = somarMovimentacoes((movimentacoesReconciliadas || []) as any);
+  const esperadoPorForma = calcularEsperadoPorForma(
+    acumuladoMapa, jaReconciliadoMapa, sangriasReconciliadas, suprimentosReconciliados, sangrias, suprimentos
+  );
   const esperadoDinheiro = esperadoPorForma.get('dinheiro') || 0;
 
   const { data: novoFechamento, error } = await supabaseAdmin
     .from('fechamentos_caixa')
     .insert({
       franchise_id: perfil.franchiseId,
-      pdv_device_id,
+      usuario,
       data_fechamento,
       pdv_referencia_id: crypto.randomUUID(), // legado — remover quando o agente for reescrito
       valor_esperado: esperadoDinheiro,
