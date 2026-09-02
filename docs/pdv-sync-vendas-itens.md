@@ -49,16 +49,18 @@ e não é enviado — `movimento` não tem coluna de hora, só de data) — `usu
 entrada, não um campo único do payload (uma sincronização cobre a loja inteira, todos
 os operadores do dia).
 
-## Vendas granulares (para `vendas_itens`) — não implementado
+## Vendas granulares (`vendas_itens`) — implementado (2026-09-02)
 
-**Status: não implementado.** Só registra a query de referência pro futuro agente de
-sincronização granular por produto. Bloqueado até termos um servidor com IP fixo
-provisionado (mesma limitação que já bloqueou o agente original, resolvida na época
-rodando o PHP dentro do próprio hosting Locaweb — aqui a leitura é mais pesada, então
-a abordagem de sync pode precisar ser revisitada).
+`/api/pdv/sync` aceita um campo `itens` no payload (opcional, default `[]`), gravado em
+`vendas_itens` via `service_role` (sem policy de INSERT para `authenticated`). Schema real
+de `movprods`/`produtos` confirmado em produção via `SHOW COLUMNS` — a query de referência
+abaixo já estava correta desde a versão anterior desta doc, sem ajustes necessários (ao
+contrário de `movimento`). Chave primária real de `movprods` também é `auto` (mesma
+pegadinha de `movimento`), agora capturada em `vendas_itens.origem_id` para rastreabilidade.
 
 ```sql
 SELECT
+  mp.auto,
   mp.data,
   SUBSTRING_INDEX(SUBSTRING_INDEX(mp.historico, 'vd:', -1), ' ', 1) AS venda_referencia,
   mp.produto AS produto_codigo_pdv,
@@ -69,22 +71,31 @@ SELECT
   mp.vlr_total AS valor_total,
   mp.custo AS custo_unitario,
   p.icm AS aliquota_icm,
-  mp.usuario
+  mp.usuario,
+  mp.vendedor
 FROM movprods mp
 LEFT JOIN produtos p ON p.codigo = mp.produto
 WHERE mp.es = 'S'
   AND mp.historico LIKE 'Saida vd:%'
   AND (mp.cancelado IS NULL OR mp.cancelado = 0)
-  AND mp.data = CURDATE(); -- ajustar para o período de sincronização real
+  AND mp.data = ?; -- CURDATE() na sincronização diária; dia específico no backfill
 ```
 
-Mapeamento pra `vendas_itens`: `data` → `data_venda`, `produto_codigo_pdv` → `produto_codigo_pdv`,
-`p.referencia` → `produto_sku` (se o produto já estiver mapeado no nosso catálogo),
-`mp.custo`/`cmedio` → `custo_unitario` (custo histórico no momento da venda, não o custo
-atual), `mp.usuario` → `usuario` (coluna já existe na tabela, informativo).
+Mapeamento pra `vendas_itens`: `mp.auto` → `origem_id`, `data` → `data_venda`,
+`produto_codigo_pdv` → `produto_codigo_pdv`, `p.referencia` → `produto_sku`, `mp.custo` →
+`custo_unitario` (custo histórico no momento da venda, não o custo atual), `mp.usuario` →
+`usuario` (rastreio, mesmo padrão de `formas`/`retiradas`), `mp.vendedor` → `vendedor`
+(campo distinto de `usuario`, ambos existem em `movprods`).
 
-## Quando o agente de `vendas_itens` for construído
+Payload: `itens: [{ venda_referencia, produto_codigo_pdv, produto_sku, marca, quantidade,
+valor_unitario, valor_total, custo_unitario, aliquota_icm, usuario, vendedor, origem_id }]`.
 
-Vai usar exatamente os filtros e mapeamentos acima, por franquia (cada franquia tem
-seu próprio banco/credenciais MySQL). A escrita em `vendas_itens` deve ser feita via
-`service_role` (sem policy de INSERT para `authenticated` nesta tabela).
+**Sincronização diária**: `pdv-sync-locaweb-producao.php` roda essa query com `CURDATE()`
+e inclui `itens` no mesmo payload de `formas`/`retiradas` — uma chamada só.
+
+**Backfill histórico**: `pdv-backfill-vendas-itens.php`, script separado, disparado
+manualmente (visita direta à URL, não Netscheduler — evita o limite de 30s do agendador).
+Aceita `?mes=YYYY-MM&chave=...`, itera dia a dia dentro do mês e manda um payload por dia
+(`formas: [], retiradas: [], itens: [...]`) pro mesmo webhook. Rodar uma vez por mês
+(Jan–Ago/26), conferindo o DRE entre uma execução e outra — reexecutar o mesmo mês duplica
+as linhas (sem constraint única em `vendas_itens`).

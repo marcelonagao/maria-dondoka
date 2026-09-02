@@ -24,10 +24,26 @@ const FormaPagamentoValorSchema = z.object({
   valor: z.number().nonnegative(),
 });
 
+const ItemVendaSchema = z.object({
+  venda_referencia: z.string().min(1),
+  produto_codigo_pdv: z.string().min(1),
+  produto_sku: z.string().optional(),
+  marca: z.string().optional(),
+  quantidade: z.number(),
+  valor_unitario: z.number(),
+  valor_total: z.number(),
+  custo_unitario: z.number(),
+  aliquota_icm: z.number().optional(),
+  usuario: z.string().optional(),
+  vendedor: z.string().optional(),
+  origem_id: z.string().optional(),
+});
+
 const VendasDiariasSchema = z.object({
   data: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   formas: z.array(FormaPagamentoValorSchema).default([]),
   retiradas: z.array(RetiradaSchema).default([]),
+  itens: z.array(ItemVendaSchema).default([]),
 });
 
 function sha256Hex(input: string) {
@@ -135,6 +151,37 @@ export async function POST(request: Request) {
 
       if (retiradasError) {
         console.error(`[pdv-sync:${requestId}] erro ao gravar retiradas:`, retiradasError.message);
+      }
+    }
+
+    // Itens de venda são eventos discretos (uma linha por produto vendido), não um
+    // acumulado — cada sincronização insere as linhas do período recebido. Sem
+    // constraint única (o mesmo evento não deve ser reenviado por dois ciclos
+    // diferentes, já que a query de origem filtra por dia); reenvio do mesmo dia
+    // duplica, por isso o backfill histórico roda uma vez por mês/dia, não solto.
+    if (vendas.itens.length > 0) {
+      const { error: itensError } = await supabaseAdmin.from('vendas_itens').insert(
+        vendas.itens.map((item) => ({
+          franchise_id: device.franchise_id,
+          pdv_device_id: device.id,
+          data_venda: vendas.data,
+          venda_referencia: item.venda_referencia,
+          produto_codigo_pdv: item.produto_codigo_pdv,
+          produto_sku: item.produto_sku,
+          marca: item.marca,
+          quantidade: item.quantidade,
+          valor_unitario: item.valor_unitario,
+          valor_total: item.valor_total,
+          custo_unitario: item.custo_unitario,
+          aliquota_icm: item.aliquota_icm,
+          usuario: item.usuario,
+          vendedor: item.vendedor,
+          origem_id: item.origem_id,
+        }))
+      );
+
+      if (itensError) {
+        console.error(`[pdv-sync:${requestId}] erro ao gravar itens de venda:`, itensError.message);
       }
     }
 
