@@ -687,32 +687,20 @@ export default function ContasPagarPage() {
               </div>
 
               {!despesaEditando && (
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-stone-700 mb-1">Documento de origem (opcional)</label>
-                    <input
-                      type="text"
-                      className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
-                      value={documentoOrigem}
-                      onChange={(e) => setDocumentoOrigem(e.target.value)}
-                      placeholder="Ex: NF 12345"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-stone-700 mb-1">Parcelar em</label>
-                    <input
-                      type="number"
-                      min={1}
-                      className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
-                      value={parcelarEm}
-                      onChange={(e) => handleParcelarEmChange(e.target.value)}
-                    />
-                  </div>
+                <div>
+                  <label className="block text-sm font-medium text-stone-700 mb-1">Documento de origem (opcional)</label>
+                  <input
+                    type="text"
+                    className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+                    value={documentoOrigem}
+                    onChange={(e) => setDocumentoOrigem(e.target.value)}
+                    placeholder="Ex: NF 12345"
+                  />
                 </div>
               )}
 
-              {/* Parcelar em = 1 (padrão) ou editando: exatamente o Valor+Vencimento de sempre. */}
-              {parcelarEm === 1 ? (
+              {despesaEditando ? (
+                // Editando: exatamente o Valor+Vencimento de sempre, sem parcelamento.
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-stone-700 mb-1">Valor (R$)</label>
@@ -739,48 +727,78 @@ export default function ContasPagarPage() {
                 </div>
               ) : (
                 <>
-                  <div>
-                    <label className="block text-sm font-medium text-stone-700 mb-1">Valor total da nota (R$)</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      required
-                      className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
-                      value={formData.amount}
-                      onChange={e => setFormData({...formData, amount: e.target.value})}
-                      placeholder="0.00"
-                    />
+                  {/* Valor e "Parcelar em" sempre juntos, nessa ordem — parcelas dependem do
+                      valor total, então o valor precisa vir preenchido antes de escolher N. */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-stone-700 mb-1">
+                        {parcelarEm > 1 ? 'Valor total da nota (R$)' : 'Valor (R$)'}
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        required
+                        className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+                        value={formData.amount}
+                        onChange={e => setFormData({...formData, amount: e.target.value})}
+                        placeholder="0.00"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-stone-700 mb-1">Parcelar em</label>
+                      <input
+                        type="number"
+                        min={1}
+                        className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+                        value={parcelarEm}
+                        onChange={(e) => handleParcelarEmChange(e.target.value)}
+                      />
+                    </div>
                   </div>
-                  <div className="space-y-3">
-                    {parcelas.map((p, i) => (
-                      <div key={i} className="p-3 bg-stone-50 rounded-lg border border-stone-200">
-                        <p className="text-xs font-medium text-stone-500 mb-2">Parcela {i + 1} de {parcelas.length}</p>
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-xs text-stone-600 mb-1">Vencimento</label>
-                            <input
-                              type="date"
-                              required
-                              className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none text-stone-700 text-sm"
-                              value={p.vencimento}
-                              onChange={(e) => atualizarParcela(i, 'vencimento', e.target.value)}
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs text-stone-600 mb-1">Valor (R$)</label>
-                            <input
-                              type="number"
-                              step="0.01"
-                              required
-                              className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none text-sm"
-                              value={p.valor}
-                              onChange={(e) => atualizarParcela(i, 'valor', e.target.value)}
-                            />
+
+                  {parcelarEm === 1 ? (
+                    <div>
+                      <label className="block text-sm font-medium text-stone-700 mb-1">Vencimento</label>
+                      <input
+                        type="date"
+                        required
+                        className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none text-stone-700"
+                        value={formData.due_date}
+                        onChange={e => setFormData({...formData, due_date: e.target.value})}
+                      />
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {parcelas.map((p, i) => (
+                        <div key={i} className="p-3 bg-stone-50 rounded-lg border border-stone-200">
+                          <p className="text-xs font-medium text-stone-500 mb-2">Parcela {i + 1} de {parcelas.length}</p>
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-xs text-stone-600 mb-1">Vencimento</label>
+                              <input
+                                type="date"
+                                required
+                                className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none text-stone-700 text-sm"
+                                value={p.vencimento}
+                                onChange={(e) => atualizarParcela(i, 'vencimento', e.target.value)}
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs text-stone-600 mb-1">Valor (R$)</label>
+                              <input
+                                type="number"
+                                step="0.01"
+                                required
+                                className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none text-sm"
+                                value={p.valor}
+                                onChange={(e) => atualizarParcela(i, 'valor', e.target.value)}
+                              />
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  )}
                 </>
               )}
 
