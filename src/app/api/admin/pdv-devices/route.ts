@@ -31,7 +31,7 @@ async function getAdminProfile() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('franchise_id, role, pode_lancar_para_outras_franquias')
+    .select('franchise_id, role, is_socio, pode_lancar_para_outras_franquias')
     .eq('id', user.id)
     .maybeSingle();
 
@@ -75,7 +75,7 @@ export async function POST(request: Request) {
   // que ela mesma não pertence — só permitido pra quem pode lançar/atuar por outras franquias.
   let franchiseId: string;
   if (parsed.data.franchise_id) {
-    if (!profile.pode_lancar_para_outras_franquias) {
+    if (!profile.is_socio && !profile.pode_lancar_para_outras_franquias) {
       return NextResponse.json({ error: 'NAO_AUTORIZADO' }, { status: 403 });
     }
     franchiseId = parsed.data.franchise_id;
