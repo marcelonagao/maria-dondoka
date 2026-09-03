@@ -13,10 +13,21 @@ export default function DefinirSenhaPage() {
   const router = useRouter();
 
   useEffect(() => {
-    // O link de convite/redefinição carrega o token no hash da URL (#access_token=...) —
-    // o client do Supabase processa isso sozinho ao carregar (detectSessionInUrl), de
-    // forma assíncrona. Escuta o evento em vez de só checar getSession() uma vez, pra não
-    // correr risco de checar antes do hash ter sido processado.
+    // Dois formatos de link possíveis: o antigo carrega o token no hash da URL
+    // (#access_token=...), que o client do Supabase processa sozinho ao carregar
+    // (detectSessionInUrl); o fluxo PKCE (padrão do @supabase/ssr, usado neste projeto
+    // pro middleware baseado em cookies) manda em vez disso um "?code=..." na query, que
+    // precisa ser trocado por sessão explicitamente via exchangeCodeForSession.
+    const code = new URL(window.location.href).searchParams.get('code');
+    if (code) {
+      supabase.auth.exchangeCodeForSession(code).then(({ data, error }) => {
+        if (data.session) setSessaoValida(true);
+        else if (error) console.error('Erro ao trocar código por sessão:', error.message);
+      });
+    }
+
+    // Escuta o evento em vez de só checar getSession() uma vez, pra não correr risco de
+    // checar antes do hash/código ter sido processado.
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session) setSessaoValida(true);
     });
