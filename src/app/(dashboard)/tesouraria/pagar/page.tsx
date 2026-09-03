@@ -605,15 +605,22 @@ export default function ContasPagarPage() {
               </div>
 
               {!despesaEditando && (
-                <label className="flex items-center gap-2 text-sm text-stone-700">
-                  <input
-                    type="checkbox"
-                    checked={jaPaga}
-                    onChange={(e) => setJaPaga(e.target.checked)}
-                    className="rounded border-stone-300 text-amber-500 focus:ring-amber-400"
-                  />
-                  Esta despesa já foi paga
-                </label>
+                <div>
+                  <label className="flex items-center gap-2 text-sm text-stone-700">
+                    <input
+                      type="checkbox"
+                      checked={jaPaga}
+                      onChange={(e) => setJaPaga(e.target.checked)}
+                      className="rounded border-stone-300 text-amber-500 focus:ring-amber-400"
+                    />
+                    Esta despesa já foi paga
+                  </label>
+                  {!jaPaga && formData.due_date && formData.due_date < hojeBrasilia() && (
+                    <p className="text-xs text-amber-600 mt-1">
+                      Esse vencimento já passou — se já foi paga, marque a opção acima.
+                    </p>
+                  )}
+                </div>
               )}
 
               {jaPaga && (
