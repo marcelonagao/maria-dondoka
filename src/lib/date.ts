@@ -17,3 +17,9 @@ export function intervaloDoMes(mesAno: string): { inicio: string; fim: string } 
   const fim = `${mesAno}-${String(ultimoDia).padStart(2, '0')}`;
   return { inicio, fim };
 }
+
+export function adicionarDias(dataISO: string, dias: number): string {
+  const data = new Date(dataISO + 'T00:00:00Z');
+  data.setUTCDate(data.getUTCDate() + dias);
+  return data.toISOString().slice(0, 10);
+}

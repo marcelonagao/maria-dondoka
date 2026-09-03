@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../../../lib/supabase';
-import { hojeBrasilia, dataParaTimestampBrasilia } from '../../../../lib/date';
+import { hojeBrasilia, dataParaTimestampBrasilia, adicionarDias } from '../../../../lib/date';
 import { formatCurrency } from '../../../../lib/format';
 import Combobox, { ComboboxOption } from '../../../../components/Combobox';
 import PaymentSettlementFields, { DadosPagamento } from '../../../../components/PaymentSettlementFields';
@@ -22,8 +22,16 @@ interface Despesa {
   comprovante_url: string | null;
   despesa_recorrente_id: string | null;
   motivo_cancelamento: string | null;
+  documento_origem: string | null;
+  parcela_numero: number | null;
+  parcela_total: number | null;
   plano_contas: { nome: string } | null;
   franchises: { name: string } | null;
+}
+
+interface Parcela {
+  vencimento: string;
+  valor: string;
 }
 
 interface CategoriaContas {
@@ -56,6 +64,7 @@ const CAMPOS_HISTORICO: Record<string, string> = {
   description: 'Observação',
   plano_conta_id: 'Categoria',
   fornecedor_id: 'Fornecedor',
+  documento_origem: 'Documento de origem',
   due_date: 'Vencimento',
   amount: 'Valor',
   paid_at: 'Data de pagamento',
@@ -63,6 +72,24 @@ const CAMPOS_HISTORICO: Record<string, string> = {
   valor_multa: 'Multa',
   comprovante_url: 'Comprovante',
 };
+
+// Divide o valor total em N parcelas usando matemática em centavos (evita erro de ponto
+// flutuante) — o resíduo do arredondamento sempre vai pra última parcela, garantindo que
+// a soma das N parcelas bate exatamente com o total informado. Vencimentos seguintes
+// somam 30 dias como sugestão inicial — só no momento da geração, não recalcula depois.
+function gerarParcelas(n: number, valorTotalStr: string, vencimentoSeed: string): Parcela[] {
+  const centavosTotal = Math.round((parseFloat(valorTotalStr) || 0) * 100);
+  const base = Math.floor(centavosTotal / n);
+  const resto = centavosTotal - base * n;
+  const linhas: Parcela[] = [];
+  let vencimento = vencimentoSeed;
+  for (let i = 0; i < n; i++) {
+    if (i > 0) vencimento = adicionarDias(linhas[i - 1].vencimento, 30);
+    const centavos = base + (i === n - 1 ? resto : 0);
+    linhas.push({ vencimento, valor: (centavos / 100).toFixed(2) });
+  }
+  return linhas;
+}
 
 export default function ContasPagarPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -93,6 +120,9 @@ export default function ContasPagarPage() {
   });
   const [jaPaga, setJaPaga] = useState(false);
   const [pagamentoForm, setPagamentoForm] = useState<DadosPagamento>(PAGAMENTO_INICIAL);
+  const [documentoOrigem, setDocumentoOrigem] = useState('');
+  const [parcelarEm, setParcelarEm] = useState(1);
+  const [parcelas, setParcelas] = useState<Parcela[]>([]);
 
   const fetchDespesas = async () => {
     try {
@@ -228,6 +258,27 @@ export default function ContasPagarPage() {
     setFormData({ description: '', planoContaId: '', fornecedorId: '', due_date: '', amount: '', franchiseId: '' });
     setJaPaga(false);
     setPagamentoForm(PAGAMENTO_INICIAL);
+    setDocumentoOrigem('');
+    setParcelarEm(1);
+    setParcelas([]);
+  };
+
+  const handleParcelarEmChange = (valor: string) => {
+    const n = Math.max(1, parseInt(valor, 10) || 1);
+    setParcelarEm(n);
+    if (n > 1) {
+      const seed = parcelas[0]?.vencimento || formData.due_date || hojeBrasilia();
+      setParcelas(gerarParcelas(n, formData.amount, seed));
+    } else {
+      if (parcelas[0]?.vencimento) {
+        setFormData((atual) => ({ ...atual, due_date: parcelas[0].vencimento }));
+      }
+      setParcelas([]);
+    }
+  };
+
+  const atualizarParcela = (indice: number, campo: keyof Parcela, valor: string) => {
+    setParcelas((atual) => atual.map((p, i) => (i === indice ? { ...p, [campo]: valor } : p)));
   };
 
   const abrirNovaDespesa = () => {
@@ -245,6 +296,9 @@ export default function ContasPagarPage() {
       amount: String(despesa.amount),
       franchiseId: despesa.franchise_id,
     });
+    setDocumentoOrigem(despesa.documento_origem || '');
+    setParcelarEm(1);
+    setParcelas([]);
     if (despesa.status === 'pago') {
       setJaPaga(true);
       setPagamentoForm({
@@ -295,6 +349,61 @@ export default function ContasPagarPage() {
       if (!formData.planoContaId) throw new Error('Selecione uma categoria.');
       if (podeLancarParaOutras && !formData.franchiseId) throw new Error('Selecione a franquia.');
 
+      // Lançamento parcelado: N linhas numa chamada só, sem status pago/comprovante (isso
+      // acontece depois, parcela por parcela, pela listagem normal).
+      if (!despesaEditando && parcelarEm > 1) {
+        const somaParcelas = parcelas.reduce((acc, p) => acc + (parseFloat(p.valor) || 0), 0);
+        const total = parseFloat(formData.amount) || 0;
+        const diferenca = Math.round((total - somaParcelas) * 100) / 100;
+        if (Math.abs(diferenca) >= 0.01) {
+          const seguir = confirm(
+            `A soma das parcelas (${formatCurrency(somaParcelas)}) não bate com o valor total da nota (${formatCurrency(total)}) — diferença de ${formatCurrency(Math.abs(diferenca))}. Salvar mesmo assim?`
+          );
+          if (!seguir) { setIsSubmitting(false); return; }
+        }
+
+        const linhas = parcelas.map((p, i) => ({
+          description: formData.description,
+          plano_conta_id: formData.planoContaId,
+          fornecedor_id: formData.fornecedorId || null,
+          documento_origem: documentoOrigem || null,
+          due_date: p.vencimento,
+          amount: parseFloat(p.valor) || 0,
+          parcela_numero: i + 1,
+          parcela_total: parcelas.length,
+          status: 'pendente',
+          ...(podeLancarParaOutras ? { franchise_id: formData.franchiseId } : {}),
+        }));
+
+        const { error } = await supabase.from('accounts_payable').insert(linhas);
+        if (error) throw error;
+
+        await fetchDespesas();
+        fecharModal();
+        return;
+      }
+
+      // Alerta de duplicidade só faz sentido pra lançamento avulso, com fornecedor
+      // selecionado (sem fornecedor, "mesmo fornecedor_id" não diz nada).
+      if (!despesaEditando && formData.fornecedorId) {
+        const { data: possiveisDuplicatas } = await supabase
+          .from('accounts_payable')
+          .select('id, due_date')
+          .eq('fornecedor_id', formData.fornecedorId)
+          .eq('amount', parseFloat(formData.amount))
+          .neq('status', 'cancelado')
+          .gte('due_date', adicionarDias(formData.due_date, -3))
+          .lte('due_date', adicionarDias(formData.due_date, 3));
+
+        if (possiveisDuplicatas && possiveisDuplicatas.length > 0) {
+          const dataExistente = new Date(possiveisDuplicatas[0].due_date + 'T00:00:00').toLocaleDateString('pt-BR');
+          if (!confirm(`Já existe uma despesa parecida, lançada em ${dataExistente}. Continuar mesmo assim?`)) {
+            setIsSubmitting(false);
+            return;
+          }
+        }
+      }
+
       let comprovanteUrl: string | null = despesaEditando?.comprovante_url || null;
       if (jaPaga) {
         if (pagamentoForm.comprovanteFile) {
@@ -308,6 +417,7 @@ export default function ContasPagarPage() {
         description: formData.description,
         plano_conta_id: formData.planoContaId,
         fornecedor_id: formData.fornecedorId || null,
+        documento_origem: documentoOrigem || null,
         due_date: formData.due_date,
         amount: parseFloat(formData.amount),
       };
@@ -460,7 +570,15 @@ export default function ContasPagarPage() {
               ) : (
                 despesasVisiveis.map((despesa) => (
                   <tr key={despesa.id} className="hover:bg-stone-50/50 transition-colors">
-                    <td className="px-6 py-4 font-medium text-stone-800">{despesa.description}</td>
+                    <td className="px-6 py-4 font-medium text-stone-800">
+                      {despesa.description}
+                      {!!despesa.parcela_total && despesa.parcela_total > 1 && (
+                        <p className="text-xs font-normal text-stone-400 mt-0.5">
+                          Parcela {despesa.parcela_numero}/{despesa.parcela_total}
+                          {despesa.documento_origem && ` • ${despesa.documento_origem}`}
+                        </p>
+                      )}
+                    </td>
                     {podeLancarParaOutras && <td className="px-6 py-4">{despesa.franchises?.name || '—'}</td>}
                     <td className="px-6 py-4">{despesa.plano_contas?.nome || '—'}</td>
                     <td className="px-6 py-4">{new Date(despesa.due_date + 'T00:00:00').toLocaleDateString('pt-BR')}</td>
@@ -568,30 +686,103 @@ export default function ContasPagarPage() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-stone-700 mb-1">Valor (R$)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    required
-                    className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
-                    value={formData.amount}
-                    onChange={e => setFormData({...formData, amount: e.target.value})}
-                    placeholder="0.00"
-                  />
+              {!despesaEditando && (
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Documento de origem (opcional)</label>
+                    <input
+                      type="text"
+                      className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+                      value={documentoOrigem}
+                      onChange={(e) => setDocumentoOrigem(e.target.value)}
+                      placeholder="Ex: NF 12345"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Parcelar em</label>
+                    <input
+                      type="number"
+                      min={1}
+                      className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+                      value={parcelarEm}
+                      onChange={(e) => handleParcelarEmChange(e.target.value)}
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-stone-700 mb-1">Vencimento</label>
-                  <input
-                    type="date"
-                    required
-                    className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none text-stone-700"
-                    value={formData.due_date}
-                    onChange={e => setFormData({...formData, due_date: e.target.value})}
-                  />
+              )}
+
+              {/* Parcelar em = 1 (padrão) ou editando: exatamente o Valor+Vencimento de sempre. */}
+              {parcelarEm === 1 ? (
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Valor (R$)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      required
+                      className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+                      value={formData.amount}
+                      onChange={e => setFormData({...formData, amount: e.target.value})}
+                      placeholder="0.00"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Vencimento</label>
+                    <input
+                      type="date"
+                      required
+                      className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none text-stone-700"
+                      value={formData.due_date}
+                      onChange={e => setFormData({...formData, due_date: e.target.value})}
+                    />
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-stone-700 mb-1">Valor total da nota (R$)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      required
+                      className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+                      value={formData.amount}
+                      onChange={e => setFormData({...formData, amount: e.target.value})}
+                      placeholder="0.00"
+                    />
+                  </div>
+                  <div className="space-y-3">
+                    {parcelas.map((p, i) => (
+                      <div key={i} className="p-3 bg-stone-50 rounded-lg border border-stone-200">
+                        <p className="text-xs font-medium text-stone-500 mb-2">Parcela {i + 1} de {parcelas.length}</p>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-xs text-stone-600 mb-1">Vencimento</label>
+                            <input
+                              type="date"
+                              required
+                              className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none text-stone-700 text-sm"
+                              value={p.vencimento}
+                              onChange={(e) => atualizarParcela(i, 'vencimento', e.target.value)}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-stone-600 mb-1">Valor (R$)</label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              required
+                              className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none text-sm"
+                              value={p.valor}
+                              onChange={(e) => atualizarParcela(i, 'valor', e.target.value)}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
 
               <div>
                 <label className="block text-sm font-medium text-stone-700 mb-1">Observação (opcional)</label>
@@ -604,7 +795,7 @@ export default function ContasPagarPage() {
                 />
               </div>
 
-              {!despesaEditando && (
+              {!despesaEditando && parcelarEm === 1 && (
                 <div>
                   <label className="flex items-center gap-2 text-sm text-stone-700">
                     <input
