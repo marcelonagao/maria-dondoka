@@ -167,12 +167,15 @@ export default function ContasPagarPage() {
     if (!user) return;
     const { data, error } = await supabase
       .from('profiles')
-      .select('franchise_id, pode_lancar_para_outras_franquias')
+      .select('franchise_id, roles(escopo, pode_lancar_despesas_outras_franquias)')
       .eq('id', user.id)
       .maybeSingle();
     if (error) { console.error('Erro ao buscar perfil:', error); return; }
     setMinhaFranchiseId(data?.franchise_id || '');
-    const pode = !!data?.pode_lancar_para_outras_franquias;
+    const papel = data?.roles as unknown as { escopo: string; pode_lancar_despesas_outras_franquias: boolean } | null;
+    // Duas condições juntas: escopo amplo governa leitura, essa flag específica governa
+    // escrever despesa em nome de outra franquia — não é a mesma coisa (ver auditoria).
+    const pode = papel?.escopo === 'todas_franquias' && !!papel?.pode_lancar_despesas_outras_franquias;
     setPodeLancarParaOutras(pode);
     if (pode) {
       const { data: franquiasData, error: franquiasError } = await supabase
