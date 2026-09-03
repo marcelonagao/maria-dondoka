@@ -3,6 +3,8 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../../../lib/supabase';
 import { hojeBrasilia, dataParaTimestampBrasilia } from '../../../../lib/date';
+import { formatCurrency } from '../../../../lib/format';
+import Combobox, { ComboboxOption } from '../../../../components/Combobox';
 
 interface Despesa {
   id: string;
@@ -27,13 +29,21 @@ interface Franquia {
   name: string;
 }
 
+interface Fornecedor {
+  id: string;
+  nome: string;
+  franchise_id: string | null;
+}
+
 export default function ContasPagarPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [despesas, setDespesas] = useState<Despesa[]>([]);
   const [planoContas, setPlanoContas] = useState<CategoriaContas[]>([]);
+  const [fornecedores, setFornecedores] = useState<Fornecedor[]>([]);
   const [podeLancarParaOutras, setPodeLancarParaOutras] = useState(false);
+  const [minhaFranchiseId, setMinhaFranchiseId] = useState('');
   const [franquias, setFranquias] = useState<Franquia[]>([]);
   const [marcandoPagoId, setMarcandoPagoId] = useState<string | null>(null);
   const [contaParaPagar, setContaParaPagar] = useState<Despesa | null>(null);
@@ -41,8 +51,8 @@ export default function ContasPagarPage() {
 
   const [formData, setFormData] = useState({
     description: '',
-    categoriaPaiId: '',
-    subcategoriaId: '',
+    planoContaId: '',
+    fornecedorId: '',
     due_date: '',
     amount: '',
     franchiseId: '',
@@ -76,15 +86,26 @@ export default function ContasPagarPage() {
     setPlanoContas(data || []);
   };
 
+  const fetchFornecedores = async () => {
+    const { data, error } = await supabase
+      .from('fornecedores')
+      .select('id, nome, franchise_id')
+      .eq('is_active', true)
+      .order('nome', { ascending: true });
+    if (error) { console.error('Erro ao buscar fornecedores:', error); return; }
+    setFornecedores(data || []);
+  };
+
   const fetchPerfil = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
     const { data, error } = await supabase
       .from('profiles')
-      .select('pode_lancar_para_outras_franquias')
+      .select('franchise_id, pode_lancar_para_outras_franquias')
       .eq('id', user.id)
       .maybeSingle();
     if (error) { console.error('Erro ao buscar perfil:', error); return; }
+    setMinhaFranchiseId(data?.franchise_id || '');
     const pode = !!data?.pode_lancar_para_outras_franquias;
     setPodeLancarParaOutras(pode);
     if (pode) {
@@ -100,12 +121,9 @@ export default function ContasPagarPage() {
   useEffect(() => {
     fetchPerfil();
     fetchPlanoContas();
+    fetchFornecedores();
     fetchDespesas();
   }, []);
-
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
-  };
 
   const getStatusBadge = (status: string) => {
     const badges: Record<string, JSX.Element> = {
@@ -115,20 +133,50 @@ export default function ContasPagarPage() {
     return badges[status] || <span className="px-2.5 py-1 bg-stone-100 text-stone-600 text-xs font-medium rounded-md">{status}</span>;
   };
 
-  const categoriasPai = planoContas.filter((c) => !c.categoria_pai_id);
-  const subcategoriasDaSelecionada = planoContas.filter((c) => c.categoria_pai_id === formData.categoriaPaiId);
+  // Achata a hierarquia pai/filho de plano_contas numa lista única pro combobox de
+  // Categoria: filho vira "Pai › Filho"; pai sem filhos vira uma opção direta.
+  const categoriaOptions: ComboboxOption[] = planoContas
+    .filter((c) => !c.categoria_pai_id)
+    .flatMap((pai) => {
+      const filhos = planoContas.filter((c) => c.categoria_pai_id === pai.id);
+      return filhos.length > 0
+        ? filhos.map((filho) => ({ value: filho.id, label: `${pai.nome} › ${filho.nome}` }))
+        : [{ value: pai.id, label: pai.nome }];
+    });
+
+  const franquiaAtualId = formData.franchiseId || minhaFranchiseId;
+  const fornecedorOptions: ComboboxOption[] = fornecedores
+    .filter((f) => f.franchise_id === null || f.franchise_id === franquiaAtualId)
+    .map((f) => ({ value: f.id, label: f.nome }));
+
+  const criarFornecedor = async (nome: string) => {
+    if (!nome) return;
+    try {
+      const { data, error } = await supabase
+        .from('fornecedores')
+        .insert({ nome, franchise_id: franquiaAtualId || null })
+        .select('id, nome, franchise_id')
+        .single();
+      if (error) throw error;
+      setFornecedores((atual) => [...atual, data]);
+      setFormData((atual) => ({ ...atual, fornecedorId: data.id }));
+    } catch (error) {
+      console.error('Erro ao cadastrar fornecedor:', error);
+      alert('Erro ao cadastrar fornecedor. Verifique o console.');
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
 
     try {
-      const planoContaIdFinal = subcategoriasDaSelecionada.length > 0 ? formData.subcategoriaId : formData.categoriaPaiId;
-      if (!planoContaIdFinal) throw new Error('Selecione uma categoria.');
+      if (!formData.planoContaId) throw new Error('Selecione uma categoria.');
 
       const novaConta: Record<string, unknown> = {
         description: formData.description,
-        plano_conta_id: planoContaIdFinal,
+        plano_conta_id: formData.planoContaId,
+        fornecedor_id: formData.fornecedorId || null,
         due_date: formData.due_date,
         amount: parseFloat(formData.amount),
         status: 'pendente',
@@ -145,7 +193,7 @@ export default function ContasPagarPage() {
       await fetchDespesas();
 
       setIsModalOpen(false);
-      setFormData({ description: '', categoriaPaiId: '', subcategoriaId: '', due_date: '', amount: '', franchiseId: '' });
+      setFormData({ description: '', planoContaId: '', fornecedorId: '', due_date: '', amount: '', franchiseId: '' });
     } catch (error) {
       console.error('Erro ao salvar despesa:', error);
       alert('Erro ao salvar no banco. Verifique o console.');
@@ -287,7 +335,7 @@ export default function ContasPagarPage() {
                     required
                     className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none bg-white text-stone-700"
                     value={formData.franchiseId}
-                    onChange={e => setFormData({ ...formData, franchiseId: e.target.value })}
+                    onChange={e => setFormData({ ...formData, franchiseId: e.target.value, fornecedorId: '' })}
                   >
                     <option value="">Selecione...</option>
                     {franquias.map((f) => (
@@ -298,14 +346,25 @@ export default function ContasPagarPage() {
               )}
 
               <div>
-                <label className="block text-sm font-medium text-stone-700 mb-1">Descrição</label>
-                <input
-                  type="text"
+                <label className="block text-sm font-medium text-stone-700 mb-1">Categoria</label>
+                <Combobox
                   required
-                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
-                  value={formData.description}
-                  onChange={e => setFormData({...formData, description: e.target.value})}
-                  placeholder="Ex: Conta de Internet"
+                  placeholder="Digite para buscar..."
+                  value={formData.planoContaId}
+                  onChange={(v) => setFormData({ ...formData, planoContaId: v })}
+                  options={categoriaOptions}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-stone-700 mb-1">Fornecedor</label>
+                <Combobox
+                  placeholder="Digite para buscar ou cadastrar..."
+                  value={formData.fornecedorId}
+                  onChange={(v) => setFormData({ ...formData, fornecedorId: v })}
+                  options={fornecedorOptions}
+                  onCreateNew={criarFornecedor}
+                  createNewLabel={(q) => `+ Cadastrar novo fornecedor "${q}"`}
                 />
               </div>
 
@@ -334,37 +393,15 @@ export default function ContasPagarPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-stone-700 mb-1">Categoria</label>
-                  <select
-                    required
-                    className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none bg-white text-stone-700"
-                    value={formData.categoriaPaiId}
-                    onChange={e => setFormData({ ...formData, categoriaPaiId: e.target.value, subcategoriaId: '' })}
-                  >
-                    <option value="">Selecione...</option>
-                    {categoriasPai.map((c) => (
-                      <option key={c.id} value={c.id}>{c.nome}</option>
-                    ))}
-                  </select>
-                </div>
-                {subcategoriasDaSelecionada.length > 0 && (
-                  <div>
-                    <label className="block text-sm font-medium text-stone-700 mb-1">Subcategoria</label>
-                    <select
-                      required
-                      className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none bg-white text-stone-700"
-                      value={formData.subcategoriaId}
-                      onChange={e => setFormData({ ...formData, subcategoriaId: e.target.value })}
-                    >
-                      <option value="">Selecione...</option>
-                      {subcategoriasDaSelecionada.map((s) => (
-                        <option key={s.id} value={s.id}>{s.nome}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
+              <div>
+                <label className="block text-sm font-medium text-stone-700 mb-1">Observação (opcional)</label>
+                <input
+                  type="text"
+                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+                  value={formData.description}
+                  onChange={e => setFormData({...formData, description: e.target.value})}
+                  placeholder="Ex: Conta de Internet"
+                />
               </div>
 
               <div className="pt-4 flex gap-3">

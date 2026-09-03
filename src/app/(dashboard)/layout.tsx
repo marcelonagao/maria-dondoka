@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { supabase } from '../../lib/supabase';
@@ -9,6 +9,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const pathname = usePathname();
   const router = useRouter();
   const [menuAberto, setMenuAberto] = useState(false);
+  const [podeGerenciarFranquias, setPodeGerenciarFranquias] = useState(false);
+
+  useEffect(() => {
+    async function carregarPerfil() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data } = await supabase
+        .from('profiles')
+        .select('is_socio, pode_lancar_para_outras_franquias')
+        .eq('id', user.id)
+        .maybeSingle();
+      setPodeGerenciarFranquias(!!data?.is_socio || !!data?.pode_lancar_para_outras_franquias);
+    }
+    carregarPerfil();
+  }, []);
 
   const handleLogout = async () => {
     try {
@@ -33,6 +48,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { name: 'Produtos', path: '/produtos', icon: '📦' },
     { name: 'DRE', path: '/dre', icon: '📈' },
     { name: 'Configurações', path: '/configuracoes', icon: '⚙️' },
+    ...(podeGerenciarFranquias ? [{ name: 'Franquias', path: '/franquias', icon: '🏬' }] : []),
   ];
 
   const fecharMenu = () => setMenuAberto(false);

@@ -4,7 +4,6 @@ import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 import { randomBytes, createHash } from 'crypto';
 import { z } from 'zod';
-import { getPerfilAutenticado } from '../../../../lib/server-auth';
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -32,7 +31,7 @@ async function getAdminProfile() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('franchise_id, role')
+    .select('franchise_id, role, pode_lancar_para_outras_franquias')
     .eq('id', user.id)
     .maybeSingle();
 
@@ -69,17 +68,18 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'DADOS_INVALIDOS', detalhe: parsed.error.flatten() }, { status: 400 });
   }
 
+  const profile = await getAdminProfile();
+  if (!profile) return NextResponse.json({ error: 'NAO_AUTORIZADO' }, { status: 401 });
+
   // Fluxo de onboarding: Matriz cria o dispositivo em nome de uma franquia recém-criada,
-  // que ela mesma não pertence — mesma trava (env var) que já protege /api/admin/franquias,
-  // não o role='admin' da própria franquia de quem chama.
+  // que ela mesma não pertence — só permitido pra quem pode lançar/atuar por outras franquias.
   let franchiseId: string;
-  if (parsed.data.franchise_id && process.env.SUPER_ADMIN_MODE === 'true') {
-    const perfil = await getPerfilAutenticado();
-    if (!perfil) return NextResponse.json({ error: 'NAO_AUTORIZADO' }, { status: 401 });
+  if (parsed.data.franchise_id) {
+    if (!profile.pode_lancar_para_outras_franquias) {
+      return NextResponse.json({ error: 'NAO_AUTORIZADO' }, { status: 403 });
+    }
     franchiseId = parsed.data.franchise_id;
   } else {
-    const profile = await getAdminProfile();
-    if (!profile) return NextResponse.json({ error: 'NAO_AUTORIZADO' }, { status: 401 });
     franchiseId = profile.franchise_id;
   }
 
