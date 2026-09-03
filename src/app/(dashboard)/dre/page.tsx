@@ -42,11 +42,14 @@ export default function DrePage() {
 
         const { data: perfil } = await supabase
           .from('profiles')
-          .select('is_socio, pode_lancar_para_outras_franquias')
+          .select('roles(escopo)')
           .eq('id', user.id)
           .maybeSingle();
 
-        const podeVerVarias = !!perfil?.is_socio || !!perfil?.pode_lancar_para_outras_franquias;
+        // Leitura pura (sem escrita) — só escopo importa aqui, a tela /dre já foi
+        // filtrada pelo middleware antes de chegar neste componente.
+        const papel = perfil?.roles as unknown as { escopo: string } | null;
+        const podeVerVarias = papel?.escopo === 'todas_franquias';
         setPodeVerVariasFranquias(podeVerVarias);
 
         if (podeVerVarias) {

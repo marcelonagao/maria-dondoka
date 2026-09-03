@@ -18,7 +18,7 @@ export async function POST(request: Request) {
   const perfil = await getPerfilAutenticado();
   if (!perfil) return NextResponse.json({ error: 'NAO_AUTORIZADO' }, { status: 401 });
 
-  if (!perfil.isSocio && !perfil.podeLancarParaOutras) {
+  if (!perfil.telasPermitidas.includes('franquias')) {
     return NextResponse.json({ error: 'NAO_AUTORIZADO' }, { status: 403 });
   }
 

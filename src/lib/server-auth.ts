@@ -5,8 +5,9 @@ export interface PerfilAutenticado {
   userId: string;
   franchiseId: string;
   role: string;
-  isSocio: boolean;
-  podeLancarParaOutras: boolean;
+  telasPermitidas: string[];
+  escopo: 'todas_franquias' | 'propria_franquia' | null;
+  podeLancarDespesasOutrasFranquias: boolean;
 }
 
 export async function getPerfilAutenticado(): Promise<PerfilAutenticado | null> {
@@ -27,16 +28,23 @@ export async function getPerfilAutenticado(): Promise<PerfilAutenticado | null> 
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('franchise_id, role, is_socio, pode_lancar_para_outras_franquias')
+    .select('franchise_id, role, roles(escopo, telas_permitidas, pode_lancar_despesas_outras_franquias)')
     .eq('id', user.id)
     .maybeSingle();
 
   if (!profile) return null;
+  const papel = profile.roles as unknown as {
+    escopo: 'todas_franquias' | 'propria_franquia';
+    telas_permitidas: string[];
+    pode_lancar_despesas_outras_franquias: boolean;
+  } | null;
+
   return {
     userId: user.id,
     franchiseId: profile.franchise_id,
     role: profile.role,
-    isSocio: !!profile.is_socio,
-    podeLancarParaOutras: !!profile.pode_lancar_para_outras_franquias,
+    telasPermitidas: papel?.telas_permitidas || [],
+    escopo: papel?.escopo || null,
+    podeLancarDespesasOutrasFranquias: !!papel?.pode_lancar_despesas_outras_franquias,
   };
 }
