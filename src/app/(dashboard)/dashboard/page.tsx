@@ -28,14 +28,14 @@ export default function DashboardPage() {
       try {
         setIsLoading(true);
 
-        // Checagem de sócio e os dados da própria franquia disparam juntos —
+        // Checagem de escopo e os dados da própria franquia disparam juntos —
         // a RLS já escopa o resultado de accounts_receivable/payable corretamente
-        // pra qualquer usuário, sócio ou não, sem precisar saber isso antes.
+        // pra qualquer usuário, independente do papel, sem precisar saber isso antes.
         const [perfilRes, reqReceber, reqPagar] = await Promise.all([
           (async () => {
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) return null;
-            const { data } = await supabase.from('profiles').select('is_socio').eq('id', user.id).maybeSingle();
+            const { data } = await supabase.from('profiles').select('roles(escopo)').eq('id', user.id).maybeSingle();
             return data;
           })(),
           supabase.from('accounts_receivable').select('franchise_id, net_amount').eq('status', 'pendente'),
@@ -45,7 +45,9 @@ export default function DashboardPage() {
         if (reqReceber.error) throw reqReceber.error;
         if (reqPagar.error) throw reqPagar.error;
 
-        const socio = !!perfilRes?.is_socio;
+        // Leitura pura (sem escrita) — só escopo importa, mesmo padrão do DRE.
+        const papel = perfilRes?.roles as unknown as { escopo: string } | null;
+        const socio = papel?.escopo === 'todas_franquias';
         setIsSocio(socio);
 
         const porFranquia: Record<string, Metricas> = {};

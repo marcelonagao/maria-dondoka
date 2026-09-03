@@ -31,12 +31,17 @@ async function getAdminProfile() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('franchise_id, role, is_socio, pode_lancar_para_outras_franquias')
+    .select('franchise_id, role, roles(telas_permitidas)')
     .eq('id', user.id)
     .maybeSingle();
 
   if (!profile || profile.role !== 'admin') return null;
-  return profile;
+  const papel = profile.roles as unknown as { telas_permitidas: string[] } | null;
+  return {
+    franchise_id: profile.franchise_id,
+    role: profile.role,
+    telasPermitidas: papel?.telas_permitidas || [],
+  };
 }
 
 export async function GET() {
@@ -72,10 +77,11 @@ export async function POST(request: Request) {
   if (!profile) return NextResponse.json({ error: 'NAO_AUTORIZADO' }, { status: 401 });
 
   // Fluxo de onboarding: Matriz cria o dispositivo em nome de uma franquia recém-criada,
-  // que ela mesma não pertence — só permitido pra quem pode lançar/atuar por outras franquias.
+  // que ela mesma não pertence — só acontece dentro do fluxo de /franquias, então usa a
+  // mesma checagem de acesso a essa tela.
   let franchiseId: string;
   if (parsed.data.franchise_id) {
-    if (!profile.is_socio && !profile.pode_lancar_para_outras_franquias) {
+    if (!profile.telasPermitidas.includes('franquias')) {
       return NextResponse.json({ error: 'NAO_AUTORIZADO' }, { status: 403 });
     }
     franchiseId = parsed.data.franchise_id;

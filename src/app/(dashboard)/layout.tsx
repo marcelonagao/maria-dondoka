@@ -9,7 +9,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const pathname = usePathname();
   const router = useRouter();
   const [menuAberto, setMenuAberto] = useState(false);
-  const [podeGerenciarFranquias, setPodeGerenciarFranquias] = useState(false);
+  const [telasPermitidas, setTelasPermitidas] = useState<string[]>([]);
 
   useEffect(() => {
     async function carregarPerfil() {
@@ -17,10 +17,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       if (!user) return;
       const { data } = await supabase
         .from('profiles')
-        .select('is_socio, pode_lancar_para_outras_franquias')
+        .select('roles(telas_permitidas)')
         .eq('id', user.id)
         .maybeSingle();
-      setPodeGerenciarFranquias(!!data?.is_socio || !!data?.pode_lancar_para_outras_franquias);
+      const papel = data?.roles as unknown as { telas_permitidas: string[] } | null;
+      setTelasPermitidas(papel?.telas_permitidas || []);
     }
     carregarPerfil();
   }, []);
@@ -35,21 +36,22 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   };
 
   const menuItems = [
-    { name: 'Dashboard', path: '/dashboard', icon: '📊' },
+    { name: 'Dashboard', path: '/dashboard', icon: '📊', tela: 'dashboard' },
     {
       name: 'Tesouraria',
       icon: '💰',
+      tela: 'tesouraria',
       subItems: [
         { name: 'Contas a Pagar', path: '/tesouraria/pagar' },
         { name: 'Contas a Receber', path: '/tesouraria/receber' },
       ],
     },
-    { name: 'Vendas (PDV)', path: '/vendas', icon: '🛍️' },
-    { name: 'Produtos', path: '/produtos', icon: '📦' },
-    { name: 'DRE', path: '/dre', icon: '📈' },
-    { name: 'Configurações', path: '/configuracoes', icon: '⚙️' },
-    ...(podeGerenciarFranquias ? [{ name: 'Franquias', path: '/franquias', icon: '🏬' }] : []),
-  ];
+    { name: 'Vendas (PDV)', path: '/vendas', icon: '🛍️', tela: 'vendas_pdv' },
+    { name: 'Produtos', path: '/produtos', icon: '📦', tela: 'produtos' },
+    { name: 'DRE', path: '/dre', icon: '📈', tela: 'dre' },
+    { name: 'Configurações', path: '/configuracoes', icon: '⚙️', tela: 'configuracoes' },
+    { name: 'Franquias', path: '/franquias', icon: '🏬', tela: 'franquias' },
+  ].filter((item) => telasPermitidas.includes(item.tela));
 
   const fecharMenu = () => setMenuAberto(false);
 
