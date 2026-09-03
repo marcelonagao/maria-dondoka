@@ -52,11 +52,15 @@ export default function FluxoCaixaChart({ franchiseId }: FluxoCaixaChartProps = 
           .from('fechamentos_formas_pagamento')
           .select('valor_esperado, fechamentos_caixa!inner(data_fechamento, franchise_id)')
           .gte('fechamentos_caixa.data_fechamento', desdeISO);
+        // Regime de caixa: o gráfico compara com fechamentos_caixa (dinheiro que realmente
+        // saiu), então precisa do dia em que a despesa foi paga (paid_at), não o dia em que
+        // venceu (due_date) — uma despesa paga fora do prazo aparecia no dia errado.
         let pagarQuery = supabase
           .from('accounts_payable')
-          .select('due_date, amount, status')
+          .select('paid_at, amount, status')
           .eq('status', 'pago')
-          .gte('due_date', desdeISO);
+          .not('paid_at', 'is', null)
+          .gte('paid_at', desdeISO);
 
         if (franchiseId) {
           fechamentosQuery = fechamentosQuery.eq('franchise_id', franchiseId);
@@ -89,7 +93,9 @@ export default function FluxoCaixaChart({ franchiseId }: FluxoCaixaChartProps = 
 
         const saidasPorDia = new Map<string, number>();
         for (const p of pagarRes.data || []) {
-          saidasPorDia.set(p.due_date, (saidasPorDia.get(p.due_date) || 0) + Number(p.amount));
+          if (!p.paid_at) continue;
+          const dia = p.paid_at.slice(0, 10);
+          saidasPorDia.set(dia, (saidasPorDia.get(dia) || 0) + Number(p.amount));
         }
 
         const todasAsDatas = new Set(
