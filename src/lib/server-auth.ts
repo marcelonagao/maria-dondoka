@@ -5,6 +5,8 @@ export interface PerfilAutenticado {
   userId: string;
   franchiseId: string;
   role: string;
+  isSocio: boolean;
+  podeLancarParaOutras: boolean;
 }
 
 export async function getPerfilAutenticado(): Promise<PerfilAutenticado | null> {
@@ -25,10 +27,16 @@ export async function getPerfilAutenticado(): Promise<PerfilAutenticado | null> 
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('franchise_id, role')
+    .select('franchise_id, role, is_socio, pode_lancar_para_outras_franquias')
     .eq('id', user.id)
     .maybeSingle();
 
   if (!profile) return null;
-  return { userId: user.id, franchiseId: profile.franchise_id, role: profile.role };
+  return {
+    userId: user.id,
+    franchiseId: profile.franchise_id,
+    role: profile.role,
+    isSocio: !!profile.is_socio,
+    podeLancarParaOutras: !!profile.pode_lancar_para_outras_franquias,
+  };
 }

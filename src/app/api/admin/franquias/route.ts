@@ -18,9 +18,8 @@ export async function POST(request: Request) {
   const perfil = await getPerfilAutenticado();
   if (!perfil) return NextResponse.json({ error: 'NAO_AUTORIZADO' }, { status: 401 });
 
-  // Trava temporária: só libera com a env var ligada, até termos a role "socio" de verdade.
-  if (process.env.SUPER_ADMIN_MODE !== 'true') {
-    return NextResponse.json({ error: 'FUNCIONALIDADE_DESABILITADA' }, { status: 403 });
+  if (!perfil.isSocio && !perfil.podeLancarParaOutras) {
+    return NextResponse.json({ error: 'NAO_AUTORIZADO' }, { status: 403 });
   }
 
   const parsed = CriarFranquiaSchema.safeParse(await request.json());
