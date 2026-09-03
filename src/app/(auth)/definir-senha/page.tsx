@@ -13,37 +13,38 @@ export default function DefinirSenhaPage() {
   const router = useRouter();
 
   useEffect(() => {
-    // Dois formatos de link possíveis: o antigo carrega o token no hash da URL
-    // (#access_token=...), que o client do Supabase processa sozinho ao carregar
-    // (detectSessionInUrl); o fluxo PKCE (padrão do @supabase/ssr, usado neste projeto
-    // pro middleware baseado em cookies) manda em vez disso um "?code=..." na query, que
-    // precisa ser trocado por sessão explicitamente via exchangeCodeForSession.
-    const code = new URL(window.location.href).searchParams.get('code');
-    if (code) {
-      supabase.auth.exchangeCodeForSession(code).then(({ data, error }) => {
-        if (data.session) setSessaoValida(true);
-        else if (error) console.error('Erro ao trocar código por sessão:', error.message);
-      });
+    // @supabase/ssr (usado neste projeto pro middleware baseado em cookies) configura o
+    // client com flowType 'pkce' por padrão — com isso, a detecção automática de sessão
+    // via hash da URL (#access_token=..., formato que o Supabase Auth ainda usa pra
+    // convite/recuperação de senha neste projeto) fica desligada, e o client nunca
+    // estabelece sessão sozinho. Por isso lê os tokens manualmente e chama setSession
+    // explicitamente, cobrindo os dois formatos possíveis (hash antigo e PKCE/?code=).
+    async function verificar() {
+      const hashParams = new URLSearchParams(window.location.hash.slice(1));
+      const accessToken = hashParams.get('access_token');
+      const refreshToken = hashParams.get('refresh_token');
+      const code = new URL(window.location.href).searchParams.get('code');
+
+      if (accessToken && refreshToken) {
+        const { data, error } = await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken,
+        });
+        if (data.session) { setSessaoValida(true); return; }
+        if (error) console.error('Erro ao estabelecer sessão (hash):', error.message);
+      } else if (code) {
+        const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+        if (data.session) { setSessaoValida(true); return; }
+        if (error) console.error('Erro ao trocar código por sessão:', error.message);
+      }
+
+      // Fallback: sessão já existente (ex: usuário recarregou a página depois de já ter
+      // processado o link uma vez).
+      const { data } = await supabase.auth.getSession();
+      setSessaoValida(!!data.session);
     }
 
-    // Escuta o evento em vez de só checar getSession() uma vez, pra não correr risco de
-    // checar antes do hash/código ter sido processado.
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session) setSessaoValida(true);
-    });
-
-    supabase.auth.getSession().then(({ data }) => {
-      if (data.session) setSessaoValida(true);
-    });
-
-    const timeout = setTimeout(() => {
-      setSessaoValida((atual) => (atual === null ? false : atual));
-    }, 3000);
-
-    return () => {
-      listener.subscription.unsubscribe();
-      clearTimeout(timeout);
-    };
+    verificar();
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
