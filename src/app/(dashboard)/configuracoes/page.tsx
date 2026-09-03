@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { supabase } from '../../../lib/supabase';
 
 interface Dispositivo {
@@ -355,6 +356,17 @@ const carregarDispositivos = async () => {
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-semibold text-stone-800">Configurações</h1>
+
+      <Link
+        href="/configuracoes/recorrentes"
+        className="flex items-center justify-between bg-white border border-stone-200 rounded-xl shadow-sm p-4 hover:border-amber-300 transition-colors"
+      >
+        <div>
+          <h2 className="text-sm font-semibold text-stone-800">🔁 Despesas Recorrentes</h2>
+          <p className="text-stone-500 text-xs mt-1">Aluguel, mensalidades e outras despesas geradas automaticamente.</p>
+        </div>
+        <span className="text-stone-400">→</span>
+      </Link>
 
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>

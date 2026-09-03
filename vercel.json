@@ -1,0 +1,5 @@
+{
+  "crons": [
+    { "path": "/api/cron/gerar-despesas-recorrentes", "schedule": "0 6 * * *" }
+  ]
+}
