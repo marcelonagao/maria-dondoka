@@ -37,7 +37,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'ERRO_CRIAR_FRANQUIA', detalhe: franquiaError.message }, { status: 500 });
   }
 
-  const { data: convite, error: conviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(email_admin);
+  const redirectTo = `${new URL(request.url).origin}/definir-senha`;
+  const { data: convite, error: conviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(email_admin, { redirectTo });
   if (conviteError || !convite.user) {
     // Reverte a franquia se o convite falhar, pra não deixar registro órfão.
     const { error: rollbackError } = await supabaseAdmin.from('franchises').delete().eq('id', franquia.id);
