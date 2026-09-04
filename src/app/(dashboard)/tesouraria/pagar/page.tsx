@@ -25,8 +25,15 @@ interface Despesa {
   documento_origem: string | null;
   parcela_numero: number | null;
   parcela_total: number | null;
+  folha_pagamento_competencia_id: string | null;
   plano_contas: { nome: string } | null;
   franchises: { name: string } | null;
+}
+
+interface ItemFuncionario {
+  id: string;
+  nome: string;
+  valor_liquido: number;
 }
 
 interface Parcela {
@@ -109,6 +116,9 @@ export default function ContasPagarPage() {
   const [motivoCancelamento, setMotivoCancelamento] = useState('');
   const [cancelandoId, setCancelandoId] = useState<string | null>(null);
   const [filtroStatus, setFiltroStatus] = useState<'ativas' | 'canceladas' | 'todas'>('ativas');
+  const [expandedDespesas, setExpandedDespesas] = useState<Set<string>>(new Set());
+  const [itensPorChave, setItensPorChave] = useState<Map<string, ItemFuncionario[]>>(new Map());
+  const [carregandoItens, setCarregandoItens] = useState<Set<string>>(new Set());
 
   const [formData, setFormData] = useState({
     description: '',
@@ -515,6 +525,42 @@ export default function ContasPagarPage() {
     }
   };
 
+  // Uma competência de folha pode ter funcionários de mais de uma franquia (arquivo
+  // multi-CNPJ) — a chave do cache combina competência+franquia, não só a competência,
+  // pra nunca misturar a lista de funcionários de uma franquia com a de outra.
+  const toggleDetalheFuncionarios = async (despesa: Despesa) => {
+    const competenciaId = despesa.folha_pagamento_competencia_id;
+    if (!competenciaId) return;
+    const chave = `${competenciaId}|${despesa.franchise_id}`;
+
+    setExpandedDespesas((atual) => {
+      const novo = new Set(atual);
+      if (novo.has(despesa.id)) novo.delete(despesa.id); else novo.add(despesa.id);
+      return novo;
+    });
+
+    if (itensPorChave.has(chave)) return;
+    setCarregandoItens((atual) => new Set(atual).add(chave));
+    try {
+      const { data, error } = await supabase
+        .from('folha_pagamento_itens')
+        .select('id, nome, valor_liquido')
+        .eq('competencia_id', competenciaId)
+        .eq('franchise_id', despesa.franchise_id)
+        .order('nome');
+      if (error) throw error;
+      setItensPorChave((atual) => new Map(atual).set(chave, data || []));
+    } catch (error) {
+      console.error('Erro ao buscar funcionários da folha:', error);
+    } finally {
+      setCarregandoItens((atual) => {
+        const novo = new Set(atual);
+        novo.delete(chave);
+        return novo;
+      });
+    }
+  };
+
   return (
     <div className="space-y-6 relative">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -571,8 +617,14 @@ export default function ContasPagarPage() {
                   </td>
                 </tr>
               ) : (
-                despesasVisiveis.map((despesa) => (
-                  <tr key={despesa.id} className="hover:bg-stone-50/50 transition-colors">
+                despesasVisiveis.map((despesa) => {
+                  const mostraDetalheFuncionarios =
+                    !!despesa.folha_pagamento_competencia_id && despesa.plano_contas?.nome === 'Salários e Ordenados';
+                  const chaveDetalhe = `${despesa.folha_pagamento_competencia_id}|${despesa.franchise_id}`;
+                  const expandida = expandedDespesas.has(despesa.id);
+                  return (
+                  <React.Fragment key={despesa.id}>
+                  <tr className="hover:bg-stone-50/50 transition-colors">
                     <td className="px-6 py-4 font-medium text-stone-800">
                       {despesa.description}
                       {!!despesa.parcela_total && despesa.parcela_total > 1 && (
@@ -580,6 +632,16 @@ export default function ContasPagarPage() {
                           Parcela {despesa.parcela_numero}/{despesa.parcela_total}
                           {despesa.documento_origem && ` • ${despesa.documento_origem}`}
                         </p>
+                      )}
+                      {mostraDetalheFuncionarios && (
+                        <button
+                          type="button"
+                          onClick={() => toggleDetalheFuncionarios(despesa)}
+                          className="flex items-center gap-1 text-xs font-medium text-amber-600 hover:text-amber-700 mt-1"
+                        >
+                          <span className={`inline-block transition-transform ${expandida ? 'rotate-90' : ''}`}>›</span>
+                          Ver funcionários
+                        </button>
                       )}
                     </td>
                     {podeLancarParaOutras && <td className="px-6 py-4">{despesa.franchises?.name || '—'}</td>}
@@ -630,7 +692,27 @@ export default function ContasPagarPage() {
                       )}
                     </td>
                   </tr>
-                ))
+                  {mostraDetalheFuncionarios && expandida && (
+                    <tr>
+                      <td colSpan={podeLancarParaOutras ? 7 : 6} className="px-6 py-3 bg-stone-50/50 border-t border-stone-100">
+                        {carregandoItens.has(chaveDetalhe) ? (
+                          <p className="text-xs text-stone-400">Carregando funcionários...</p>
+                        ) : (
+                          <div className="space-y-1 max-w-md">
+                            {(itensPorChave.get(chaveDetalhe) || []).map((item) => (
+                              <div key={item.id} className="flex items-center justify-between text-xs text-stone-600 py-1">
+                                <span>{item.nome}</span>
+                                <span className="font-medium">{formatCurrency(item.valor_liquido)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                  </React.Fragment>
+                  );
+                })
               )}
             </tbody>
           </table>
