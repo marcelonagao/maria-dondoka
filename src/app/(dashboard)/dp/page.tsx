@@ -17,6 +17,7 @@ const STATUS_LABELS: Record<string, { label: string; className: string }> = {
   aguardando_revisao: { label: 'Aguardando revisão', className: 'bg-blue-50 text-blue-700' },
   validado: { label: 'Validado', className: 'bg-emerald-50 text-emerald-700' },
   erro: { label: 'Erro na extração', className: 'bg-red-50 text-red-600' },
+  cancelado: { label: 'Cancelada', className: 'bg-stone-200 text-stone-600' },
 };
 
 function formatCompetencia(dataISO: string) {
@@ -138,9 +139,9 @@ export default function DpPage() {
                         <span className={`px-2.5 py-1 text-xs font-medium rounded-md ${statusInfo.className}`}>{statusInfo.label}</span>
                       </td>
                       <td className="px-6 py-4">
-                        {(c.status === 'aguardando_revisao' || c.status === 'validado') && (
+                        {(c.status === 'aguardando_revisao' || c.status === 'validado' || c.status === 'cancelado') && (
                           <Link href={`/dp/competencias/${c.id}`} className="text-xs font-medium px-3 py-1.5 rounded-lg transition-colors text-amber-600 hover:bg-amber-50">
-                            {c.status === 'validado' ? 'Ver' : 'Revisar'}
+                            {c.status === 'aguardando_revisao' ? 'Revisar' : 'Ver'}
                           </Link>
                         )}
                       </td>
