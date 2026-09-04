@@ -157,64 +157,73 @@ export default function RevisaoCompetenciaPage() {
       }
 
       // Persiste os valores editados na revisão antes de gerar as despesas.
-      for (const item of itens) {
-        const { error } = await supabase
-          .from('folha_pagamento_itens')
-          .update({
+      // Em paralelo (Promise.all) — sequencial aqui já causou timeout real em folhas
+      // com muitos funcionários (cada item fazia até 3 round-trips ao banco em série).
+      await Promise.all(
+        itens.map(async (item) => {
+          const { error } = await supabase
+            .from('folha_pagamento_itens')
+            .update({
+              franchise_id: item.franchise_id,
+              nome: item.nome,
+              cargo: item.cargo,
+              cbo: item.cbo,
+              admissao: item.admissao,
+              salario_base: item.salario_base,
+              total_vencimentos: item.total_vencimentos,
+              total_descontos: item.total_descontos,
+              valor_liquido: item.valor_liquido,
+              inss_empregado: item.inss_empregado,
+              fgts_mes: item.fgts_mes,
+              horas_extras_qtd: item.horas_extras_qtd,
+              horas_extras_valor: item.horas_extras_valor,
+              reflexo_dsr_valor: item.reflexo_dsr_valor,
+            })
+            .eq('id', item.id);
+          if (error) throw error;
+        })
+      );
+
+      // Upsert de funcionários por (franchise_id, codigo_folha) — também em paralelo;
+      // a cadeia select->insert/update->update é independente entre funcionários diferentes.
+      await Promise.all(
+        itens.map(async (item) => {
+          const { data: funcionarioExistente } = await supabase
+            .from('funcionarios')
+            .select('id')
+            .eq('franchise_id', item.franchise_id)
+            .eq('codigo_folha', item.codigo_folha)
+            .maybeSingle();
+
+          const dadosFuncionario = {
             franchise_id: item.franchise_id,
             nome: item.nome,
+            codigo_folha: item.codigo_folha,
             cargo: item.cargo,
             cbo: item.cbo,
             admissao: item.admissao,
             salario_base: item.salario_base,
-            total_vencimentos: item.total_vencimentos,
-            total_descontos: item.total_descontos,
-            valor_liquido: item.valor_liquido,
-            inss_empregado: item.inss_empregado,
-            fgts_mes: item.fgts_mes,
-            horas_extras_qtd: item.horas_extras_qtd,
-            horas_extras_valor: item.horas_extras_valor,
-            reflexo_dsr_valor: item.reflexo_dsr_valor,
-          })
-          .eq('id', item.id);
-        if (error) throw error;
-      }
+            ativo: true,
+          };
 
-      // Upsert de funcionários por (franchise_id, codigo_folha).
-      for (const item of itens) {
-        const { data: funcionarioExistente } = await supabase
-          .from('funcionarios')
-          .select('id')
-          .eq('franchise_id', item.franchise_id)
-          .eq('codigo_folha', item.codigo_folha)
-          .maybeSingle();
+          let funcionarioId = funcionarioExistente?.id;
+          if (funcionarioExistente) {
+            const { error: atualizarError } = await supabase.from('funcionarios').update(dadosFuncionario).eq('id', funcionarioExistente.id);
+            if (atualizarError) throw atualizarError;
+          } else {
+            const { data: novoFuncionario, error: criarError } = await supabase
+              .from('funcionarios')
+              .insert(dadosFuncionario)
+              .select('id')
+              .single();
+            if (criarError) throw criarError;
+            funcionarioId = novoFuncionario.id;
+          }
 
-        const dadosFuncionario = {
-          franchise_id: item.franchise_id,
-          nome: item.nome,
-          codigo_folha: item.codigo_folha,
-          cargo: item.cargo,
-          cbo: item.cbo,
-          admissao: item.admissao,
-          salario_base: item.salario_base,
-          ativo: true,
-        };
-
-        let funcionarioId = funcionarioExistente?.id;
-        if (funcionarioExistente) {
-          await supabase.from('funcionarios').update(dadosFuncionario).eq('id', funcionarioExistente.id);
-        } else {
-          const { data: novoFuncionario, error: criarError } = await supabase
-            .from('funcionarios')
-            .insert(dadosFuncionario)
-            .select('id')
-            .single();
-          if (criarError) throw criarError;
-          funcionarioId = novoFuncionario.id;
-        }
-
-        await supabase.from('folha_pagamento_itens').update({ funcionario_id: funcionarioId }).eq('id', item.id);
-      }
+          const { error: vincularError } = await supabase.from('folha_pagamento_itens').update({ funcionario_id: funcionarioId }).eq('id', item.id);
+          if (vincularError) throw vincularError;
+        })
+      );
 
       // Uma linha de Contas a Pagar por franquia (soma do líquido dos itens dela).
       const linhasDespesa: Record<string, unknown>[] = [];
@@ -232,38 +241,43 @@ export default function RevisaoCompetenciaPage() {
         });
       }
 
-      // Guias avulsas — upload do arquivo (se houver) + uma linha por guia.
-      for (const guia of guias) {
-        if (!guia.franchiseId || !guia.valor) continue;
-        let categoriaId = categoriaDaGuia(guia.tipo);
-        if (guia.tipo === 'outro') categoriaId = guia.categoriaOutro || null;
-        if (!categoriaId) continue;
+      // Guias avulsas — upload do arquivo (se houver) + uma linha por guia, em paralelo.
+      const linhasGuias = await Promise.all(
+        guias.map(async (guia) => {
+          if (!guia.franchiseId || !guia.valor) return null;
+          let categoriaId = categoriaDaGuia(guia.tipo);
+          if (guia.tipo === 'outro') categoriaId = guia.categoriaOutro || null;
+          if (!categoriaId) return null;
 
-        let arquivoPath = '';
-        if (guia.file) {
-          arquivoPath = `guias/${crypto.randomUUID()}-${guia.file.name}`;
-          const { error: uploadError } = await supabase.storage.from('folhas-pagamento').upload(arquivoPath, guia.file);
-          if (uploadError) throw uploadError;
-        }
+          let arquivoPath = '';
+          if (guia.file) {
+            arquivoPath = `guias/${crypto.randomUUID()}-${guia.file.name}`;
+            const { error: uploadError } = await supabase.storage.from('folhas-pagamento').upload(arquivoPath, guia.file);
+            if (uploadError) throw uploadError;
+          }
 
-        const { error: guiaError } = await supabase.from('folha_pagamento_guias').insert({
-          competencia_id: competenciaId,
-          franchise_id: guia.franchiseId,
-          tipo: guia.tipo,
-          valor: parseFloat(guia.valor),
-          arquivo_path: arquivoPath,
-        });
-        if (guiaError) throw guiaError;
+          const { error: guiaError } = await supabase.from('folha_pagamento_guias').insert({
+            competencia_id: competenciaId,
+            franchise_id: guia.franchiseId,
+            tipo: guia.tipo,
+            valor: parseFloat(guia.valor),
+            arquivo_path: arquivoPath,
+          });
+          if (guiaError) throw guiaError;
 
-        linhasDespesa.push({
-          franchise_id: guia.franchiseId,
-          plano_conta_id: categoriaId,
-          description: `${guia.tipo === 'fgts' ? 'FGTS' : guia.tipo === 'inss_patronal' ? 'INSS Patronal' : guia.tipo === 'sindicato' ? 'Sindicato' : 'Guia'} - ${competencia.competencia.slice(0, 7)}`,
-          due_date: vencimento,
-          amount: parseFloat(guia.valor),
-          status: 'pendente',
-          folha_pagamento_competencia_id: competenciaId,
-        });
+          return {
+            franchise_id: guia.franchiseId,
+            plano_conta_id: categoriaId,
+            description: `${guia.tipo === 'fgts' ? 'FGTS' : guia.tipo === 'inss_patronal' ? 'INSS Patronal' : guia.tipo === 'sindicato' ? 'Sindicato' : 'Guia'} - ${competencia.competencia.slice(0, 7)}`,
+            due_date: vencimento,
+            amount: parseFloat(guia.valor),
+            status: 'pendente',
+            folha_pagamento_competencia_id: competenciaId,
+          };
+        })
+      );
+      for (const linha of linhasGuias) {
+        if (linha) linhasDespesa.push(linha);
       }
 
       if (linhasDespesa.length > 0) {
