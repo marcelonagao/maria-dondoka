@@ -49,6 +49,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { name: 'Vendas (PDV)', path: '/vendas', icon: '🛍️', tela: 'vendas_pdv' },
     { name: 'Produtos', path: '/produtos', icon: '📦', tela: 'produtos' },
     { name: 'DRE', path: '/dre', icon: '📈', tela: 'dre' },
+    { name: 'DP', path: '/dp', icon: '🧑‍💼', tela: 'dp' },
     { name: 'Configurações', path: '/configuracoes', icon: '⚙️', tela: 'configuracoes' },
     { name: 'Franquias', path: '/franquias', icon: '🏬', tela: 'franquias' },
   ].filter((item) => telasPermitidas.includes(item.tela));
