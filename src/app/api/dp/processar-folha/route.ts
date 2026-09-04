@@ -106,7 +106,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const modelo = 'gemini-2.0-flash';
+    const modelo = 'gemini-3.6-flash';
     const respostaGemini = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent?key=${process.env.GEMINI_API_KEY}`,
       {
