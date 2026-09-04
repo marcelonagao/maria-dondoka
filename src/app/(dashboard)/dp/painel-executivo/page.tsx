@@ -130,11 +130,14 @@ export default function PainelExecutivoDpPage() {
           const competenciaYYYYMM = mapaCompetencia.get(item.competencia_id);
           if (!competenciaYYYYMM || !item.franchise_id) continue;
           const celula = pegarCelula(item.franchise_id, competenciaYYYYMM);
-          celula.salarios += Number(item.total_vencimentos) || 0;
+          const horasExtras = (Number(item.horas_extras_valor) || 0) + (Number(item.reflexo_dsr_valor) || 0);
+          // Salários fica só a base (sem hora extra) e Horas Extras vira componente
+          // próprio — os dois somam ao CET igual antes, mas agora dá pra ver separado
+          // o quanto hora extra pesa no custo total, em vez de ficar escondido dentro
+          // do total de vencimentos.
+          celula.salarios += (Number(item.total_vencimentos) || 0) - horasExtras;
           celula.encargos += Number(item.fgts_mes) || 0;
-          // Já está incluído em total_vencimentos (não soma de novo no CET) — é só a
-          // quebra informativa de quanto desse total veio de hora extra + reflexo DSR.
-          celula.horasExtras += (Number(item.horas_extras_valor) || 0) + (Number(item.reflexo_dsr_valor) || 0);
+          celula.horasExtras += horasExtras;
           celula.funcionarios += 1;
         }
 
@@ -195,7 +198,7 @@ export default function PainelExecutivoDpPage() {
     return total;
   }, [custosPorFranquia, franquiaSelecionada, mesSelecionado, podeVerVariasFranquias, franquiasComDado, franquiaPropria]);
 
-  const cetDoMes = custoDoMes.salarios + custoDoMes.encargos + custoDoMes.beneficios;
+  const cetDoMes = custoDoMes.salarios + custoDoMes.horasExtras + custoDoMes.encargos + custoDoMes.beneficios;
   const temDadoNoMes = cetDoMes > 0;
 
   // Série do gráfico: uma linha por franquia (se "Todas") ou uma linha só (franquia filtrada).
@@ -219,7 +222,7 @@ export default function PainelExecutivoDpPage() {
       const ponto: Record<string, number | string> = { competencia: mes };
       for (const fid of franquiasNoGrafico) {
         const celula = custosPorFranquia.get(fid)?.get(mes);
-        const total = celula ? celula.salarios + celula.encargos + celula.beneficios : 0;
+        const total = celula ? celula.salarios + celula.horasExtras + celula.encargos + celula.beneficios : 0;
         ponto[fid] = total;
       }
       return ponto;
@@ -281,8 +284,12 @@ export default function PainelExecutivoDpPage() {
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
                   <div className="bg-stone-50 rounded-lg p-3">
-                    <p className="text-stone-400 text-xs uppercase tracking-wider mb-1">Salários</p>
+                    <p className="text-stone-400 text-xs uppercase tracking-wider mb-1">Salários (sem horas extras)</p>
                     <p className="font-medium text-stone-700">{formatCurrency(custoDoMes.salarios)}</p>
+                  </div>
+                  <div className="bg-stone-50 rounded-lg p-3">
+                    <p className="text-stone-400 text-xs uppercase tracking-wider mb-1">Horas Extras</p>
+                    <p className="font-medium text-stone-700">{formatCurrency(custoDoMes.horasExtras)}</p>
                   </div>
                   <div className="bg-stone-50 rounded-lg p-3">
                     <p className="text-stone-400 text-xs uppercase tracking-wider mb-1">Encargos (FGTS + INSS Patronal)</p>
@@ -291,10 +298,6 @@ export default function PainelExecutivoDpPage() {
                   <div className="bg-stone-50 rounded-lg p-3">
                     <p className="text-stone-400 text-xs uppercase tracking-wider mb-1">Benefícios</p>
                     <p className="font-medium text-stone-700">{formatCurrency(custoDoMes.beneficios)}</p>
-                  </div>
-                  <div className="bg-stone-50 rounded-lg p-3">
-                    <p className="text-stone-400 text-xs uppercase tracking-wider mb-1">Horas Extras (incluso em Salários)</p>
-                    <p className="font-medium text-stone-700">{formatCurrency(custoDoMes.horasExtras)}</p>
                   </div>
                 </div>
               </>
