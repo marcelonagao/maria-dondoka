@@ -62,7 +62,7 @@ export default function RevisaoCompetenciaPage() {
   const params = useParams();
   const competenciaId = params.id as string;
 
-  const [competencia, setCompetencia] = useState<{ competencia: string; status: string } | null>(null);
+  const [competencia, setCompetencia] = useState<{ competencia: string; status: string; motivo_cancelamento: string | null } | null>(null);
   const [itens, setItens] = useState<Item[]>([]);
   const [franquias, setFranquias] = useState<Franquia[]>([]);
   const [planoContas, setPlanoContas] = useState<CategoriaContas[]>([]);
@@ -71,12 +71,15 @@ export default function RevisaoCompetenciaPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isValidando, setIsValidando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  const [mostrarCancelar, setMostrarCancelar] = useState(false);
+  const [motivoCancelamento, setMotivoCancelamento] = useState('');
+  const [isCancelando, setIsCancelando] = useState(false);
 
   const fetchDados = async () => {
     try {
       setIsLoading(true);
       const [compRes, itensRes, franquiasRes, planoContasRes] = await Promise.all([
-        supabase.from('folha_pagamento_competencias').select('competencia, status').eq('id', competenciaId).single(),
+        supabase.from('folha_pagamento_competencias').select('competencia, status, motivo_cancelamento').eq('id', competenciaId).single(),
         supabase.from('folha_pagamento_itens').select('*').eq('competencia_id', competenciaId).order('nome'),
         supabase.from('franchises').select('id, name').order('name'),
         supabase.from('plano_contas').select('id, nome, categoria_pai_id').eq('is_active', true).in('tipo', ['despesa', 'custo']).order('ordem'),
@@ -301,6 +304,52 @@ export default function RevisaoCompetenciaPage() {
     }
   };
 
+  const handleCancelar = async () => {
+    setIsCancelando(true);
+    setErro(null);
+    try {
+      // Não existe fluxo de reversão de despesa já paga no projeto — se alguma despesa
+      // gerada por essa competência já foi paga, bloqueia e pede resolução manual.
+      const { data: pagas, error: pagasError } = await supabase
+        .from('accounts_payable')
+        .select('id')
+        .eq('folha_pagamento_competencia_id', competenciaId)
+        .eq('status', 'pago')
+        .limit(1);
+      if (pagasError) throw pagasError;
+      if (pagas && pagas.length > 0) {
+        throw new Error('Existem despesas desta competência já pagas — resolva-as manualmente em Contas a Pagar antes de cancelar.');
+      }
+
+      const { error: despesasError } = await supabase
+        .from('accounts_payable')
+        .update({ status: 'cancelado', motivo_cancelamento: motivoCancelamento || 'Competência de folha cancelada.' })
+        .eq('folha_pagamento_competencia_id', competenciaId)
+        .eq('status', 'pendente');
+      if (despesasError) throw despesasError;
+
+      const { data: { user } } = await supabase.auth.getUser();
+      const { error: statusError } = await supabase
+        .from('folha_pagamento_competencias')
+        .update({
+          status: 'cancelado',
+          cancelado_por: user?.id || null,
+          cancelado_em: new Date().toISOString(),
+          motivo_cancelamento: motivoCancelamento || null,
+        })
+        .eq('id', competenciaId);
+      if (statusError) throw statusError;
+
+      setMostrarCancelar(false);
+      await fetchDados();
+    } catch (error) {
+      console.error('Erro ao cancelar competência:', error);
+      setErro(error instanceof Error ? error.message : 'Erro ao cancelar. Verifique o console.');
+    } finally {
+      setIsCancelando(false);
+    }
+  };
+
   if (isLoading) {
     return <div className="text-stone-400 text-sm">Carregando...</div>;
   }
@@ -309,6 +358,8 @@ export default function RevisaoCompetenciaPage() {
   }
 
   const jaValidado = competencia.status === 'validado';
+  const jaCancelado = competencia.status === 'cancelado';
+  const podeEditar = competencia.status === 'aguardando_revisao';
 
   return (
     <div className="space-y-6">
@@ -318,11 +369,26 @@ export default function RevisaoCompetenciaPage() {
         </Link>
       </div>
 
-      <div>
-        <h1 className="text-2xl font-semibold text-stone-800">Revisão — {competencia.competencia.slice(0, 7)}</h1>
-        <p className="text-stone-500 text-sm mt-1">
-          {jaValidado ? 'Competência já validada e lançada em Contas a Pagar.' : 'Confira os dados extraídos antes de lançar em Contas a Pagar.'}
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold text-stone-800">Revisão — {competencia.competencia.slice(0, 7)}</h1>
+          <p className="text-stone-500 text-sm mt-1">
+            {jaCancelado
+              ? `Competência cancelada.${competencia.motivo_cancelamento ? ` Motivo: ${competencia.motivo_cancelamento}` : ''}`
+              : jaValidado
+                ? 'Competência já validada e lançada em Contas a Pagar.'
+                : 'Confira os dados extraídos antes de lançar em Contas a Pagar.'}
+          </p>
+        </div>
+        {jaValidado && (
+          <button
+            type="button"
+            onClick={() => { setMotivoCancelamento(''); setMostrarCancelar(true); }}
+            className="text-sm font-medium text-red-600 hover:text-red-700 whitespace-nowrap"
+          >
+            Cancelar competência
+          </button>
+        )}
       </div>
 
       {erro && <div className="p-4 bg-red-50 text-red-600 text-sm rounded-lg border border-red-100">{erro}</div>}
@@ -358,60 +424,58 @@ export default function RevisaoCompetenciaPage() {
                     <th className="px-4 py-2">H. Extras (qtd)</th>
                     <th className="px-4 py-2">H. Extras (R$)</th>
                     <th className="px-4 py-2">Reflexo DSR</th>
-                    {semFranquia && <th className="px-4 py-2">Franquia</th>}
+                    <th className="px-4 py-2">Franquia</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-stone-100">
                   {itensDaFranquia.map((item) => (
                     <tr key={item.id}>
                       <td className="px-4 py-2">
-                        <input disabled={jaValidado} className="w-16 px-2 py-1 border border-stone-200 rounded text-xs" value={item.codigo_folha} onChange={(e) => atualizarItem(item.id, 'codigo_folha', e.target.value)} />
+                        <input disabled={!podeEditar} className="w-16 px-2 py-1 border border-stone-200 rounded text-xs" value={item.codigo_folha} onChange={(e) => atualizarItem(item.id, 'codigo_folha', e.target.value)} />
                       </td>
                       <td className="px-4 py-2">
-                        <input disabled={jaValidado} className="w-48 px-2 py-1 border border-stone-200 rounded text-xs" value={item.nome} onChange={(e) => atualizarItem(item.id, 'nome', e.target.value)} />
+                        <input disabled={!podeEditar} className="w-48 px-2 py-1 border border-stone-200 rounded text-xs" value={item.nome} onChange={(e) => atualizarItem(item.id, 'nome', e.target.value)} />
                       </td>
                       <td className="px-4 py-2">
-                        <input disabled={jaValidado} className="w-32 px-2 py-1 border border-stone-200 rounded text-xs" value={item.cargo || ''} onChange={(e) => atualizarItem(item.id, 'cargo', e.target.value)} />
+                        <input disabled={!podeEditar} className="w-32 px-2 py-1 border border-stone-200 rounded text-xs" value={item.cargo || ''} onChange={(e) => atualizarItem(item.id, 'cargo', e.target.value)} />
                       </td>
                       <td className="px-4 py-2">
-                        <input disabled={jaValidado} type="date" className="w-36 px-2 py-1 border border-stone-200 rounded text-xs" value={item.admissao || ''} onChange={(e) => atualizarItem(item.id, 'admissao', e.target.value)} />
+                        <input disabled={!podeEditar} type="date" className="w-36 px-2 py-1 border border-stone-200 rounded text-xs" value={item.admissao || ''} onChange={(e) => atualizarItem(item.id, 'admissao', e.target.value)} />
                       </td>
                       <td className="px-4 py-2">
-                        <input disabled={jaValidado} type="number" step="0.01" className="w-24 px-2 py-1 border border-stone-200 rounded text-xs" value={item.salario_base ?? ''} onChange={(e) => atualizarItem(item.id, 'salario_base', parseFloat(e.target.value) || null)} />
+                        <input disabled={!podeEditar} type="number" step="0.01" className="w-24 px-2 py-1 border border-stone-200 rounded text-xs" value={item.salario_base ?? ''} onChange={(e) => atualizarItem(item.id, 'salario_base', parseFloat(e.target.value) || null)} />
                       </td>
                       <td className="px-4 py-2">
-                        <input disabled={jaValidado} type="number" step="0.01" className="w-24 px-2 py-1 border border-stone-200 rounded text-xs" value={item.valor_liquido} onChange={(e) => atualizarItem(item.id, 'valor_liquido', parseFloat(e.target.value) || 0)} />
+                        <input disabled={!podeEditar} type="number" step="0.01" className="w-24 px-2 py-1 border border-stone-200 rounded text-xs" value={item.valor_liquido} onChange={(e) => atualizarItem(item.id, 'valor_liquido', parseFloat(e.target.value) || 0)} />
                       </td>
                       <td className="px-4 py-2">
-                        <input disabled={jaValidado} type="number" step="0.01" className="w-24 px-2 py-1 border border-stone-200 rounded text-xs" value={item.inss_empregado ?? ''} onChange={(e) => atualizarItem(item.id, 'inss_empregado', parseFloat(e.target.value) || null)} />
+                        <input disabled={!podeEditar} type="number" step="0.01" className="w-24 px-2 py-1 border border-stone-200 rounded text-xs" value={item.inss_empregado ?? ''} onChange={(e) => atualizarItem(item.id, 'inss_empregado', parseFloat(e.target.value) || null)} />
                       </td>
                       <td className="px-4 py-2">
-                        <input disabled={jaValidado} type="number" step="0.01" className="w-24 px-2 py-1 border border-stone-200 rounded text-xs" value={item.fgts_mes ?? ''} onChange={(e) => atualizarItem(item.id, 'fgts_mes', parseFloat(e.target.value) || null)} />
+                        <input disabled={!podeEditar} type="number" step="0.01" className="w-24 px-2 py-1 border border-stone-200 rounded text-xs" value={item.fgts_mes ?? ''} onChange={(e) => atualizarItem(item.id, 'fgts_mes', parseFloat(e.target.value) || null)} />
                       </td>
                       <td className="px-4 py-2">
-                        <input disabled={jaValidado} type="number" step="0.01" className="w-20 px-2 py-1 border border-stone-200 rounded text-xs" value={item.horas_extras_qtd ?? ''} onChange={(e) => atualizarItem(item.id, 'horas_extras_qtd', parseFloat(e.target.value) || null)} />
+                        <input disabled={!podeEditar} type="number" step="0.01" className="w-20 px-2 py-1 border border-stone-200 rounded text-xs" value={item.horas_extras_qtd ?? ''} onChange={(e) => atualizarItem(item.id, 'horas_extras_qtd', parseFloat(e.target.value) || null)} />
                       </td>
                       <td className="px-4 py-2">
-                        <input disabled={jaValidado} type="number" step="0.01" className="w-24 px-2 py-1 border border-stone-200 rounded text-xs" value={item.horas_extras_valor ?? ''} onChange={(e) => atualizarItem(item.id, 'horas_extras_valor', parseFloat(e.target.value) || null)} />
+                        <input disabled={!podeEditar} type="number" step="0.01" className="w-24 px-2 py-1 border border-stone-200 rounded text-xs" value={item.horas_extras_valor ?? ''} onChange={(e) => atualizarItem(item.id, 'horas_extras_valor', parseFloat(e.target.value) || null)} />
                       </td>
                       <td className="px-4 py-2">
-                        <input disabled={jaValidado} type="number" step="0.01" className="w-24 px-2 py-1 border border-stone-200 rounded text-xs" value={item.reflexo_dsr_valor ?? ''} onChange={(e) => atualizarItem(item.id, 'reflexo_dsr_valor', parseFloat(e.target.value) || null)} />
+                        <input disabled={!podeEditar} type="number" step="0.01" className="w-24 px-2 py-1 border border-stone-200 rounded text-xs" value={item.reflexo_dsr_valor ?? ''} onChange={(e) => atualizarItem(item.id, 'reflexo_dsr_valor', parseFloat(e.target.value) || null)} />
                       </td>
-                      {semFranquia && (
-                        <td className="px-4 py-2">
-                          <select
-                            disabled={jaValidado}
-                            className="px-2 py-1 border border-amber-300 rounded text-xs bg-white"
-                            value={item.franchise_id || ''}
-                            onChange={(e) => atualizarItem(item.id, 'franchise_id', e.target.value || null)}
-                          >
-                            <option value="">Selecione...</option>
-                            {franquias.map((f) => (
-                              <option key={f.id} value={f.id}>{f.name}</option>
-                            ))}
-                          </select>
-                        </td>
-                      )}
+                      <td className="px-4 py-2">
+                        <select
+                          disabled={!podeEditar}
+                          className={`px-2 py-1 border rounded text-xs bg-white ${semFranquia ? 'border-amber-300' : 'border-stone-200'}`}
+                          value={item.franchise_id || ''}
+                          onChange={(e) => atualizarItem(item.id, 'franchise_id', e.target.value || null)}
+                        >
+                          <option value="">Selecione...</option>
+                          {franquias.map((f) => (
+                            <option key={f.id} value={f.id}>{f.name}</option>
+                          ))}
+                        </select>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -424,7 +488,7 @@ export default function RevisaoCompetenciaPage() {
                     <td />
                     <td />
                     <td />
-                    {semFranquia && <td />}
+                    <td />
                   </tr>
                 </tfoot>
               </table>
@@ -433,7 +497,7 @@ export default function RevisaoCompetenciaPage() {
         );
       })}
 
-      {!jaValidado && (
+      {podeEditar && (
         <div className="bg-white border border-stone-200 rounded-xl shadow-sm p-6 space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold text-stone-700">Guias avulsas (FGTS, INSS Patronal, Sindicato...)</h3>
@@ -483,7 +547,7 @@ export default function RevisaoCompetenciaPage() {
         </div>
       )}
 
-      {!jaValidado && (
+      {podeEditar && (
         <div className="bg-white border border-stone-200 rounded-xl shadow-sm p-6 space-y-4">
           <div>
             <label className="block text-sm font-medium text-stone-700 mb-1">Vencimento (usado em todos os lançamentos gerados)</label>
@@ -499,6 +563,49 @@ export default function RevisaoCompetenciaPage() {
           >
             {isValidando ? 'Validando...' : 'Validar Fechamento'}
           </button>
+        </div>
+      )}
+
+      {mostrarCancelar && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden">
+            <div className="flex justify-between items-center p-6 border-b border-stone-100">
+              <h2 className="text-lg font-semibold text-stone-800">Cancelar competência</h2>
+              <button onClick={() => setMostrarCancelar(false)} className="text-stone-400 hover:text-stone-600">✕</button>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-stone-600">
+                Tem certeza que deseja cancelar a competência de {competencia.competencia.slice(0, 7)}? As despesas pendentes geradas por ela serão canceladas em Contas a Pagar.
+              </p>
+              <div>
+                <label className="block text-sm font-medium text-stone-700 mb-1">Motivo (opcional)</label>
+                <input
+                  type="text"
+                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+                  value={motivoCancelamento}
+                  onChange={(e) => setMotivoCancelamento(e.target.value)}
+                  placeholder="Ex: competência errada, era Agosto"
+                />
+              </div>
+              <div className="pt-2 flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setMostrarCancelar(false)}
+                  className="flex-1 px-4 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-lg font-medium transition-colors"
+                >
+                  Voltar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCancelar}
+                  disabled={isCancelando}
+                  className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors disabled:opacity-70 flex justify-center items-center"
+                >
+                  {isCancelando ? 'Cancelando...' : 'Confirmar cancelamento'}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>
