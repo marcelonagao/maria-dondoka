@@ -286,10 +286,11 @@ export default function RevisaoCompetenciaPage() {
       }
 
       const { data: { user } } = await supabase.auth.getUser();
-      await supabase
+      const { error: statusError } = await supabase
         .from('folha_pagamento_competencias')
         .update({ status: 'validado', validado_por: user?.id || null, validado_em: new Date().toISOString() })
         .eq('id', competenciaId);
+      if (statusError) throw statusError;
 
       await fetchDados();
     } catch (error) {
