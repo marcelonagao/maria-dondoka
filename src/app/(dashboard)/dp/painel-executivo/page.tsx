@@ -26,6 +26,8 @@ interface CustoMes {
   salarios: number;
   encargos: number;
   beneficios: number;
+  horasExtras: number;
+  funcionarios: number;
 }
 
 const CORES_LINHA = ['#d97706', '#059669', '#2563eb', '#db2777', '#7c3aed', '#0891b2', '#dc2626', '#65a30d'];
@@ -37,7 +39,7 @@ function formatCompetenciaCurta(competenciaYYYYMM: string) {
 }
 
 function custoVazio(): CustoMes {
-  return { salarios: 0, encargos: 0, beneficios: 0 };
+  return { salarios: 0, encargos: 0, beneficios: 0, horasExtras: 0, funcionarios: 0 };
 }
 
 export default function PainelExecutivoDpPage() {
@@ -83,7 +85,7 @@ export default function PainelExecutivoDpPage() {
             .in('status', ['aguardando_revisao', 'validado']),
           supabase
             .from('folha_pagamento_itens')
-            .select('competencia_id, franchise_id, total_vencimentos, fgts_mes')
+            .select('competencia_id, franchise_id, total_vencimentos, fgts_mes, horas_extras_valor, reflexo_dsr_valor')
             .not('franchise_id', 'is', null),
           supabase
             .from('folha_pagamento_guias')
@@ -130,6 +132,10 @@ export default function PainelExecutivoDpPage() {
           const celula = pegarCelula(item.franchise_id, competenciaYYYYMM);
           celula.salarios += Number(item.total_vencimentos) || 0;
           celula.encargos += Number(item.fgts_mes) || 0;
+          // Já está incluído em total_vencimentos (não soma de novo no CET) — é só a
+          // quebra informativa de quanto desse total veio de hora extra + reflexo DSR.
+          celula.horasExtras += (Number(item.horas_extras_valor) || 0) + (Number(item.reflexo_dsr_valor) || 0);
+          celula.funcionarios += 1;
         }
 
         for (const guia of guiasRes.data || []) {
@@ -183,6 +189,8 @@ export default function PainelExecutivoDpPage() {
       total.salarios += celula.salarios;
       total.encargos += celula.encargos;
       total.beneficios += celula.beneficios;
+      total.horasExtras += celula.horasExtras;
+      total.funcionarios += celula.funcionarios;
     }
     return total;
   }, [custosPorFranquia, franquiaSelecionada, mesSelecionado, podeVerVariasFranquias, franquiasComDado, franquiaPropria]);
@@ -265,8 +273,13 @@ export default function PainelExecutivoDpPage() {
               <p className="text-stone-400 text-sm py-4">Nenhuma folha processada nesta competência.</p>
             ) : (
               <>
-                <p className="text-3xl font-semibold text-stone-800 mb-4">{formatCurrency(cetDoMes)}</p>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
+                <div className="flex items-baseline gap-3 mb-4">
+                  <p className="text-3xl font-semibold text-stone-800">{formatCurrency(cetDoMes)}</p>
+                  <p className="text-sm text-stone-400">
+                    {custoDoMes.funcionarios} funcionário{custoDoMes.funcionarios === 1 ? '' : 's'}
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
                   <div className="bg-stone-50 rounded-lg p-3">
                     <p className="text-stone-400 text-xs uppercase tracking-wider mb-1">Salários</p>
                     <p className="font-medium text-stone-700">{formatCurrency(custoDoMes.salarios)}</p>
@@ -278,6 +291,10 @@ export default function PainelExecutivoDpPage() {
                   <div className="bg-stone-50 rounded-lg p-3">
                     <p className="text-stone-400 text-xs uppercase tracking-wider mb-1">Benefícios</p>
                     <p className="font-medium text-stone-700">{formatCurrency(custoDoMes.beneficios)}</p>
+                  </div>
+                  <div className="bg-stone-50 rounded-lg p-3">
+                    <p className="text-stone-400 text-xs uppercase tracking-wider mb-1">Horas Extras (incluso em Salários)</p>
+                    <p className="font-medium text-stone-700">{formatCurrency(custoDoMes.horasExtras)}</p>
                   </div>
                 </div>
               </>
