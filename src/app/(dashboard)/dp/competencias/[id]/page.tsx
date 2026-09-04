@@ -417,8 +417,8 @@ export default function RevisaoCompetenciaPage() {
               <table className="w-full text-left text-sm text-stone-600">
                 <thead className="bg-stone-50/50 text-stone-500 uppercase text-xs font-medium">
                   <tr>
+                    <th className="sticky left-0 z-10 bg-stone-50 px-4 py-2">Nome</th>
                     <th className="px-4 py-2">Código</th>
-                    <th className="px-4 py-2">Nome</th>
                     <th className="px-4 py-2">Cargo</th>
                     <th className="px-4 py-2">Admissão</th>
                     <th className="px-4 py-2">Salário Base</th>
@@ -434,11 +434,11 @@ export default function RevisaoCompetenciaPage() {
                 <tbody className="divide-y divide-stone-100">
                   {itensDaFranquia.map((item) => (
                     <tr key={item.id}>
-                      <td className="px-4 py-2">
-                        <input disabled={!podeEditar} className="w-16 px-2 py-1 border border-stone-200 rounded text-xs" value={item.codigo_folha} onChange={(e) => atualizarItem(item.id, 'codigo_folha', e.target.value)} />
+                      <td className="sticky left-0 z-10 bg-white px-4 py-2">
+                        <input disabled={!podeEditar} className="w-48 px-2 py-1 border border-stone-200 rounded text-xs" value={item.nome} onChange={(e) => atualizarItem(item.id, 'nome', e.target.value)} />
                       </td>
                       <td className="px-4 py-2">
-                        <input disabled={!podeEditar} className="w-48 px-2 py-1 border border-stone-200 rounded text-xs" value={item.nome} onChange={(e) => atualizarItem(item.id, 'nome', e.target.value)} />
+                        <input disabled={!podeEditar} className="w-16 px-2 py-1 border border-stone-200 rounded text-xs" value={item.codigo_folha} onChange={(e) => atualizarItem(item.id, 'codigo_folha', e.target.value)} />
                       </td>
                       <td className="px-4 py-2">
                         <input disabled={!podeEditar} className="w-32 px-2 py-1 border border-stone-200 rounded text-xs" value={item.cargo || ''} onChange={(e) => atualizarItem(item.id, 'cargo', e.target.value)} />

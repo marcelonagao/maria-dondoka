@@ -666,7 +666,7 @@ export default function ContasPagarPage() {
           <table className="w-full text-left text-sm text-stone-600">
             <thead className="bg-stone-50 border-b border-stone-200 text-stone-500 uppercase text-xs font-medium">
               <tr>
-                <th className="px-6 py-4">Descrição</th>
+                <th className="sticky left-0 z-10 bg-stone-50 px-6 py-4">Descrição</th>
                 {podeLancarParaOutras && <th className="px-6 py-4">Franquia</th>}
                 <th className="px-6 py-4">Categoria</th>
                 <th className="px-6 py-4">Vencimento</th>
@@ -711,7 +711,7 @@ export default function ContasPagarPage() {
                       return (
                         <React.Fragment key={chaveGrupo}>
                           <tr className="hover:bg-stone-50/50 transition-colors">
-                            <td className="px-6 py-4 font-medium text-stone-800">
+                            <td className="sticky left-0 z-10 bg-white px-6 py-4 font-medium text-stone-800">
                               {descricaoGrupo}
                               <button
                                 type="button"
@@ -774,7 +774,7 @@ export default function ContasPagarPage() {
                     return (
                     <React.Fragment key={despesa.id}>
                     <tr className="hover:bg-stone-50/50 transition-colors">
-                      <td className="px-6 py-4 font-medium text-stone-800">
+                      <td className="sticky left-0 z-10 bg-white px-6 py-4 font-medium text-stone-800">
                         {despesa.description}
                         {!!despesa.parcela_total && despesa.parcela_total > 1 && (
                           <p className="text-xs font-normal text-stone-400 mt-0.5">

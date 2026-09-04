@@ -168,7 +168,7 @@ export default function DashboardPage() {
             <table className="w-full text-left text-sm text-stone-600">
               <thead className="bg-stone-50 border-b border-stone-200 text-stone-500 uppercase text-xs font-medium">
                 <tr>
-                  <th className="px-6 py-4">Franquia</th>
+                  <th className="sticky left-0 z-10 bg-stone-50 px-6 py-4">Franquia</th>
                   <th className="px-6 py-4">A Receber</th>
                   <th className="px-6 py-4">A Pagar</th>
                   <th className="px-6 py-4">Saldo</th>
@@ -179,7 +179,7 @@ export default function DashboardPage() {
                   const m = metricasPorFranquia[f.id] || { aReceber: 0, aPagar: 0 };
                   return (
                     <tr key={f.id} className="hover:bg-stone-50/50 transition-colors">
-                      <td className="px-6 py-4 font-medium text-stone-800">{f.name}</td>
+                      <td className="sticky left-0 z-10 bg-white px-6 py-4 font-medium text-stone-800">{f.name}</td>
                       <td className="px-6 py-4 text-emerald-600">{formatCurrency(m.aReceber)}</td>
                       <td className="px-6 py-4 text-red-500">{formatCurrency(m.aPagar)}</td>
                       <td className="px-6 py-4 font-semibold">{formatCurrency(m.aReceber - m.aPagar)}</td>
@@ -187,7 +187,7 @@ export default function DashboardPage() {
                   );
                 })}
                 <tr className="bg-stone-50 font-semibold text-stone-800">
-                  <td className="px-6 py-4">Total</td>
+                  <td className="sticky left-0 z-10 bg-stone-50 px-6 py-4">Total</td>
                   <td className="px-6 py-4">{formatCurrency(franquias.reduce((acc, f) => acc + (metricasPorFranquia[f.id]?.aReceber || 0), 0))}</td>
                   <td className="px-6 py-4">{formatCurrency(franquias.reduce((acc, f) => acc + (metricasPorFranquia[f.id]?.aPagar || 0), 0))}</td>
                   <td className="px-6 py-4">{formatCurrency(franquias.reduce((acc, f) => acc + ((metricasPorFranquia[f.id]?.aReceber || 0) - (metricasPorFranquia[f.id]?.aPagar || 0)), 0))}</td>
