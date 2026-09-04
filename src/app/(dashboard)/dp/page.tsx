@@ -215,9 +215,24 @@ export default function DpPage() {
                     <div className="bg-stone-50/50 border-t border-stone-100">
                       {Array.from(grupo.porFranquia.entries())
                         .sort(([a], [b]) => a.localeCompare(b))
-                        .map(([nomeFranquia, competenciasDaFranquia]) => (
+                        .map(([nomeFranquia, competenciasDaFranquia]) => {
+                          const subtotal = competenciasDaFranquia.reduce(
+                            (acc, c) => {
+                              if (c.status === 'cancelado' || c.status === 'erro') return acc;
+                              const resumo = resumoPorCompetencia.get(c.id);
+                              if (!resumo) return acc;
+                              return { valor: acc.valor + resumo.valor, qtd: acc.qtd + resumo.qtd };
+                            },
+                            { valor: 0, qtd: 0 }
+                          );
+                          return (
                           <div key={nomeFranquia} className="px-6 py-3 border-b border-stone-100 last:border-b-0">
-                            <p className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-2">{nomeFranquia}</p>
+                            <div className="flex items-center justify-between mb-2">
+                              <p className="text-xs font-semibold text-stone-500 uppercase tracking-wider">{nomeFranquia}</p>
+                              <p className="text-xs text-stone-400">
+                                {formatCurrency(subtotal.valor)} · {subtotal.qtd} funcionário{subtotal.qtd === 1 ? '' : 's'}
+                              </p>
+                            </div>
                             <div className="space-y-1">
                               {competenciasDaFranquia.map((c) => {
                                 const statusInfo = STATUS_LABELS[c.status] || { label: c.status, className: 'bg-stone-100 text-stone-600' };
@@ -237,7 +252,8 @@ export default function DpPage() {
                               })}
                             </div>
                           </div>
-                        ))}
+                          );
+                        })}
                     </div>
                   )}
                 </div>
