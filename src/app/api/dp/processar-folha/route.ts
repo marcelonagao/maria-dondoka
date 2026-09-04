@@ -22,34 +22,35 @@ function normalizarCnpj(cnpj: string): string {
   return cnpj.replace(/\D/g, '');
 }
 
+// Schema no formato exigido pela API do Gemini (tipos em maiúsculo, não o JSON Schema padrão).
 const FERRAMENTA_EXTRACAO = {
   name: 'extrair_funcionarios',
   description:
     'Registra os funcionários extraídos do recibo de folha de pagamento, um item por funcionário único, já deduplicado.',
-  input_schema: {
-    type: 'object',
+  parameters: {
+    type: 'OBJECT',
     properties: {
       funcionarios: {
-        type: 'array',
+        type: 'ARRAY',
         items: {
-          type: 'object',
+          type: 'OBJECT',
           properties: {
-            cnpj: { type: 'string', description: "CNPJ da empresa associada a este funcionário, exatamente como aparece no documento (ex: '67.055.166/0001-86')." },
-            codigo_folha: { type: 'string', description: "Campo 'Código' do funcionário." },
-            nome: { type: 'string' },
-            cargo: { type: 'string' },
-            cbo: { type: 'string' },
-            admissao: { type: 'string', description: 'Data de admissão no formato YYYY-MM-DD (o documento traz DD/MM/YYYY — converta).' },
-            salario_base: { type: 'number', description: "Campo 'Salário Base' do rodapé." },
-            total_vencimentos: { type: 'number', description: "Campo 'Total de Vencimentos'." },
-            total_descontos: { type: 'number', description: "Campo 'Total de Descontos'." },
-            valor_liquido: { type: 'number', description: "Campo 'Valor Líquido'." },
+            cnpj: { type: 'STRING', description: "CNPJ da empresa associada a este funcionário, exatamente como aparece no documento (ex: '67.055.166/0001-86')." },
+            codigo_folha: { type: 'STRING', description: "Campo 'Código' do funcionário." },
+            nome: { type: 'STRING' },
+            cargo: { type: 'STRING' },
+            cbo: { type: 'STRING' },
+            admissao: { type: 'STRING', description: 'Data de admissão no formato YYYY-MM-DD (o documento traz DD/MM/YYYY — converta).' },
+            salario_base: { type: 'NUMBER', description: "Campo 'Salário Base' do rodapé." },
+            total_vencimentos: { type: 'NUMBER', description: "Campo 'Total de Vencimentos'." },
+            total_descontos: { type: 'NUMBER', description: "Campo 'Total de Descontos'." },
+            valor_liquido: { type: 'NUMBER', description: "Campo 'Valor Líquido'." },
             inss_empregado: {
-              type: 'number',
+              type: 'NUMBER',
               description:
                 "Valor da LINHA de desconto com código 998, descrição \"I.N.S.S.\" na tabela de itens do recibo. NÃO é o campo \"Sal. Contr. INSS\" do rodapé (esse é a base de cálculo do INSS, não o valor descontado).",
             },
-            fgts_mes: { type: 'number', description: "Campo 'F.G.T.S do Mês' do rodapé." },
+            fgts_mes: { type: 'NUMBER', description: "Campo 'F.G.T.S do Mês' do rodapé." },
           },
           required: ['cnpj', 'codigo_folha', 'nome', 'total_vencimentos', 'total_descontos', 'valor_liquido'],
         },
@@ -105,42 +106,41 @@ export async function POST(request: Request) {
   }
 
   try {
-    const respostaAnthropic = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': process.env.ANTHROPIC_API_KEY!,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-5',
-        max_tokens: 8192,
-        tools: [FERRAMENTA_EXTRACAO],
-        tool_choice: { type: 'tool', name: 'extrair_funcionarios' },
-        messages: [
-          {
-            role: 'user',
-            content: [
-              { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } },
-              { type: 'text', text: PROMPT_EXTRACAO },
-            ],
-          },
-        ],
-      }),
-    });
+    const modelo = 'gemini-2.0-flash';
+    const respostaGemini = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent?key=${process.env.GEMINI_API_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: 'user',
+              parts: [
+                { inline_data: { mime_type: 'application/pdf', data: base64 } },
+                { text: PROMPT_EXTRACAO },
+              ],
+            },
+          ],
+          tools: [{ function_declarations: [FERRAMENTA_EXTRACAO] }],
+          tool_config: { function_calling_config: { mode: 'ANY', allowed_function_names: ['extrair_funcionarios'] } },
+        }),
+      }
+    );
 
-    if (!respostaAnthropic.ok) {
-      const corpoErro = await respostaAnthropic.text();
-      throw new Error(`Anthropic API retornou ${respostaAnthropic.status}: ${corpoErro}`);
+    if (!respostaGemini.ok) {
+      const corpoErro = await respostaGemini.text();
+      throw new Error(`Gemini API retornou ${respostaGemini.status}: ${corpoErro}`);
     }
 
-    const dadosResposta = await respostaAnthropic.json();
-    const usoFerramenta = (dadosResposta.content || []).find((bloco: any) => bloco.type === 'tool_use');
+    const dadosResposta = await respostaGemini.json();
+    const partes = dadosResposta.candidates?.[0]?.content?.parts || [];
+    const usoFerramenta = partes.find((parte: any) => parte.functionCall)?.functionCall;
     if (!usoFerramenta) {
-      throw new Error('Resposta da Anthropic não incluiu o uso de ferramenta esperado.');
+      throw new Error('Resposta do Gemini não incluiu o uso de ferramenta esperado.');
     }
 
-    const funcionariosExtraidos: any[] = usoFerramenta.input?.funcionarios || [];
+    const funcionariosExtraidos: any[] = usoFerramenta.args?.funcionarios || [];
 
     const { data: franquias } = await supabaseAdmin.from('franchises').select('id, cnpj');
     const mapaCnpj = new Map(
