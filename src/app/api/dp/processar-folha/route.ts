@@ -51,6 +51,9 @@ const FERRAMENTA_EXTRACAO = {
                 "Valor da LINHA de desconto com código 998, descrição \"I.N.S.S.\" na tabela de itens do recibo. NÃO é o campo \"Sal. Contr. INSS\" do rodapé (esse é a base de cálculo do INSS, não o valor descontado).",
             },
             fgts_mes: { type: 'NUMBER', description: "Campo 'F.G.T.S do Mês' do rodapé." },
+            horas_extras_qtd: { type: 'NUMBER', description: "Coluna Referência da linha de código 205 \"HORAS EXTRAS 60%\" — quantidade de horas, não o valor em R$." },
+            horas_extras_valor: { type: 'NUMBER', description: "Coluna Vencimentos da linha de código 205 \"HORAS EXTRAS 60%\" — valor em R$." },
+            reflexo_dsr_valor: { type: 'NUMBER', description: "Coluna Vencimentos da linha de código 250 \"REFLEXO EXTRAS DSR\" — valor em R$." },
           },
           required: ['cnpj', 'codigo_folha', 'nome', 'total_vencimentos', 'total_descontos', 'valor_liquido'],
         },
@@ -69,6 +72,7 @@ Regras importantes:
 4. "inss_empregado" é a linha de DESCONTO com código 998 e descrição "I.N.S.S." na tabela de itens (Código/Descrição/Referência/Vencimentos/Descontos) — não confundir com "Sal. Contr. INSS", que aparece no rodapé e é a base de cálculo (normalmente maior que o salário), não o valor descontado.
 5. Ignore qualquer texto solto que não seja dado de folha (ex: mensagens de aniversário).
 6. Datas de admissão vêm como DD/MM/AAAA no documento — converta para AAAA-MM-DD.
+7. Horas extras: código 205 "HORAS EXTRAS 60%" tem quantidade de horas na coluna Referência (→ horas_extras_qtd) e valor em R$ na coluna Vencimentos (→ horas_extras_valor). Código 250 "REFLEXO EXTRAS DSR" tem o valor em R$ na coluna Vencimentos (→ reflexo_dsr_valor). Se o funcionário não tiver essas linhas no período, deixe os campos de fora.
 
 Use a ferramenta "extrair_funcionarios" para registrar o resultado.`;
 
@@ -164,6 +168,9 @@ export async function POST(request: Request) {
       valor_liquido: item.valor_liquido,
       inss_empregado: item.inss_empregado ?? null,
       fgts_mes: item.fgts_mes ?? null,
+      horas_extras_qtd: item.horas_extras_qtd ?? null,
+      horas_extras_valor: item.horas_extras_valor ?? null,
+      reflexo_dsr_valor: item.reflexo_dsr_valor ?? null,
       raw_json: item,
     }));
 

@@ -22,6 +22,9 @@ interface Item {
   valor_liquido: number;
   inss_empregado: number | null;
   fgts_mes: number | null;
+  horas_extras_qtd: number | null;
+  horas_extras_valor: number | null;
+  reflexo_dsr_valor: number | null;
 }
 
 interface Franquia {
@@ -169,6 +172,9 @@ export default function RevisaoCompetenciaPage() {
             valor_liquido: item.valor_liquido,
             inss_empregado: item.inss_empregado,
             fgts_mes: item.fgts_mes,
+            horas_extras_qtd: item.horas_extras_qtd,
+            horas_extras_valor: item.horas_extras_valor,
+            reflexo_dsr_valor: item.reflexo_dsr_valor,
           })
           .eq('id', item.id);
         if (error) throw error;
@@ -334,6 +340,9 @@ export default function RevisaoCompetenciaPage() {
                     <th className="px-4 py-2">Líquido</th>
                     <th className="px-4 py-2">INSS</th>
                     <th className="px-4 py-2">FGTS</th>
+                    <th className="px-4 py-2">H. Extras (qtd)</th>
+                    <th className="px-4 py-2">H. Extras (R$)</th>
+                    <th className="px-4 py-2">Reflexo DSR</th>
                     {semFranquia && <th className="px-4 py-2">Franquia</th>}
                   </tr>
                 </thead>
@@ -364,6 +373,15 @@ export default function RevisaoCompetenciaPage() {
                       <td className="px-4 py-2">
                         <input disabled={jaValidado} type="number" step="0.01" className="w-24 px-2 py-1 border border-stone-200 rounded text-xs" value={item.fgts_mes ?? ''} onChange={(e) => atualizarItem(item.id, 'fgts_mes', parseFloat(e.target.value) || null)} />
                       </td>
+                      <td className="px-4 py-2">
+                        <input disabled={jaValidado} type="number" step="0.01" className="w-20 px-2 py-1 border border-stone-200 rounded text-xs" value={item.horas_extras_qtd ?? ''} onChange={(e) => atualizarItem(item.id, 'horas_extras_qtd', parseFloat(e.target.value) || null)} />
+                      </td>
+                      <td className="px-4 py-2">
+                        <input disabled={jaValidado} type="number" step="0.01" className="w-24 px-2 py-1 border border-stone-200 rounded text-xs" value={item.horas_extras_valor ?? ''} onChange={(e) => atualizarItem(item.id, 'horas_extras_valor', parseFloat(e.target.value) || null)} />
+                      </td>
+                      <td className="px-4 py-2">
+                        <input disabled={jaValidado} type="number" step="0.01" className="w-24 px-2 py-1 border border-stone-200 rounded text-xs" value={item.reflexo_dsr_valor ?? ''} onChange={(e) => atualizarItem(item.id, 'reflexo_dsr_valor', parseFloat(e.target.value) || null)} />
+                      </td>
                       {semFranquia && (
                         <td className="px-4 py-2">
                           <select
@@ -388,6 +406,9 @@ export default function RevisaoCompetenciaPage() {
                     <td className="px-4 py-2">{formatCurrency(totalLiquido)}</td>
                     <td className="px-4 py-2">{formatCurrency(totalInss)}</td>
                     <td className="px-4 py-2">{formatCurrency(totalFgts)}</td>
+                    <td />
+                    <td />
+                    <td />
                     {semFranquia && <td />}
                   </tr>
                 </tfoot>
