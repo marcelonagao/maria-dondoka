@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../../../lib/supabase';
 import { hojeBrasilia, dataParaTimestampBrasilia, adicionarDias } from '../../../../lib/date';
 import { formatCurrency } from '../../../../lib/format';
@@ -26,6 +26,7 @@ interface Despesa {
   parcela_numero: number | null;
   parcela_total: number | null;
   folha_pagamento_competencia_id: string | null;
+  folha_pagamento_item_id: string | null;
   plano_contas: { nome: string } | null;
   franchises: { name: string } | null;
 }
@@ -119,6 +120,7 @@ export default function ContasPagarPage() {
   const [expandedDespesas, setExpandedDespesas] = useState<Set<string>>(new Set());
   const [itensPorChave, setItensPorChave] = useState<Map<string, ItemFuncionario[]>>(new Map());
   const [carregandoItens, setCarregandoItens] = useState<Set<string>>(new Set());
+  const [expandedGruposFolha, setExpandedGruposFolha] = useState<Set<string>>(new Set());
 
   const [formData, setFormData] = useState({
     description: '',
@@ -234,6 +236,31 @@ export default function ContasPagarPage() {
     if (filtroStatus === 'canceladas') return d.status === 'cancelado';
     return true;
   });
+
+  // Despesas de folha geradas por funcionário (folha_pagamento_item_id preenchido) se
+  // agrupam por competência+franquia — aparecem como uma linha-resumo colapsada, não uma
+  // por funcionário. Despesas antigas (agregadas, sem esse campo), guias e despesas
+  // normais não entram aqui, continuam soltas na listagem de sempre.
+  const gruposFolha = useMemo(() => {
+    const mapa = new Map<string, Despesa[]>();
+    for (const d of despesasVisiveis) {
+      if (!d.folha_pagamento_item_id || !d.folha_pagamento_competencia_id) continue;
+      const chave = `${d.folha_pagamento_competencia_id}|${d.franchise_id}`;
+      if (!mapa.has(chave)) mapa.set(chave, []);
+      mapa.get(chave)!.push(d);
+    }
+    return mapa;
+  }, [despesasVisiveis]);
+
+  const toggleGrupoFolha = (chave: string) => {
+    setExpandedGruposFolha((atual) => {
+      const novo = new Set(atual);
+      if (novo.has(chave)) novo.delete(chave); else novo.add(chave);
+      return novo;
+    });
+  };
+
+  const nomeFuncionarioDaDescricao = (descricao: string) => descricao.split(' - Folha de Pagamento')[0];
 
   const criarFornecedor = async (nome: string) => {
     if (!nome) return;
@@ -561,6 +588,51 @@ export default function ContasPagarPage() {
     }
   };
 
+  // Reaproveitado tanto na linha normal quanto na linha de cada funcionário dentro de um
+  // grupo de folha expandido — mesma ação, independente de onde a despesa é exibida.
+  const renderAcoesDespesa = (despesa: Despesa) => (
+    <>
+      {despesa.status === 'pendente' && (
+        <>
+          <button
+            onClick={() => abrirMarcarComoPago(despesa)}
+            disabled={marcandoPagoId === despesa.id}
+            className="text-xs font-medium px-3 py-1.5 rounded-lg transition-colors text-emerald-600 hover:bg-emerald-50 disabled:opacity-50"
+          >
+            {marcandoPagoId === despesa.id ? 'Salvando...' : 'Marcar como pago'}
+          </button>
+          <button
+            onClick={() => abrirCancelar(despesa)}
+            className="text-xs font-medium px-3 py-1.5 rounded-lg transition-colors text-stone-400 hover:bg-red-50 hover:text-red-600"
+          >
+            Cancelar
+          </button>
+        </>
+      )}
+      {despesa.status === 'pago' && (
+        <>
+          <button
+            onClick={() => abrirEdicao(despesa)}
+            className="text-xs font-medium px-3 py-1.5 rounded-lg transition-colors text-stone-500 hover:bg-stone-100"
+          >
+            Editar
+          </button>
+          {despesa.comprovante_url && (
+            <button
+              onClick={() => verComprovante(despesa.comprovante_url!)}
+              className="text-xs font-medium px-3 py-1.5 rounded-lg transition-colors text-amber-600 hover:bg-amber-50"
+            >
+              Ver comprovante
+            </button>
+          )}
+        </>
+      )}
+      {despesa.status === 'cancelado' && despesa.motivo_cancelamento && (
+        <p className="text-xs text-stone-400">{despesa.motivo_cancelamento}</p>
+      )}
+    </>
+  );
+
   return (
     <div className="space-y-6 relative">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -617,102 +689,144 @@ export default function ContasPagarPage() {
                   </td>
                 </tr>
               ) : (
-                despesasVisiveis.map((despesa) => {
-                  const mostraDetalheFuncionarios =
-                    !!despesa.folha_pagamento_competencia_id && despesa.plano_contas?.nome === 'Salários e Ordenados';
-                  const chaveDetalhe = `${despesa.folha_pagamento_competencia_id}|${despesa.franchise_id}`;
-                  const expandida = expandedDespesas.has(despesa.id);
-                  return (
-                  <React.Fragment key={despesa.id}>
-                  <tr className="hover:bg-stone-50/50 transition-colors">
-                    <td className="px-6 py-4 font-medium text-stone-800">
-                      {despesa.description}
-                      {!!despesa.parcela_total && despesa.parcela_total > 1 && (
-                        <p className="text-xs font-normal text-stone-400 mt-0.5">
-                          Parcela {despesa.parcela_numero}/{despesa.parcela_total}
-                          {despesa.documento_origem && ` • ${despesa.documento_origem}`}
-                        </p>
-                      )}
-                      {mostraDetalheFuncionarios && (
-                        <button
-                          type="button"
-                          onClick={() => toggleDetalheFuncionarios(despesa)}
-                          className="flex items-center gap-1 text-xs font-medium text-amber-600 hover:text-amber-700 mt-1"
-                        >
-                          <span className={`inline-block transition-transform ${expandida ? 'rotate-90' : ''}`}>›</span>
-                          Ver funcionários
-                        </button>
-                      )}
-                    </td>
-                    {podeLancarParaOutras && <td className="px-6 py-4">{despesa.franchises?.name || '—'}</td>}
-                    <td className="px-6 py-4">{despesa.plano_contas?.nome || '—'}</td>
-                    <td className="px-6 py-4">{new Date(despesa.due_date + 'T00:00:00').toLocaleDateString('pt-BR')}</td>
-                    <td className="px-6 py-4 font-medium text-red-600">{formatCurrency(despesa.amount)}</td>
-                    <td className="px-6 py-4">
-                      {getStatusBadge(despesa.status)}
-                      {despesa.status === 'cancelado' && despesa.motivo_cancelamento && (
-                        <p className="text-xs text-stone-400 mt-1">{despesa.motivo_cancelamento}</p>
-                      )}
-                    </td>
-                    <td className="px-6 py-4">
-                      {despesa.status === 'pendente' && (
-                        <>
-                          <button
-                            onClick={() => abrirMarcarComoPago(despesa)}
-                            disabled={marcandoPagoId === despesa.id}
-                            className="text-xs font-medium px-3 py-1.5 rounded-lg transition-colors text-emerald-600 hover:bg-emerald-50 disabled:opacity-50"
-                          >
-                            {marcandoPagoId === despesa.id ? 'Salvando...' : 'Marcar como pago'}
-                          </button>
-                          <button
-                            onClick={() => abrirCancelar(despesa)}
-                            className="text-xs font-medium px-3 py-1.5 rounded-lg transition-colors text-stone-400 hover:bg-red-50 hover:text-red-600"
-                          >
-                            Cancelar
-                          </button>
-                        </>
-                      )}
-                      {despesa.status === 'pago' && (
-                        <>
-                          <button
-                            onClick={() => abrirEdicao(despesa)}
-                            className="text-xs font-medium px-3 py-1.5 rounded-lg transition-colors text-stone-500 hover:bg-stone-100"
-                          >
-                            Editar
-                          </button>
-                          {despesa.comprovante_url && (
-                            <button
-                              onClick={() => verComprovante(despesa.comprovante_url!)}
-                              className="text-xs font-medium px-3 py-1.5 rounded-lg transition-colors text-amber-600 hover:bg-amber-50"
-                            >
-                              Ver comprovante
-                            </button>
+                (() => {
+                  const gruposJaRenderizados = new Set<string>();
+                  return despesasVisiveis.map((despesa) => {
+                    // Linha nova (por funcionário) que já faz parte de um grupo: renderiza
+                    // só a linha-resumo do grupo na primeira ocorrência, e nada nas demais
+                    // (elas aparecem dentro do grupo, só quando expandido).
+                    if (despesa.folha_pagamento_item_id && despesa.folha_pagamento_competencia_id) {
+                      const chaveGrupo = `${despesa.folha_pagamento_competencia_id}|${despesa.franchise_id}`;
+                      if (gruposJaRenderizados.has(chaveGrupo)) return null;
+                      gruposJaRenderizados.add(chaveGrupo);
+
+                      const itensDoGrupo = gruposFolha.get(chaveGrupo) || [];
+                      const valorTotal = itensDoGrupo.reduce((acc, d) => acc + Number(d.amount), 0);
+                      const pagos = itensDoGrupo.filter((d) => d.status === 'pago').length;
+                      const cancelados = itensDoGrupo.filter((d) => d.status === 'cancelado').length;
+                      const expandido = expandedGruposFolha.has(chaveGrupo);
+                      const primeiro = itensDoGrupo[0];
+                      const descricaoGrupo = primeiro.description.slice(primeiro.description.indexOf('Folha de Pagamento'));
+
+                      return (
+                        <React.Fragment key={chaveGrupo}>
+                          <tr className="hover:bg-stone-50/50 transition-colors">
+                            <td className="px-6 py-4 font-medium text-stone-800">
+                              {descricaoGrupo}
+                              <button
+                                type="button"
+                                onClick={() => toggleGrupoFolha(chaveGrupo)}
+                                className="flex items-center gap-1 text-xs font-medium text-amber-600 hover:text-amber-700 mt-1"
+                              >
+                                <span className={`inline-block transition-transform ${expandido ? 'rotate-90' : ''}`}>›</span>
+                                Ver funcionários ({itensDoGrupo.length})
+                              </button>
+                            </td>
+                            {podeLancarParaOutras && <td className="px-6 py-4">{primeiro.franchises?.name || '—'}</td>}
+                            <td className="px-6 py-4">{primeiro.plano_contas?.nome || '—'}</td>
+                            <td className="px-6 py-4">{new Date(primeiro.due_date + 'T00:00:00').toLocaleDateString('pt-BR')}</td>
+                            <td className="px-6 py-4 font-medium text-red-600">{formatCurrency(valorTotal)}</td>
+                            <td className="px-6 py-4">
+                              {pagos === itensDoGrupo.length ? (
+                                getStatusBadge('pago')
+                              ) : cancelados === itensDoGrupo.length ? (
+                                getStatusBadge('cancelado')
+                              ) : pagos === 0 ? (
+                                getStatusBadge('pendente')
+                              ) : (
+                                <span className="px-2.5 py-1 bg-blue-50 text-blue-700 text-xs font-medium rounded-md">
+                                  {pagos} de {itensDoGrupo.length} pagos
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-6 py-4" />
+                          </tr>
+                          {expandido && (
+                            <tr>
+                              <td colSpan={podeLancarParaOutras ? 7 : 6} className="px-6 py-3 bg-stone-50/50 border-t border-stone-100">
+                                <div className="space-y-2">
+                                  {itensDoGrupo.map((d) => (
+                                    <div key={d.id} className="flex items-center justify-between text-sm py-1">
+                                      <span className="text-stone-700">{nomeFuncionarioDaDescricao(d.description)}</span>
+                                      <div className="flex items-center gap-3">
+                                        <span className="font-medium text-stone-600">{formatCurrency(d.amount)}</span>
+                                        {getStatusBadge(d.status)}
+                                        {renderAcoesDespesa(d)}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </td>
+                            </tr>
                           )}
-                        </>
-                      )}
-                    </td>
-                  </tr>
-                  {mostraDetalheFuncionarios && expandida && (
-                    <tr>
-                      <td colSpan={podeLancarParaOutras ? 7 : 6} className="px-6 py-3 bg-stone-50/50 border-t border-stone-100">
-                        {carregandoItens.has(chaveDetalhe) ? (
-                          <p className="text-xs text-stone-400">Carregando funcionários...</p>
-                        ) : (
-                          <div className="space-y-1 max-w-md">
-                            {(itensPorChave.get(chaveDetalhe) || []).map((item) => (
-                              <div key={item.id} className="flex items-center justify-between text-xs text-stone-600 py-1">
-                                <span>{item.nome}</span>
-                                <span className="font-medium">{formatCurrency(item.valor_liquido)}</span>
-                              </div>
-                            ))}
-                          </div>
+                        </React.Fragment>
+                      );
+                    }
+
+                    // Despesa fora de qualquer grupo (normal, guia, ou agregada legada de
+                    // folha) — renderiza exatamente como sempre.
+                    const mostraDetalheFuncionarios =
+                      !!despesa.folha_pagamento_competencia_id &&
+                      !despesa.folha_pagamento_item_id &&
+                      despesa.plano_contas?.nome === 'Salários e Ordenados';
+                    const chaveDetalhe = `${despesa.folha_pagamento_competencia_id}|${despesa.franchise_id}`;
+                    const expandida = expandedDespesas.has(despesa.id);
+                    return (
+                    <React.Fragment key={despesa.id}>
+                    <tr className="hover:bg-stone-50/50 transition-colors">
+                      <td className="px-6 py-4 font-medium text-stone-800">
+                        {despesa.description}
+                        {!!despesa.parcela_total && despesa.parcela_total > 1 && (
+                          <p className="text-xs font-normal text-stone-400 mt-0.5">
+                            Parcela {despesa.parcela_numero}/{despesa.parcela_total}
+                            {despesa.documento_origem && ` • ${despesa.documento_origem}`}
+                          </p>
+                        )}
+                        {mostraDetalheFuncionarios && (
+                          <button
+                            type="button"
+                            onClick={() => toggleDetalheFuncionarios(despesa)}
+                            className="flex items-center gap-1 text-xs font-medium text-amber-600 hover:text-amber-700 mt-1"
+                          >
+                            <span className={`inline-block transition-transform ${expandida ? 'rotate-90' : ''}`}>›</span>
+                            Ver funcionários
+                          </button>
                         )}
                       </td>
+                      {podeLancarParaOutras && <td className="px-6 py-4">{despesa.franchises?.name || '—'}</td>}
+                      <td className="px-6 py-4">{despesa.plano_contas?.nome || '—'}</td>
+                      <td className="px-6 py-4">{new Date(despesa.due_date + 'T00:00:00').toLocaleDateString('pt-BR')}</td>
+                      <td className="px-6 py-4 font-medium text-red-600">{formatCurrency(despesa.amount)}</td>
+                      <td className="px-6 py-4">
+                        {getStatusBadge(despesa.status)}
+                        {despesa.status === 'cancelado' && despesa.motivo_cancelamento && (
+                          <p className="text-xs text-stone-400 mt-1">{despesa.motivo_cancelamento}</p>
+                        )}
+                      </td>
+                      <td className="px-6 py-4">{renderAcoesDespesa(despesa)}</td>
                     </tr>
-                  )}
-                  </React.Fragment>
-                  );
-                })
+                    {mostraDetalheFuncionarios && expandida && (
+                      <tr>
+                        <td colSpan={podeLancarParaOutras ? 7 : 6} className="px-6 py-3 bg-stone-50/50 border-t border-stone-100">
+                          {carregandoItens.has(chaveDetalhe) ? (
+                            <p className="text-xs text-stone-400">Carregando funcionários...</p>
+                          ) : (
+                            <div className="space-y-1 max-w-md">
+                              {(itensPorChave.get(chaveDetalhe) || []).map((item) => (
+                                <div key={item.id} className="flex items-center justify-between text-xs text-stone-600 py-1">
+                                  <span>{item.nome}</span>
+                                  <span className="font-medium">{formatCurrency(item.valor_liquido)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                    </React.Fragment>
+                    );
+                  });
+                })()
               )}
             </tbody>
           </table>
