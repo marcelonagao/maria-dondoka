@@ -102,6 +102,9 @@ export default function DpPage() {
           <Link href="/dp/funcionarios" className="text-sm font-medium text-amber-600 hover:text-amber-700">
             Funcionários →
           </Link>
+          <Link href="/dp/painel-executivo" className="text-sm font-medium text-amber-600 hover:text-amber-700">
+            Painel Executivo →
+          </Link>
           <button
             onClick={() => setIsModalOpen(true)}
             className="bg-stone-900 hover:bg-stone-800 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
