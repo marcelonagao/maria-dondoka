@@ -7,6 +7,7 @@ const ROTA_PARA_TELA: Record<string, string> = {
   '/vendas': 'vendas_pdv',
   '/produtos': 'produtos',
   '/dre': 'dre',
+  '/dp': 'dp',
   '/configuracoes': 'configuracoes',
   '/franquias': 'franquias',
 };
@@ -19,6 +20,7 @@ const TELA_PARA_ROTA: Record<string, string> = {
   vendas_pdv: '/vendas',
   produtos: '/produtos',
   dre: '/dre',
+  dp: '/dp',
   configuracoes: '/configuracoes',
   franquias: '/franquias',
 };
@@ -59,6 +61,7 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith('/consolidado') ||
     pathname.startsWith('/produtos') ||
     pathname.startsWith('/dre') ||
+    pathname.startsWith('/dp') ||
     pathname.startsWith('/franquias') ||
     pathname.startsWith('/sem-acesso');
 

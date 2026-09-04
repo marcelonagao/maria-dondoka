@@ -8,6 +8,10 @@ export interface PerfilAutenticado {
   telasPermitidas: string[];
   escopo: 'todas_franquias' | 'propria_franquia' | null;
   podeLancarDespesasOutrasFranquias: boolean;
+  // Só usados pelo gate de acesso a DP (dado sensível, regra própria) — o resto do app
+  // usa escopo/telasPermitidas, não isSocio/roleNome.
+  roleNome: string | null;
+  isSocio: boolean;
 }
 
 export async function getPerfilAutenticado(): Promise<PerfilAutenticado | null> {
@@ -28,12 +32,13 @@ export async function getPerfilAutenticado(): Promise<PerfilAutenticado | null> 
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('franchise_id, role, roles(escopo, telas_permitidas, pode_lancar_despesas_outras_franquias)')
+    .select('franchise_id, role, is_socio, roles(nome, escopo, telas_permitidas, pode_lancar_despesas_outras_franquias)')
     .eq('id', user.id)
     .maybeSingle();
 
   if (!profile) return null;
   const papel = profile.roles as unknown as {
+    nome: string;
     escopo: 'todas_franquias' | 'propria_franquia';
     telas_permitidas: string[];
     pode_lancar_despesas_outras_franquias: boolean;
@@ -46,5 +51,7 @@ export async function getPerfilAutenticado(): Promise<PerfilAutenticado | null> 
     telasPermitidas: papel?.telas_permitidas || [],
     escopo: papel?.escopo || null,
     podeLancarDespesasOutrasFranquias: !!papel?.pode_lancar_despesas_outras_franquias,
+    roleNome: papel?.nome || null,
+    isSocio: !!profile.is_socio,
   };
 }
