@@ -12,6 +12,11 @@ interface Competencia {
   criado_em: string;
 }
 
+interface Franquia {
+  id: string;
+  name: string;
+}
+
 const STATUS_LABELS: Record<string, { label: string; className: string }> = {
   processando: { label: 'Processando...', className: 'bg-amber-50 text-amber-700' },
   aguardando_revisao: { label: 'Aguardando revisão', className: 'bg-blue-50 text-blue-700' },
@@ -29,6 +34,7 @@ function formatCompetencia(dataISO: string) {
 export default function DpPage() {
   const router = useRouter();
   const [competencias, setCompetencias] = useState<Competencia[]>([]);
+  const [franquiasPorCompetencia, setFranquiasPorCompetencia] = useState<Map<string, string[]>>(new Map());
   const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [arquivo, setArquivo] = useState<File | null>(null);
@@ -39,12 +45,26 @@ export default function DpPage() {
   const fetchCompetencias = async () => {
     try {
       setIsLoading(true);
-      const { data, error } = await supabase
-        .from('folha_pagamento_competencias')
-        .select('id, competencia, status, criado_em')
-        .order('competencia', { ascending: false });
-      if (error) throw error;
-      setCompetencias(data || []);
+      const [competenciasRes, itensRes, franquiasRes] = await Promise.all([
+        supabase.from('folha_pagamento_competencias').select('id, competencia, status, criado_em').order('competencia', { ascending: false }),
+        supabase.from('folha_pagamento_itens').select('competencia_id, franchise_id').not('franchise_id', 'is', null),
+        supabase.from('franchises').select('id, name'),
+      ]);
+      if (competenciasRes.error) throw competenciasRes.error;
+      setCompetencias(competenciasRes.data || []);
+
+      const nomePorId = new Map((franquiasRes.data || []).map((f: Franquia) => [f.id, f.name]));
+      const idsPorCompetencia = new Map<string, Set<string>>();
+      for (const item of itensRes.data || []) {
+        if (!item.franchise_id) continue;
+        if (!idsPorCompetencia.has(item.competencia_id)) idsPorCompetencia.set(item.competencia_id, new Set());
+        idsPorCompetencia.get(item.competencia_id)!.add(item.franchise_id);
+      }
+      const nomesPorCompetencia = new Map<string, string[]>();
+      for (const [competenciaId, ids] of Array.from(idsPorCompetencia.entries())) {
+        nomesPorCompetencia.set(competenciaId, Array.from(ids).map((id) => nomePorId.get(id) || '—').sort());
+      }
+      setFranquiasPorCompetencia(nomesPorCompetencia);
     } catch (error) {
       console.error('Erro ao buscar competências:', error);
     } finally {
@@ -118,6 +138,7 @@ export default function DpPage() {
             <thead className="bg-stone-50 border-b border-stone-200 text-stone-500 uppercase text-xs font-medium">
               <tr>
                 <th className="px-6 py-4">Competência</th>
+                <th className="px-6 py-4">Franquia</th>
                 <th className="px-6 py-4">Enviado em</th>
                 <th className="px-6 py-4">Status</th>
                 <th className="px-6 py-4">Ações</th>
@@ -125,15 +146,25 @@ export default function DpPage() {
             </thead>
             <tbody className="divide-y divide-stone-100">
               {isLoading ? (
-                <tr><td colSpan={4} className="px-6 py-8 text-center text-stone-400">Carregando...</td></tr>
+                <tr><td colSpan={5} className="px-6 py-8 text-center text-stone-400">Carregando...</td></tr>
               ) : competencias.length === 0 ? (
-                <tr><td colSpan={4} className="px-6 py-8 text-center text-stone-400">Nenhuma folha enviada ainda.</td></tr>
+                <tr><td colSpan={5} className="px-6 py-8 text-center text-stone-400">Nenhuma folha enviada ainda.</td></tr>
               ) : (
                 competencias.map((c) => {
                   const statusInfo = STATUS_LABELS[c.status] || { label: c.status, className: 'bg-stone-100 text-stone-600' };
+                  const nomesFranquias = franquiasPorCompetencia.get(c.id) || [];
                   return (
                     <tr key={c.id} className="hover:bg-stone-50/50 transition-colors">
                       <td className="px-6 py-4 font-medium text-stone-800">{formatCompetencia(c.competencia)}</td>
+                      <td className="px-6 py-4">
+                        {nomesFranquias.length === 0 ? (
+                          <span className="text-stone-400">—</span>
+                        ) : nomesFranquias.length === 1 ? (
+                          nomesFranquias[0]
+                        ) : (
+                          <span title={nomesFranquias.join(', ')}>Múltiplas franquias</span>
+                        )}
+                      </td>
                       <td className="px-6 py-4">{new Date(c.criado_em).toLocaleDateString('pt-BR')}</td>
                       <td className="px-6 py-4">
                         <span className={`px-2.5 py-1 text-xs font-medium rounded-md ${statusInfo.className}`}>{statusInfo.label}</span>
