@@ -228,20 +228,24 @@ export default function RevisaoCompetenciaPage() {
         })
       );
 
-      // Uma linha de Contas a Pagar por franquia (soma do líquido dos itens dela).
+      // Uma linha de Contas a Pagar POR FUNCIONÁRIO (não mais uma agregada por franquia) —
+      // permite marcar cada um como pago individualmente. folha_pagamento_item_id liga de
+      // volta ao item de origem, usado pra agrupar essas linhas na tela de Contas a Pagar.
       const linhasDespesa: Record<string, unknown>[] = [];
       for (const [franchiseId, itensDaFranquia] of Array.from(grupos.entries())) {
         if (franchiseId === '__sem_franquia__') continue;
-        const total = itensDaFranquia.reduce((acc, it) => acc + Number(it.valor_liquido), 0);
-        linhasDespesa.push({
-          franchise_id: franchiseId,
-          plano_conta_id: CATEGORIA_SALARIOS,
-          description: `Folha de Pagamento - ${competencia.competencia.slice(0, 7)}`,
-          due_date: vencimento,
-          amount: total,
-          status: 'pendente',
-          folha_pagamento_competencia_id: competenciaId,
-        });
+        for (const item of itensDaFranquia) {
+          linhasDespesa.push({
+            franchise_id: franchiseId,
+            plano_conta_id: CATEGORIA_SALARIOS,
+            description: `${item.nome} - Folha de Pagamento ${competencia.competencia.slice(0, 7)}`,
+            due_date: vencimento,
+            amount: Number(item.valor_liquido),
+            status: 'pendente',
+            folha_pagamento_competencia_id: competenciaId,
+            folha_pagamento_item_id: item.id,
+          });
+        }
       }
 
       // Guias avulsas — upload do arquivo (se houver) + uma linha por guia, em paralelo.
