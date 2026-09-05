@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { supabase } from '../../../../lib/supabase';
 import { mesAtualBrasilia } from '../../../../lib/date';
 import { formatCurrency } from '../../../../lib/format';
+import HeroCard from '../../../../components/HeroCard';
+import MetricList from '../../../../components/MetricList';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
@@ -50,6 +52,7 @@ export default function PainelExecutivoDpPage() {
   const [franquias, setFranquias] = useState<Franquia[]>([]);
   const [franquiaSelecionada, setFranquiaSelecionada] = useState('');
   const [mesSelecionado, setMesSelecionado] = useState(mesAtualBrasilia());
+  const [linhaDestacada, setLinhaDestacada] = useState<string | null>(null);
 
   // custosPorFranquia: franchise_id -> (competencia YYYY-MM -> custo do mês)
   const [custosPorFranquia, setCustosPorFranquia] = useState<Map<string, Map<string, CustoMes>>>(new Map());
@@ -243,7 +246,7 @@ export default function PainelExecutivoDpPage() {
         <div className="flex items-center gap-3">
           {podeVerVariasFranquias && (
             <select
-              className="px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none bg-white text-stone-700 text-sm"
+              className="px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none bg-white text-stone-700 text-sm"
               value={franquiaSelecionada}
               onChange={(e) => setFranquiaSelecionada(e.target.value)}
             >
@@ -257,7 +260,7 @@ export default function PainelExecutivoDpPage() {
             type="month"
             value={mesSelecionado}
             onChange={(e) => setMesSelecionado(e.target.value)}
-            className="px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none text-stone-700"
+            className="px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none text-stone-700"
           />
         </div>
       </div>
@@ -268,44 +271,41 @@ export default function PainelExecutivoDpPage() {
         <div className="bg-white border border-stone-200 rounded-xl shadow-sm p-8 text-center text-red-500 text-sm">{erro}</div>
       ) : (
         <>
-          <div className="bg-white border border-stone-200 rounded-xl shadow-sm p-6">
-            <h3 className="text-sm font-medium text-stone-500 uppercase tracking-wider mb-2">
-              Custo Efetivo Total (CET) — {formatCompetenciaCurta(mesSelecionado)}
-            </h3>
-            {!temDadoNoMes ? (
-              <p className="text-stone-400 text-sm py-4">Nenhuma folha processada nesta competência.</p>
-            ) : (
-              <>
-                <div className="flex items-baseline gap-3 mb-4">
-                  <p className="text-3xl font-semibold text-stone-800">{formatCurrency(cetDoMes)}</p>
-                  <p className="text-sm text-stone-400">
+          {!temDadoNoMes ? (
+            <div className="bg-white border border-stone-200 rounded-2xl p-6">
+              <p className="text-sm font-medium text-stone-500 mb-1">Custo efetivo total</p>
+              <p className="text-stone-400 text-sm">Nenhuma folha processada nesta competência.</p>
+            </div>
+          ) : (
+            <HeroCard
+              label="Custo efetivo total"
+              value={formatCurrency(cetDoMes)}
+              extra={
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-stone-400">
                     {custoDoMes.funcionarios} funcionário{custoDoMes.funcionarios === 1 ? '' : 's'}
-                  </p>
+                  </span>
+                  <span className="text-sm font-medium text-amber-400">{formatCompetenciaCurta(mesSelecionado)}</span>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
-                  <div className="bg-stone-50 rounded-lg p-3">
-                    <p className="text-stone-400 text-xs uppercase tracking-wider mb-1">Salários (sem horas extras)</p>
-                    <p className="font-medium text-stone-700">{formatCurrency(custoDoMes.salarios)}</p>
-                  </div>
-                  <div className="bg-stone-50 rounded-lg p-3">
-                    <p className="text-stone-400 text-xs uppercase tracking-wider mb-1">Horas Extras</p>
-                    <p className="font-medium text-stone-700">{formatCurrency(custoDoMes.horasExtras)}</p>
-                  </div>
-                  <div className="bg-stone-50 rounded-lg p-3">
-                    <p className="text-stone-400 text-xs uppercase tracking-wider mb-1">Encargos (FGTS + INSS Patronal)</p>
-                    <p className="font-medium text-stone-700">{formatCurrency(custoDoMes.encargos)}</p>
-                  </div>
-                  <div className="bg-stone-50 rounded-lg p-3">
-                    <p className="text-stone-400 text-xs uppercase tracking-wider mb-1">Benefícios</p>
-                    <p className="font-medium text-stone-700">{formatCurrency(custoDoMes.beneficios)}</p>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
+              }
+            >
+              <MetricList
+                variant="dark"
+                items={[
+                  { label: 'Salários (sem horas extras)', value: formatCurrency(custoDoMes.salarios), dotColor: '#fbbf24' },
+                  { label: 'Horas extras', value: formatCurrency(custoDoMes.horasExtras), dotColor: '#fb923c' },
+                  { label: 'Encargos (FGTS + INSS Patronal)', value: formatCurrency(custoDoMes.encargos), dotColor: '#38bdf8' },
+                  { label: 'Benefícios', value: formatCurrency(custoDoMes.beneficios), dotColor: '#34d399' },
+                ]}
+              />
+            </HeroCard>
+          )}
 
-          <div className="bg-white border border-stone-200 rounded-xl shadow-sm p-6">
-            <h3 className="text-sm font-medium text-stone-500 uppercase tracking-wider mb-4">Tendência de CET</h3>
+          <div className="bg-white border border-stone-200 rounded-2xl p-5 sm:p-6">
+            <h3 className="text-base font-medium text-stone-700 mb-1">Tendência de CET</h3>
+            {franquiasNoGrafico.length > 1 && (
+              <p className="text-xs text-stone-400 mb-3">Toque numa loja na legenda pra destacar só a linha dela.</p>
+            )}
             {dadosGrafico.length === 0 ? (
               <p className="text-stone-400 text-sm py-4">Sem competências processadas para exibir tendência.</p>
             ) : (
@@ -318,7 +318,14 @@ export default function PainelExecutivoDpPage() {
                     formatter={(value) => formatCurrency(Number(value))}
                     labelFormatter={(label) => formatCompetenciaCurta(String(label))}
                   />
-                  <Legend formatter={(value) => nomeFranquia(String(value))} />
+                  <Legend
+                    formatter={(value) => nomeFranquia(String(value))}
+                    onClick={(entrada) => {
+                      const fid = String(entrada.dataKey);
+                      setLinhaDestacada((atual) => (atual === fid ? null : fid));
+                    }}
+                    wrapperStyle={{ cursor: 'pointer' }}
+                  />
                   {franquiasNoGrafico.map((fid, idx) => (
                     <Line
                       key={fid}
@@ -326,6 +333,7 @@ export default function PainelExecutivoDpPage() {
                       dataKey={fid}
                       name={nomeFranquia(fid)}
                       stroke={CORES_LINHA[idx % CORES_LINHA.length]}
+                      strokeOpacity={!linhaDestacada || linhaDestacada === fid ? 1 : 0.15}
                       strokeWidth={2}
                       dot={{ r: 3 }}
                     />
