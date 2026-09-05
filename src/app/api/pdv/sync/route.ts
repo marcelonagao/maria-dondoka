@@ -175,7 +175,13 @@ export async function POST(request: Request) {
           quantidade: item.quantidade,
           valor_unitario: item.valor_unitario,
           valor_total: item.valor_total,
-          custo_unitario: item.custo_unitario,
+          // `mp.custo` na origem (ver docs/pdv-sync-vendas-itens.md) é o custo TOTAL da
+          // linha (quantidade × custo real por unidade), não o custo de uma unidade só,
+          // apesar do nome do campo — confirmado comparando o mesmo SKU em quantidades
+          // diferentes no mesmo dia (custo_unitario/quantidade sempre bate no mesmo
+          // valor). Normalizamos aqui pra unidade de verdade, já que o restante do app
+          // (DRE, gráficos) multiplica por quantidade de novo ao calcular CMV.
+          custo_unitario: item.quantidade > 0 ? item.custo_unitario / item.quantidade : item.custo_unitario,
           aliquota_icm: item.aliquota_icm,
           usuario: item.usuario,
           vendedor: item.vendedor,

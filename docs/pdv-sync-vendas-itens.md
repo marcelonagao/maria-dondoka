@@ -87,6 +87,16 @@ Mapeamento pra `vendas_itens`: `mp.auto` → `origem_id`, `data` → `data_venda
 `usuario` (rastreio, mesmo padrão de `formas`/`retiradas`), `mp.vendedor` → `vendedor`
 (campo distinto de `usuario`, ambos existem em `movprods`).
 
+**Achado em produção (2026-09-04)**: `mp.custo` é o custo TOTAL da linha
+(`quantidade × custo real por unidade`), não o custo de uma unidade só — apesar do nome
+da coluna. Confirmado comparando o mesmo SKU em quantidades diferentes no mesmo dia
+(`custo_unitario / quantidade` sempre bate no mesmo valor, ex: qtd=12 custo=372, qtd=3
+custo=93, qtd=1 custo=31 — todos batem em 31). Isso inflava CMV/margem em qualquer venda
+com quantidade > 1 (DRE, gráfico indexado do dashboard faziam `quantidade * custo_unitario`,
+multiplicando a quantidade de novo). Corrigido em `/api/pdv/sync/route.ts`, que agora
+divide por `quantidade` antes de gravar — o SQL de origem acima não precisa mudar, a
+normalização acontece na gravação, não na consulta.
+
 Payload: `itens: [{ venda_referencia, produto_codigo_pdv, produto_sku, marca, quantidade,
 valor_unitario, valor_total, custo_unitario, aliquota_icm, usuario, vendedor, origem_id }]`.
 
