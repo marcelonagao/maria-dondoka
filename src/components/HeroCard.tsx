@@ -6,6 +6,10 @@ interface HeroCardProps {
   label: string;
   value: React.ReactNode;
   valueClassName?: string;
+  // Card de largura cheia (Painel Executivo) tem espaço pro tamanho padrão; num grid
+  // apertado (ex: 3 colunas do Dashboard) um valor longo pode quebrar linha em text-5xl —
+  // passe algo menor ali (ex: 'text-3xl sm:text-4xl').
+  valueSizeClassName?: string;
   extra?: React.ReactNode;
   children?: React.ReactNode;
   className?: string;
@@ -18,6 +22,7 @@ export default function HeroCard({
   label,
   value,
   valueClassName = 'text-stone-50',
+  valueSizeClassName = 'text-4xl sm:text-5xl',
   extra,
   children,
   className = '',
@@ -28,7 +33,7 @@ export default function HeroCard({
         <p className="text-sm font-medium text-stone-400">{label}</p>
         {extra}
       </div>
-      <p className={`text-4xl sm:text-5xl font-bold tabular-nums tracking-tight ${valueClassName}`}>
+      <p className={`${valueSizeClassName} font-bold tabular-nums tracking-tight ${valueClassName}`}>
         {value}
       </p>
       {children && <div className="mt-4">{children}</div>}

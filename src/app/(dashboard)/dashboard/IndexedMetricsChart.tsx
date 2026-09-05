@@ -65,19 +65,24 @@ export default function IndexedMetricsChart() {
         const base = porDia.get(diasOrdenados[indiceBase])!;
         const baseFaturamento = base.faturamento;
         const baseTicketMedio = base.vendas.size > 0 ? base.faturamento / base.vendas.size : 0;
-        const baseMargemPct = base.faturamento > 0 ? (base.faturamento - base.cmv - base.impostos) / base.faturamento * 100 : 0;
 
         const pontosCalculados = diasOrdenados.slice(indiceBase).map((data) => {
           const d = porDia.get(data)!;
           const faturamento = d.faturamento;
           const ticketMedio = d.vendas.size > 0 ? d.faturamento / d.vendas.size : 0;
-          const margemPct = d.faturamento > 0 ? (d.faturamento - d.cmv - d.impostos) / d.faturamento * 100 : 0;
+          // Margem NÃO é indexada (diferente de faturamento/ticket médio) — já é uma
+          // porcentagem, comparável entre dias por natureza. Indexar uma porcentagem
+          // contra o valor de outro dia quebra sempre que a base fica perto de zero ou
+          // negativa (visto num caso real: -160% num dia vs -6% na base virou um índice
+          // de milhares de %, sem nenhum ruído de volume por trás — a margem daquele dia
+          // é que estava mesmo anormal, provavelmente por dado de custo incorreto).
+          const margemBrutaPct = d.faturamento > 0 ? ((d.faturamento - d.cmv - d.impostos) / d.faturamento) * 100 : 0;
 
           return {
             data,
             faturamento: baseFaturamento > 0 ? (faturamento / baseFaturamento) * 100 : 0,
             ticketMedio: baseTicketMedio > 0 ? (ticketMedio / baseTicketMedio) * 100 : 0,
-            margemBrutaPct: baseMargemPct !== 0 ? (margemPct / baseMargemPct) * 100 : 0,
+            margemBrutaPct,
           };
         });
 
@@ -120,25 +125,25 @@ export default function IndexedMetricsChart() {
 
   return (
     <div className="bg-white border border-stone-200 rounded-xl shadow-sm p-6">
-      <h3 className="text-sm font-medium text-stone-500 uppercase tracking-wider mb-1">
-        Faturamento, Ticket Médio e Margem Bruta % (indexado, base 100)
-      </h3>
+      <h3 className="text-base font-medium text-stone-700 mb-1">Faturamento, ticket médio e margem bruta</h3>
       <p className="text-xs text-stone-400 mb-4">
-        Todas as franquias somadas. Base 100 = primeiro dia com venda registrada no período.
+        Todas as franquias somadas. Faturamento e ticket médio indexados (base 100 = primeiro dia
+        com venda no período); margem bruta em valor absoluto (%), eixo à direita.
       </p>
       <ResponsiveContainer width="100%" height={280}>
         <LineChart data={pontos}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" vertical={false} />
           <XAxis dataKey="data" tickFormatter={formatDataCurta} stroke="#a8a29e" fontSize={12} />
-          <YAxis stroke="#a8a29e" fontSize={12} tickFormatter={(v) => `${v}`} />
+          <YAxis yAxisId="indexado" stroke="#a8a29e" fontSize={12} tickFormatter={(v) => `${v}`} />
+          <YAxis yAxisId="percentual" orientation="right" stroke="#a8a29e" fontSize={12} tickFormatter={(v) => `${v}%`} />
           <Tooltip
-            formatter={(value) => `${Number(value).toFixed(1)}`}
+            formatter={(value, name) => (name === 'Margem Bruta %' ? `${Number(value).toFixed(1)}%` : Number(value).toFixed(1))}
             labelFormatter={(label) => formatDataCurta(String(label))}
           />
           <Legend />
-          <Line type="monotone" dataKey="faturamento" name="Faturamento" stroke="#059669" strokeWidth={2} dot={{ r: 2 }} />
-          <Line type="monotone" dataKey="ticketMedio" name="Ticket Médio" stroke="#d97706" strokeWidth={2} dot={{ r: 2 }} />
-          <Line type="monotone" dataKey="margemBrutaPct" name="Margem Bruta %" stroke="#6366f1" strokeWidth={2} dot={{ r: 2 }} />
+          <Line yAxisId="indexado" type="monotone" dataKey="faturamento" name="Faturamento" stroke="#059669" strokeWidth={2} dot={{ r: 2 }} />
+          <Line yAxisId="indexado" type="monotone" dataKey="ticketMedio" name="Ticket Médio" stroke="#d97706" strokeWidth={2} dot={{ r: 2 }} />
+          <Line yAxisId="percentual" type="monotone" dataKey="margemBrutaPct" name="Margem Bruta %" stroke="#6366f1" strokeWidth={2} dot={{ r: 2 }} />
         </LineChart>
       </ResponsiveContainer>
     </div>

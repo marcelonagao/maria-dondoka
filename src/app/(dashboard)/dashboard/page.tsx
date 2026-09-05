@@ -3,6 +3,8 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../../lib/supabase';
 import { formatCurrency } from '../../../lib/format';
+import Card from '../../../components/Card';
+import HeroCard from '../../../components/HeroCard';
 import FluxoCaixaChart from './FluxoCaixaChart';
 import IndexedMetricsChart from './IndexedMetricsChart';
 
@@ -112,7 +114,7 @@ export default function DashboardPage() {
         </div>
         {isSocio && (
           <select
-            className="px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none bg-white text-stone-700 text-sm"
+            className="px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none bg-white text-stone-700 text-sm"
             value={franquiaSelecionada}
             onChange={(e) => setFranquiaSelecionada(e.target.value)}
           >
@@ -125,52 +127,55 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white p-6 rounded-xl border border-stone-200 shadow-sm flex flex-col justify-center">
+        <Card className="flex flex-col justify-center">
           <div className="flex items-center gap-2 text-emerald-600 mb-2">
             <span className="text-xl">📈</span>
-            <span className="font-medium text-sm uppercase tracking-wider">A Receber (Pendente)</span>
+            <span className="font-medium text-sm">A receber (pendente)</span>
           </div>
           {isLoading ? (
             <div className="h-8 bg-stone-100 animate-pulse rounded w-1/2"></div>
           ) : (
-            <span className="text-3xl font-bold text-stone-800">{formatCurrency(totais.aReceber)}</span>
+            <span className="text-3xl font-bold tabular-nums text-stone-800">{formatCurrency(totais.aReceber)}</span>
           )}
-        </div>
+        </Card>
 
-        <div className="bg-white p-6 rounded-xl border border-stone-200 shadow-sm flex flex-col justify-center">
+        <Card className="flex flex-col justify-center">
           <div className="flex items-center gap-2 text-red-500 mb-2">
             <span className="text-xl">📉</span>
-            <span className="font-medium text-sm uppercase tracking-wider">A Pagar (Pendente)</span>
+            <span className="font-medium text-sm">A pagar (pendente)</span>
           </div>
           {isLoading ? (
             <div className="h-8 bg-stone-100 animate-pulse rounded w-1/2"></div>
           ) : (
-            <span className="text-3xl font-bold text-stone-800">{formatCurrency(totais.aPagar)}</span>
+            <span className="text-3xl font-bold tabular-nums text-stone-800">{formatCurrency(totais.aPagar)}</span>
           )}
-        </div>
+        </Card>
 
-        <div className="bg-stone-900 p-6 rounded-xl border border-stone-800 shadow-sm flex flex-col justify-center text-white">
-          <div className="flex items-center gap-2 text-amber-400 mb-2">
-            <span className="text-xl">💰</span>
-            <span className="font-medium text-sm uppercase tracking-wider">Saldo Projetado</span>
+        {isLoading ? (
+          <div className="bg-stone-900 rounded-2xl p-6 flex flex-col justify-center">
+            <p className="text-sm font-medium text-stone-400 mb-2">Saldo projetado</p>
+            <div className="h-10 bg-stone-800 animate-pulse rounded w-1/2"></div>
           </div>
-          {isLoading ? (
-            <div className="h-8 bg-stone-800 animate-pulse rounded w-1/2"></div>
-          ) : (
-            <span className="text-3xl font-bold">{formatCurrency(saldoTotal)}</span>
-          )}
-        </div>
+        ) : (
+          <HeroCard
+            label="Saldo projetado"
+            value={formatCurrency(saldoTotal)}
+            valueClassName={saldoTotal >= 0 ? 'text-emerald-400' : 'text-rose-400'}
+            valueSizeClassName="text-3xl sm:text-4xl"
+            className="flex flex-col justify-center"
+          />
+        )}
       </div>
 
       {isSocio && !isLoading && (
         <div className="bg-white border border-stone-200 rounded-xl shadow-sm overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm text-stone-600">
-              <thead className="bg-stone-50 border-b border-stone-200 text-stone-500 uppercase text-xs font-medium">
+              <thead className="bg-stone-50 border-b border-stone-200 text-stone-500 text-xs font-medium">
                 <tr>
                   <th className="sticky left-0 z-10 bg-stone-50 px-6 py-4">Franquia</th>
-                  <th className="px-6 py-4">A Receber</th>
-                  <th className="px-6 py-4">A Pagar</th>
+                  <th className="px-6 py-4">A receber</th>
+                  <th className="px-6 py-4">A pagar</th>
                   <th className="px-6 py-4">Saldo</th>
                 </tr>
               </thead>
@@ -180,9 +185,9 @@ export default function DashboardPage() {
                   return (
                     <tr key={f.id} className="hover:bg-stone-50/50 transition-colors">
                       <td className="sticky left-0 z-10 bg-white px-6 py-4 font-medium text-stone-800">{f.name}</td>
-                      <td className="px-6 py-4 text-emerald-600">{formatCurrency(m.aReceber)}</td>
-                      <td className="px-6 py-4 text-red-500">{formatCurrency(m.aPagar)}</td>
-                      <td className="px-6 py-4 font-semibold">{formatCurrency(m.aReceber - m.aPagar)}</td>
+                      <td className="px-6 py-4 text-emerald-600 tabular-nums">{formatCurrency(m.aReceber)}</td>
+                      <td className={`px-6 py-4 tabular-nums ${m.aPagar > 0 ? 'text-rose-600' : 'text-stone-400'}`}>{formatCurrency(m.aPagar)}</td>
+                      <td className="px-6 py-4 font-semibold tabular-nums">{formatCurrency(m.aReceber - m.aPagar)}</td>
                     </tr>
                   );
                 })}
