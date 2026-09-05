@@ -34,6 +34,7 @@ interface Despesa {
 interface ItemFuncionario {
   id: string;
   nome: string;
+  cargo: string | null;
   valor_liquido: number;
 }
 
@@ -571,7 +572,7 @@ export default function ContasPagarPage() {
     try {
       const { data, error } = await supabase
         .from('folha_pagamento_itens')
-        .select('id, nome, valor_liquido')
+        .select('id, nome, cargo, valor_liquido')
         .eq('competencia_id', competenciaId)
         .eq('franchise_id', despesa.franchise_id)
         .order('nome');
@@ -744,12 +745,12 @@ export default function ContasPagarPage() {
                           {expandido && (
                             <tr>
                               <td colSpan={podeLancarParaOutras ? 7 : 6} className="px-6 py-3 bg-stone-50/50 border-t border-stone-100">
-                                <div className="space-y-2">
+                                <div>
                                   {itensDoGrupo.map((d) => (
-                                    <div key={d.id} className="flex items-center justify-between text-sm py-1">
-                                      <span className="text-stone-700">{nomeFuncionarioDaDescricao(d.description)}</span>
-                                      <div className="flex items-center gap-3">
-                                        <span className="font-medium text-stone-600">{formatCurrency(d.amount)}</span>
+                                    <div key={d.id} className="flex items-center justify-between gap-3 py-2">
+                                      <span className="text-sm text-stone-700 truncate min-w-0">{nomeFuncionarioDaDescricao(d.description)}</span>
+                                      <div className="flex items-center gap-3 flex-shrink-0">
+                                        <span className="text-sm font-medium tabular-nums text-stone-600">{formatCurrency(d.amount)}</span>
                                         {getStatusBadge(d.status)}
                                         {renderAcoesDespesa(d)}
                                       </div>
@@ -811,11 +812,16 @@ export default function ContasPagarPage() {
                           {carregandoItens.has(chaveDetalhe) ? (
                             <p className="text-xs text-stone-400">Carregando funcionários...</p>
                           ) : (
-                            <div className="space-y-1 max-w-md">
+                            <div className="max-w-md">
                               {(itensPorChave.get(chaveDetalhe) || []).map((item) => (
-                                <div key={item.id} className="flex items-center justify-between text-xs text-stone-600 py-1">
-                                  <span>{item.nome}</span>
-                                  <span className="font-medium">{formatCurrency(item.valor_liquido)}</span>
+                                <div key={item.id} className="flex items-center justify-between gap-3 py-2">
+                                  <div className="min-w-0">
+                                    <p className="text-sm text-stone-700 truncate">{item.nome}</p>
+                                    {item.cargo && <p className="text-xs text-stone-400 truncate">{item.cargo}</p>}
+                                  </div>
+                                  <span className="text-sm font-medium tabular-nums text-stone-700 flex-shrink-0">
+                                    {formatCurrency(item.valor_liquido)}
+                                  </span>
                                 </div>
                               ))}
                             </div>
