@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { supabase } from '../../lib/supabase';
+import MobileTabBar from '../../components/MobileTabBar';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -163,10 +164,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
         </header>
 
-        <div className="flex-1 p-4 sm:p-8 overflow-auto">
+        <div className="flex-1 p-4 sm:p-8 pb-20 lg:pb-8 overflow-auto">
           {children}
         </div>
       </main>
+
+      <MobileTabBar telasPermitidas={telasPermitidas} />
     </div>
   );
 }

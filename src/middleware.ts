@@ -1,29 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
-
-const ROTA_PARA_TELA: Record<string, string> = {
-  '/dashboard': 'dashboard',
-  '/tesouraria': 'tesouraria',
-  '/vendas': 'vendas_pdv',
-  '/produtos': 'produtos',
-  '/dre': 'dre',
-  '/dp': 'dp',
-  '/configuracoes': 'configuracoes',
-  '/franquias': 'franquias',
-};
-
-// Rota conhecida de cada tela — usada como destino quando o usuário tenta acessar uma
-// tela sem permissão, mandando pra primeira tela que o papel dele realmente tem.
-const TELA_PARA_ROTA: Record<string, string> = {
-  dashboard: '/dashboard',
-  tesouraria: '/tesouraria/pagar',
-  vendas_pdv: '/vendas',
-  produtos: '/produtos',
-  dre: '/dre',
-  dp: '/dp',
-  configuracoes: '/configuracoes',
-  franquias: '/franquias',
-};
+import { ROTA_PARA_TELA, TELA_PARA_ROTA } from './lib/telas';
 
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request: { headers: request.headers } });
