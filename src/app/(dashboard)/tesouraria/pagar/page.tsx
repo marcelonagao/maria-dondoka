@@ -51,6 +51,17 @@ interface Parcela {
   valor: string;
 }
 
+type Frequencia = 'mensal' | 'trimestral' | 'semestral' | 'anual';
+
+interface Recorrente {
+  id: string;
+  valor_referencia: number;
+  dia_vencimento: number;
+  frequencia: Frequencia;
+  mes_referencia: number | null;
+  is_active: boolean;
+}
+
 interface CategoriaContas {
   id: string;
   nome: string;
@@ -147,6 +158,10 @@ export default function ContasPagarPage() {
   const [pagamentoForm, setPagamentoForm] = useState<DadosPagamento>(PAGAMENTO_INICIAL);
   const [documentoOrigem, setDocumentoOrigem] = useState('');
   const [parcelarEm, setParcelarEm] = useState(1);
+  const [repetirDespesa, setRepetirDespesa] = useState(false);
+  const [frequenciaRecorrencia, setFrequenciaRecorrencia] = useState<Frequencia>('mensal');
+  const [recorrenteParaGerenciar, setRecorrenteParaGerenciar] = useState<Recorrente | null>(null);
+  const [gerenciandoRecorrente, setGerenciandoRecorrente] = useState(false);
   const [parcelas, setParcelas] = useState<Parcela[]>([]);
 
   const fetchDespesas = async () => {
@@ -405,6 +420,8 @@ export default function ContasPagarPage() {
     setDocumentoOrigem('');
     setParcelarEm(1);
     setParcelas([]);
+    setRepetirDespesa(false);
+    setFrequenciaRecorrencia('mensal');
   };
 
   const handleParcelarEmChange = (valor: string) => {
@@ -577,6 +594,32 @@ export default function ContasPagarPage() {
         dados.status = 'pendente';
       }
 
+      // "Repetir esta despesa": cria o molde em despesas_recorrentes ANTES da própria
+      // despesa, pra já linkar via despesa_recorrente_id no insert seguinte (evita um
+      // update extra depois). dia_vencimento/mes_referencia vêm da própria data de
+      // vencimento informada — mensal ignora mes_referencia (grava null), igual à
+      // convenção já usada pelo cron (gerar-despesas-recorrentes/route.ts).
+      if (!despesaEditando && parcelarEm === 1 && repetirDespesa) {
+        const dataVenc = new Date(formData.due_date + 'T00:00:00');
+        const nomeCategoria = planoContas.find((c) => c.id === formData.planoContaId)?.nome;
+        const { data: novaRecorrente, error: recorrenteError } = await supabase
+          .from('despesas_recorrentes')
+          .insert({
+            franchise_id: podeLancarParaOutras ? formData.franchiseId : minhaFranchiseId,
+            descricao: formData.description || nomeCategoria || 'Despesa recorrente',
+            plano_conta_id: formData.planoContaId,
+            fornecedor_id: formData.fornecedorId || null,
+            valor_referencia: parseFloat(formData.amount),
+            dia_vencimento: dataVenc.getDate(),
+            frequencia: frequenciaRecorrencia,
+            mes_referencia: frequenciaRecorrencia !== 'mensal' ? dataVenc.getMonth() + 1 : null,
+          })
+          .select('id')
+          .single();
+        if (recorrenteError) throw recorrenteError;
+        dados.despesa_recorrente_id = novaRecorrente.id;
+      }
+
       if (despesaEditando) {
         await salvarEdicao(despesaEditando, dados);
       } else {
@@ -745,8 +788,59 @@ export default function ContasPagarPage() {
       {despesa.status === 'cancelado' && despesa.motivo_cancelamento && (
         <p className="text-xs text-stone-400">{despesa.motivo_cancelamento}</p>
       )}
+      {despesa.despesa_recorrente_id && (
+        <button
+          onClick={() => abrirGerenciarRecorrente(despesa.despesa_recorrente_id!)}
+          className="text-xs font-medium px-3 py-1.5 rounded-lg transition-colors text-stone-500 hover:bg-stone-100"
+        >
+          🔁 Gerenciar recorrência
+        </button>
+      )}
     </>
   );
+
+  const abrirGerenciarRecorrente = async (recorrenteId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('despesas_recorrentes')
+        .select('id, valor_referencia, dia_vencimento, frequencia, mes_referencia, is_active')
+        .eq('id', recorrenteId)
+        .single();
+      if (error) throw error;
+      setRecorrenteParaGerenciar(data as Recorrente);
+    } catch (error) {
+      console.error('Erro ao buscar recorrência:', error);
+      alert('Erro ao carregar a recorrência. Verifique o console.');
+    }
+  };
+
+  const salvarRecorrente = async () => {
+    if (!recorrenteParaGerenciar) return;
+    setGerenciandoRecorrente(true);
+    try {
+      const mesReferencia =
+        recorrenteParaGerenciar.frequencia === 'mensal'
+          ? null
+          : recorrenteParaGerenciar.mes_referencia || new Date().getMonth() + 1;
+      const { error } = await supabase
+        .from('despesas_recorrentes')
+        .update({
+          valor_referencia: recorrenteParaGerenciar.valor_referencia,
+          dia_vencimento: recorrenteParaGerenciar.dia_vencimento,
+          frequencia: recorrenteParaGerenciar.frequencia,
+          mes_referencia: mesReferencia,
+          is_active: recorrenteParaGerenciar.is_active,
+        })
+        .eq('id', recorrenteParaGerenciar.id);
+      if (error) throw error;
+      setRecorrenteParaGerenciar(null);
+    } catch (error) {
+      console.error('Erro ao salvar recorrência:', error);
+      alert('Erro ao salvar. Verifique o console.');
+    } finally {
+      setGerenciandoRecorrente(false);
+    }
+  };
 
   return (
     <div className="space-y-6 relative">
@@ -970,7 +1064,10 @@ export default function ContasPagarPage() {
                           const { principal, ehPlaceholder, mostrarDescricaoSecundaria } = celulaFornecedor(despesa);
                           return (
                             <>
-                              <p className={`font-medium ${ehPlaceholder ? 'text-stone-400' : 'text-stone-800'}`}>{principal}</p>
+                              <p className={`font-medium ${ehPlaceholder ? 'text-stone-400' : 'text-stone-800'}`}>
+                                {despesa.despesa_recorrente_id && <span title="Despesa recorrente">🔁 </span>}
+                                {principal}
+                              </p>
                               {mostrarDescricaoSecundaria && <p className="text-xs text-stone-400 mt-0.5">{despesa.description}</p>}
                             </>
                           );
@@ -1132,7 +1229,7 @@ export default function ContasPagarPage() {
                 <>
                   {/* Valor e "Parcelar em" sempre juntos, nessa ordem — parcelas dependem do
                       valor total, então o valor precisa vir preenchido antes de escolher N. */}
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className={repetirDespesa ? 'grid grid-cols-1 gap-4' : 'grid grid-cols-2 gap-4'}>
                     <div>
                       <label className="block text-sm font-medium text-stone-700 mb-1">
                         {parcelarEm > 1 ? 'Valor total da nota (R$)' : 'Valor (R$)'}
@@ -1147,16 +1244,18 @@ export default function ContasPagarPage() {
                         placeholder="0.00"
                       />
                     </div>
-                    <div>
-                      <label className="block text-sm font-medium text-stone-700 mb-1">Parcelar em</label>
-                      <input
-                        type="number"
-                        min={1}
-                        className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
-                        value={parcelarEm}
-                        onChange={(e) => handleParcelarEmChange(e.target.value)}
-                      />
-                    </div>
+                    {!repetirDespesa && (
+                      <div>
+                        <label className="block text-sm font-medium text-stone-700 mb-1">Parcelar em</label>
+                        <input
+                          type="number"
+                          min={1}
+                          className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+                          value={parcelarEm}
+                          onChange={(e) => handleParcelarEmChange(e.target.value)}
+                        />
+                      </div>
+                    )}
                   </div>
 
                   {parcelarEm === 1 ? (
@@ -1169,6 +1268,29 @@ export default function ContasPagarPage() {
                         value={formData.due_date}
                         onChange={e => setFormData({...formData, due_date: e.target.value})}
                       />
+                      <div className="mt-3">
+                        <label className="flex items-center gap-2 text-sm text-stone-700">
+                          <input
+                            type="checkbox"
+                            checked={repetirDespesa}
+                            onChange={(e) => setRepetirDespesa(e.target.checked)}
+                            className="rounded border-stone-300 text-amber-500 focus:ring-amber-400"
+                          />
+                          Repetir esta despesa
+                        </label>
+                        {repetirDespesa && (
+                          <select
+                            className="mt-2 w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none bg-white text-stone-700 text-sm"
+                            value={frequenciaRecorrencia}
+                            onChange={(e) => setFrequenciaRecorrencia(e.target.value as Frequencia)}
+                          >
+                            <option value="mensal">Mensal</option>
+                            <option value="trimestral">Trimestral</option>
+                            <option value="semestral">Semestral</option>
+                            <option value="anual">Anual</option>
+                          </select>
+                        )}
+                      </div>
                     </div>
                   ) : (
                     <div className="space-y-3">
@@ -1340,6 +1462,82 @@ export default function ContasPagarPage() {
                   className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors disabled:opacity-70 flex justify-center items-center"
                 >
                   {cancelandoId === despesaParaCancelar.id ? 'Cancelando...' : 'Confirmar cancelamento'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Gerenciar recorrência */}
+      {recorrenteParaGerenciar && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden">
+            <div className="flex justify-between items-center p-6 border-b border-stone-100">
+              <h2 className="text-lg font-semibold text-stone-800">🔁 Gerenciar recorrência</h2>
+              <button onClick={() => setRecorrenteParaGerenciar(null)} className="text-stone-400 hover:text-stone-600">✕</button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-stone-700 mb-1">Valor de referência (R$)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+                  value={recorrenteParaGerenciar.valor_referencia}
+                  onChange={(e) => setRecorrenteParaGerenciar({ ...recorrenteParaGerenciar, valor_referencia: parseFloat(e.target.value) || 0 })}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-stone-700 mb-1">Dia do vencimento</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={31}
+                    className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+                    value={recorrenteParaGerenciar.dia_vencimento}
+                    onChange={(e) => setRecorrenteParaGerenciar({ ...recorrenteParaGerenciar, dia_vencimento: parseInt(e.target.value, 10) || 1 })}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-stone-700 mb-1">Frequência</label>
+                  <select
+                    className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none bg-white text-stone-700"
+                    value={recorrenteParaGerenciar.frequencia}
+                    onChange={(e) => setRecorrenteParaGerenciar({ ...recorrenteParaGerenciar, frequencia: e.target.value as Frequencia })}
+                  >
+                    <option value="mensal">Mensal</option>
+                    <option value="trimestral">Trimestral</option>
+                    <option value="semestral">Semestral</option>
+                    <option value="anual">Anual</option>
+                  </select>
+                </div>
+              </div>
+              <label className="flex items-center gap-2 text-sm text-stone-700">
+                <input
+                  type="checkbox"
+                  checked={recorrenteParaGerenciar.is_active}
+                  onChange={(e) => setRecorrenteParaGerenciar({ ...recorrenteParaGerenciar, is_active: e.target.checked })}
+                  className="rounded border-stone-300 text-amber-500 focus:ring-amber-400"
+                />
+                Ativa (gera novas ocorrências automaticamente)
+              </label>
+              <div className="pt-2 flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setRecorrenteParaGerenciar(null)}
+                  className="flex-1 px-4 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-lg font-medium transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={salvarRecorrente}
+                  disabled={gerenciandoRecorrente}
+                  className="flex-1 px-4 py-2 bg-stone-900 hover:bg-stone-800 text-white rounded-lg font-medium transition-colors disabled:opacity-70 flex justify-center items-center"
+                >
+                  {gerenciandoRecorrente ? 'Salvando...' : 'Salvar'}
                 </button>
               </div>
             </div>
