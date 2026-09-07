@@ -29,6 +29,7 @@ interface Despesa {
   folha_pagamento_item_id: string | null;
   plano_contas: { nome: string } | null;
   franchises: { name: string } | null;
+  fornecedores: { nome: string } | null;
 }
 
 interface ItemFuncionario {
@@ -36,6 +37,13 @@ interface ItemFuncionario {
   nome: string;
   cargo: string | null;
   valor_liquido: number;
+}
+
+interface DetalheFolha {
+  cargo: string | null;
+  total_vencimentos: number;
+  total_descontos: number;
+  observacao: string | null;
 }
 
 interface Parcela {
@@ -122,6 +130,10 @@ export default function ContasPagarPage() {
   const [itensPorChave, setItensPorChave] = useState<Map<string, ItemFuncionario[]>>(new Map());
   const [carregandoItens, setCarregandoItens] = useState<Set<string>>(new Set());
   const [expandedGruposFolha, setExpandedGruposFolha] = useState<Set<string>>(new Set());
+  const [detalhesFolhaPorItem, setDetalhesFolhaPorItem] = useState<Map<string, DetalheFolha>>(new Map());
+  const [carregandoDetalhesFolha, setCarregandoDetalhesFolha] = useState<Set<string>>(new Set());
+  const [itemExpandidoNoGrupo, setItemExpandidoNoGrupo] = useState<string | null>(null);
+  const [confirmandoItemId, setConfirmandoItemId] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
     description: '',
@@ -142,7 +154,7 @@ export default function ContasPagarPage() {
       setIsLoading(true);
       const { data, error } = await supabase
         .from('accounts_payable')
-        .select('*, plano_contas(nome), franchises(name)')
+        .select('*, plano_contas(nome), franchises(name), fornecedores(nome)')
         .order('due_date', { ascending: true });
 
       if (error) throw error;
@@ -253,15 +265,106 @@ export default function ContasPagarPage() {
     return mapa;
   }, [despesasVisiveis]);
 
-  const toggleGrupoFolha = (chave: string) => {
+  const toggleGrupoFolha = async (chave: string, itensDoGrupo: Despesa[]) => {
+    const jaExpandido = expandedGruposFolha.has(chave);
     setExpandedGruposFolha((atual) => {
       const novo = new Set(atual);
-      if (novo.has(chave)) novo.delete(chave); else novo.add(chave);
+      if (jaExpandido) novo.delete(chave); else novo.add(chave);
       return novo;
     });
+    if (jaExpandido) return;
+
+    const itemIds = itensDoGrupo.map((d) => d.folha_pagamento_item_id!).filter((id) => !detalhesFolhaPorItem.has(id));
+    if (itemIds.length === 0) return;
+
+    setCarregandoDetalhesFolha((atual) => new Set([...Array.from(atual), ...itemIds]));
+    try {
+      const { data, error } = await supabase
+        .from('folha_pagamento_itens')
+        .select('id, cargo, total_vencimentos, total_descontos, observacao')
+        .in('id', itemIds);
+      if (error) throw error;
+      setDetalhesFolhaPorItem((atual) => {
+        const novo = new Map(atual);
+        for (const item of data || []) novo.set(item.id, item);
+        return novo;
+      });
+    } catch (error) {
+      console.error('Erro ao buscar detalhes da folha:', error);
+    } finally {
+      setCarregandoDetalhesFolha((atual) => {
+        const novo = new Set(atual);
+        for (const id of itemIds) novo.delete(id);
+        return novo;
+      });
+    }
   };
 
   const nomeFuncionarioDaDescricao = (descricao: string) => descricao.split(' - Folha de Pagamento')[0];
+
+  const formatarCompetencia = (descricaoGrupo: string) => {
+    // descricaoGrupo já vem como "Folha de Pagamento 2026-08" (ver descricaoGrupo abaixo)
+    const match = descricaoGrupo.match(/(\d{4})-(\d{2})/);
+    if (!match) return descricaoGrupo;
+    const nomesMeses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+    return `Folha de Pagamento · ${nomesMeses[parseInt(match[2], 10) - 1]}/${match[1].slice(2)}`;
+  };
+
+  const confirmarPagamentoFuncionario = async (despesa: Despesa) => {
+    const itemId = despesa.folha_pagamento_item_id;
+    if (!itemId) return;
+    setConfirmandoItemId(itemId);
+    try {
+      const agora = new Date().toISOString();
+      const { data: { user } } = await supabase.auth.getUser();
+
+      const [despesaRes, itemRes] = await Promise.all([
+        supabase.from('accounts_payable').update({ status: 'pago', paid_at: agora }).eq('id', despesa.id),
+        supabase.from('folha_pagamento_itens').update({ pago_em: agora, pago_por: user?.id || null }).eq('id', itemId),
+      ]);
+      if (despesaRes.error) throw despesaRes.error;
+      if (itemRes.error) throw itemRes.error;
+
+      await fetchDespesas();
+    } catch (error) {
+      console.error('Erro ao confirmar pagamento:', error);
+      alert('Erro ao confirmar pagamento. Verifique o console.');
+    } finally {
+      setConfirmandoItemId(null);
+    }
+  };
+
+  const desfazerPagamentoFuncionario = async (despesa: Despesa) => {
+    const itemId = despesa.folha_pagamento_item_id;
+    if (!itemId) return;
+    setConfirmandoItemId(itemId);
+    try {
+      const [despesaRes, itemRes] = await Promise.all([
+        supabase.from('accounts_payable').update({ status: 'pendente', paid_at: null }).eq('id', despesa.id),
+        supabase.from('folha_pagamento_itens').update({ pago_em: null, pago_por: null }).eq('id', itemId),
+      ]);
+      if (despesaRes.error) throw despesaRes.error;
+      if (itemRes.error) throw itemRes.error;
+
+      await fetchDespesas();
+    } catch (error) {
+      console.error('Erro ao desfazer confirmação:', error);
+      alert('Erro ao desfazer. Verifique o console.');
+    } finally {
+      setConfirmandoItemId(null);
+    }
+  };
+
+  const salvarObservacaoFuncionario = async (itemId: string, observacao: string) => {
+    setDetalhesFolhaPorItem((atual) => {
+      const novo = new Map(atual);
+      const atual2 = novo.get(itemId);
+      if (atual2) novo.set(itemId, { ...atual2, observacao });
+      return novo;
+    });
+    const { error } = await supabase.from('folha_pagamento_itens').update({ observacao }).eq('id', itemId);
+    if (error) console.error('Erro ao salvar observação:', error.message);
+  };
 
   const criarFornecedor = async (nome: string) => {
     if (!nome) return;
@@ -589,6 +692,17 @@ export default function ContasPagarPage() {
     }
   };
 
+  // Conteúdo da coluna primária (agora Fornecedor, não mais Descrição) — reaproveitado
+  // em toda linha, normal ou resumo de grupo de folha. Fallback: fornecedor > descrição >
+  // placeholder, nessa ordem, nunca undefined/vazio.
+  const celulaFornecedor = (despesa: Despesa) => {
+    const nome = despesa.fornecedores?.nome;
+    const principal = nome || despesa.description || 'Sem fornecedor';
+    const ehPlaceholder = !nome && !despesa.description;
+    const mostrarDescricaoSecundaria = !!nome && !!despesa.description;
+    return { principal, ehPlaceholder, mostrarDescricaoSecundaria };
+  };
+
   // Reaproveitado tanto na linha normal quanto na linha de cada funcionário dentro de um
   // grupo de folha expandido — mesma ação, independente de onde a despesa é exibida.
   const renderAcoesDespesa = (despesa: Despesa) => (
@@ -667,7 +781,7 @@ export default function ContasPagarPage() {
           <table className="w-full text-left text-sm text-stone-600">
             <thead className="bg-stone-50 border-b border-stone-200 text-stone-500 uppercase text-xs font-medium">
               <tr>
-                <th className="sticky left-0 z-10 bg-stone-50 px-6 py-4">Descrição</th>
+                <th className="sticky left-0 z-10 bg-stone-50 px-6 py-4">Fornecedor</th>
                 {podeLancarParaOutras && <th className="px-6 py-4">Franquia</th>}
                 <th className="px-6 py-4">Categoria</th>
                 <th className="px-6 py-4">Vencimento</th>
@@ -713,10 +827,10 @@ export default function ContasPagarPage() {
                         <React.Fragment key={chaveGrupo}>
                           <tr className="hover:bg-stone-50/50 transition-colors">
                             <td className="sticky left-0 z-10 bg-white px-6 py-4 font-medium text-stone-800">
-                              {descricaoGrupo}
+                              {formatarCompetencia(descricaoGrupo)}
                               <button
                                 type="button"
-                                onClick={() => toggleGrupoFolha(chaveGrupo)}
+                                onClick={() => toggleGrupoFolha(chaveGrupo, itensDoGrupo)}
                                 className="flex items-center gap-1 text-xs font-medium text-amber-600 hover:text-amber-700 mt-1"
                               >
                                 <span className={`inline-block transition-transform ${expandido ? 'rotate-90' : ''}`}>›</span>
@@ -744,18 +858,94 @@ export default function ContasPagarPage() {
                           </tr>
                           {expandido && (
                             <tr>
-                              <td colSpan={podeLancarParaOutras ? 7 : 6} className="px-6 py-3 bg-stone-50/50 border-t border-stone-100">
-                                <div>
-                                  {itensDoGrupo.map((d) => (
-                                    <div key={d.id} className="flex items-center justify-between gap-3 py-2">
-                                      <span className="text-sm text-stone-700 truncate min-w-0">{nomeFuncionarioDaDescricao(d.description)}</span>
-                                      <div className="flex items-center gap-3 flex-shrink-0">
-                                        <span className="text-sm font-medium tabular-nums text-stone-600">{formatCurrency(d.amount)}</span>
-                                        {getStatusBadge(d.status)}
-                                        {renderAcoesDespesa(d)}
-                                      </div>
+                              <td colSpan={podeLancarParaOutras ? 7 : 6} className="p-0 border-t border-stone-100">
+                                <div className="bg-stone-50/50 max-h-96 overflow-y-auto">
+                                  <div className="sticky top-0 z-10 bg-stone-100 px-6 py-2 flex items-center justify-between border-b border-stone-200">
+                                    <span className="text-sm font-medium text-stone-700">{formatarCompetencia(descricaoGrupo)}</span>
+                                    <div className="flex items-center gap-4 text-sm">
+                                      <span className="font-medium tabular-nums text-stone-700">{formatCurrency(valorTotal)}</span>
+                                      <span className="text-stone-500">{pagos} de {itensDoGrupo.length} confirmados</span>
                                     </div>
-                                  ))}
+                                  </div>
+                                  <div className="divide-y divide-stone-100">
+                                    {itensDoGrupo.map((d) => {
+                                      const itemId = d.folha_pagamento_item_id!;
+                                      const detalhe = detalhesFolhaPorItem.get(itemId);
+                                      const linhaExpandida = itemExpandidoNoGrupo === d.id;
+                                      return (
+                                        <div key={d.id} className="px-6">
+                                          <div
+                                            className="flex items-center justify-between gap-3 py-2.5 cursor-pointer"
+                                            onClick={() => setItemExpandidoNoGrupo(linhaExpandida ? null : d.id)}
+                                          >
+                                            <div className="min-w-0">
+                                              <p className="text-sm font-medium text-stone-800 truncate">{nomeFuncionarioDaDescricao(d.description)}</p>
+                                              {detalhe?.cargo && <p className="text-xs text-stone-400 truncate">{detalhe.cargo}</p>}
+                                            </div>
+                                            <div className="flex items-center gap-3 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                                              <span className="text-sm font-medium tabular-nums text-stone-600">{formatCurrency(d.amount)}</span>
+                                              {d.status === 'pago' ? (
+                                                <div className="flex items-center gap-2 text-xs">
+                                                  <span className="text-emerald-600 font-medium">
+                                                    ✓ Confirmado {d.paid_at ? `em ${new Date(d.paid_at).toLocaleDateString('pt-BR')} às ${new Date(d.paid_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}` : ''}
+                                                  </span>
+                                                  <button
+                                                    onClick={() => desfazerPagamentoFuncionario(d)}
+                                                    disabled={confirmandoItemId === itemId}
+                                                    className="text-stone-400 hover:text-red-600 underline disabled:opacity-50"
+                                                  >
+                                                    Desfazer
+                                                  </button>
+                                                </div>
+                                              ) : d.status === 'cancelado' ? (
+                                                getStatusBadge('cancelado')
+                                              ) : (
+                                                <button
+                                                  onClick={() => confirmarPagamentoFuncionario(d)}
+                                                  disabled={confirmandoItemId === itemId}
+                                                  className="text-xs font-medium px-3 py-1.5 rounded-lg transition-colors text-emerald-600 hover:bg-emerald-50 disabled:opacity-50"
+                                                >
+                                                  {confirmandoItemId === itemId ? 'Salvando...' : 'Confirmar pagamento'}
+                                                </button>
+                                              )}
+                                            </div>
+                                          </div>
+                                          {linhaExpandida && (
+                                            <div className="pb-3 pl-0 pr-0 -mt-1" onClick={(e) => e.stopPropagation()}>
+                                              {carregandoDetalhesFolha.has(itemId) || !detalhe ? (
+                                                <p className="text-xs text-stone-400">Carregando detalhes...</p>
+                                              ) : (
+                                                <div className="grid grid-cols-2 gap-3 text-sm bg-white rounded-lg border border-stone-200 p-3">
+                                                  <div>
+                                                    <p className="text-xs text-stone-400">Salário bruto</p>
+                                                    <p className="tabular-nums text-stone-700">{formatCurrency(detalhe.total_vencimentos)}</p>
+                                                  </div>
+                                                  <div>
+                                                    <p className="text-xs text-stone-400">Descontos</p>
+                                                    <p className="tabular-nums text-stone-700">{formatCurrency(detalhe.total_descontos)}</p>
+                                                  </div>
+                                                  <div>
+                                                    <p className="text-xs text-stone-400">Vencimento</p>
+                                                    <p className="text-stone-700">{new Date(d.due_date + 'T00:00:00').toLocaleDateString('pt-BR')}</p>
+                                                  </div>
+                                                  <div className="col-span-2">
+                                                    <label className="text-xs text-stone-400 block mb-1">Observação</label>
+                                                    <input
+                                                      type="text"
+                                                      defaultValue={detalhe.observacao || ''}
+                                                      onBlur={(e) => salvarObservacaoFuncionario(itemId, e.target.value)}
+                                                      className="w-full px-2 py-1 border border-stone-200 rounded text-sm"
+                                                      placeholder="Ex: Pix enviado com 1 dia de atraso"
+                                                    />
+                                                  </div>
+                                                </div>
+                                              )}
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
                                 </div>
                               </td>
                             </tr>
@@ -775,8 +965,16 @@ export default function ContasPagarPage() {
                     return (
                     <React.Fragment key={despesa.id}>
                     <tr className="hover:bg-stone-50/50 transition-colors">
-                      <td className="sticky left-0 z-10 bg-white px-6 py-4 font-medium text-stone-800">
-                        {despesa.description}
+                      <td className="sticky left-0 z-10 bg-white px-6 py-4">
+                        {(() => {
+                          const { principal, ehPlaceholder, mostrarDescricaoSecundaria } = celulaFornecedor(despesa);
+                          return (
+                            <>
+                              <p className={`font-medium ${ehPlaceholder ? 'text-stone-400' : 'text-stone-800'}`}>{principal}</p>
+                              {mostrarDescricaoSecundaria && <p className="text-xs text-stone-400 mt-0.5">{despesa.description}</p>}
+                            </>
+                          );
+                        })()}
                         {!!despesa.parcela_total && despesa.parcela_total > 1 && (
                           <p className="text-xs font-normal text-stone-400 mt-0.5">
                             Parcela {despesa.parcela_numero}/{despesa.parcela_total}
