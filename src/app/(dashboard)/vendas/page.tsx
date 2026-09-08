@@ -367,9 +367,31 @@ export default function PrestacaoContasPage() {
                       if (formaExpandida !== chave) return null;
                       const transacoesDaForma = u.transacoes_pendentes.find((t) => t.forma_pagamento === f.forma_pagamento)?.transacoes || [];
                       if (transacoesDaForma.length === 0) return null;
-                      const idsSelecionados = transacoesDaForma.filter((t) => selecionadas[t.id]).map((t) => t.id);
+                      const selecionadasDaForma = transacoesDaForma.filter((t) => selecionadas[t.id]);
+                      const idsSelecionados = selecionadasDaForma.map((t) => t.id);
+                      const valorSelecionado = selecionadasDaForma.reduce((acc, t) => acc + t.valor, 0);
                       return (
                         <div key={chave} className="bg-stone-50 border border-stone-200 rounded-lg p-3 space-y-1.5">
+                          <div className="flex items-center justify-between pb-1">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setSelecionadas((prev) => {
+                                  const proximo = { ...prev };
+                                  transacoesDaForma.forEach((t) => { proximo[t.id] = true; });
+                                  return proximo;
+                                })
+                              }
+                              className="text-xs text-stone-500 hover:text-stone-700 font-medium underline underline-offset-2"
+                            >
+                              Marcar Todas
+                            </button>
+                            <span className="text-xs text-stone-500">
+                              {idsSelecionados.length > 0
+                                ? `${idsSelecionados.length} selecionada(s) — ${formatCurrency(valorSelecionado)}`
+                                : 'Nenhuma selecionada'}
+                            </span>
+                          </div>
                           {transacoesDaForma.map((t) => (
                             <label key={t.id} className="flex items-center justify-between gap-3 text-xs cursor-pointer">
                               <span className="flex items-center gap-2 text-stone-600">
