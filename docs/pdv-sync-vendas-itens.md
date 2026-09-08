@@ -115,10 +115,19 @@ as linhas (sem constraint única em `vendas_itens`).
 Diferente das outras franquias (hospedagem Locaweb, MySQL só acessível de dentro do
 próprio hosting — por isso o PHP roda lá e empurra pro webhook), Loja1 e Loja4 estão em
 `hospedagemdesites.ws`, que não filtra por IP. Pra essas duas, não existe script PHP: um
-Vercel Cron (`src/app/api/cron/sync-lojas-diretas/route.ts`, a cada 15 min, protegido por
-`CRON_SECRET`) conecta direto via `mysql2/promise`, roda as mesmas 3 queries acima
-(formas por usuário, retiradas, itens), monta o mesmo payload, assina com HMAC (mesma
-lógica do PHP, em TypeScript) e chama o próprio `/api/pdv/sync` — mesma porta de entrada,
-mesma validação de token/assinatura, nenhum caminho especial. Credenciais de banco e de
-device (token/secret gerados em Configurações, franquia real de cada loja) vêm de env
-vars na Vercel (`LOJA1_*`/`LOJA4_*`), nunca hardcoded.
+endpoint (`src/app/api/cron/sync-lojas-diretas/route.ts`, protegido por `CRON_SECRET`)
+conecta direto via `mysql2/promise`, roda as mesmas 3 queries acima (formas por usuário,
+retiradas, itens), monta o mesmo payload, assina com HMAC (mesma lógica do PHP, em
+TypeScript) e chama o próprio `/api/pdv/sync` — mesma porta de entrada, mesma validação
+de token/assinatura, nenhum caminho especial. Credenciais de banco e de device
+(token/secret gerados em Configurações, franquia real de cada loja) vêm de env vars na
+Vercel (`LOJA1_*`/`LOJA4_*`), nunca hardcoded.
+
+**Quem chama o endpoint a cada 15 min**: não é o Cron nativo da Vercel — o plano Hobby só
+permite agendamento diário, rejeita qualquer `schedule` mais frequente (a tentativa de
+usar `vercel.json` pra isso nem chegou a gerar deployment). Em vez disso, um workflow do
+GitHub Actions (`.github/workflows/sync-lojas-diretas.yml`, `schedule: cron: '*/15 * * *
+*'`) chama o endpoint com o header `Authorization: Bearer $CRON_SECRET` (secret do
+repositório, mesmo valor cadastrado na Vercel). Timing é best-effort do runner do GitHub
+(pode atrasar alguns minutos em picos de fila), mas sem custo adicional — alternativa
+seria upgrade pro plano Pro da Vercel.

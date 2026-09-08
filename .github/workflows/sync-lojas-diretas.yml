@@ -1,0 +1,27 @@
+name: Sincroniza lojas diretas (Loja1/Loja4)
+
+# Substitui o cron nativo da Vercel, que no plano Hobby só permite agendamento
+# diário — não serve pro intervalo de 15min que /api/cron/sync-lojas-diretas
+# precisa (ver docs/pdv-sync-vendas-itens.md). O endpoint em si não muda: ele já
+# é protegido por CRON_SECRET, então qualquer chamador autorizado serve, seja a
+# Vercel ou aqui.
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch: {}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Chama /api/cron/sync-lojas-diretas
+        run: |
+          status=$(curl -s -o /tmp/resposta.json -w "%{http_code}" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            https://maria-dondoka.vercel.app/api/cron/sync-lojas-diretas)
+          echo "HTTP $status"
+          cat /tmp/resposta.json
+          if [ "$status" -ge 300 ]; then
+            echo "Falhou com status $status"
+            exit 1
+          fi

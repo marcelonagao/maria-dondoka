@@ -1,6 +1,5 @@
 {
   "crons": [
-    { "path": "/api/cron/gerar-despesas-recorrentes", "schedule": "0 6 * * *" },
-    { "path": "/api/cron/sync-lojas-diretas", "schedule": "*/15 * * * *" }
+    { "path": "/api/cron/gerar-despesas-recorrentes", "schedule": "0 6 * * *" }
   ]
 }
