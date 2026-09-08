@@ -34,11 +34,24 @@ interface MovimentacaoPendente {
   criado_em: string;
 }
 
+interface TransacaoPendente {
+  id: string;
+  valor: number;
+  historico: string | null;
+  criado_em: string;
+}
+
+interface FormaComTransacoes {
+  forma_pagamento: string;
+  transacoes: TransacaoPendente[];
+}
+
 interface LinhaUsuario {
   usuario: string;
   acumulado_atualizado_em: string | null;
   proximo_esperado: { dinheiro: number; formas_informativas: FormaPagamentoValor[]; total: number } | null;
   movimentacoes_pendentes: MovimentacaoPendente[];
+  transacoes_pendentes: FormaComTransacoes[];
   historico: HistoricoItem[];
 }
 
@@ -65,6 +78,9 @@ export default function PrestacaoContasPage() {
   const [funcionarios, setFuncionarios] = useState<Funcionario[]>([]);
   const [funcionarioSelecionado, setFuncionarioSelecionado] = useState<Record<string, string>>({});
   const [isSincronizando, setIsSincronizando] = useState(false);
+  const [formaExpandida, setFormaExpandida] = useState<string | null>(null);
+  const [selecionadas, setSelecionadas] = useState<Record<string, boolean>>({});
+  const [isConciliando, setIsConciliando] = useState(false);
 
   const handleSincronizarAgora = async () => {
     setIsSincronizando(true);
@@ -172,6 +188,30 @@ export default function PrestacaoContasPage() {
       alert('Erro ao salvar no banco. Verifique o console.');
     } finally {
       setIsSalvandoMovimentacao(false);
+    }
+  };
+
+  const handleConciliar = async (ids: string[]) => {
+    if (ids.length === 0) return;
+    setIsConciliando(true);
+    try {
+      const res = await fetch('/api/fechamentos/conciliar-transacoes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids }),
+      });
+      if (!res.ok) throw new Error('Falha ao conciliar');
+      setSelecionadas((prev) => {
+        const proximo = { ...prev };
+        ids.forEach((id) => delete proximo[id]);
+        return proximo;
+      });
+      await carregar(dataSelecionada);
+    } catch (err) {
+      console.error('Erro ao conciliar transações:', err);
+      alert('Erro ao conciliar. Verifique o console.');
+    } finally {
+      setIsConciliando(false);
     }
   };
 
@@ -291,14 +331,72 @@ export default function PrestacaoContasPage() {
               </div>
 
               {u.proximo_esperado && u.proximo_esperado.formas_informativas.some((f) => f.valor !== 0) && (
-                <div className="px-6 pb-4 -mt-2 flex flex-wrap gap-2">
+                <div className="px-6 pb-4 -mt-2 space-y-2">
+                  <div className="flex flex-wrap gap-2">
+                    {u.proximo_esperado.formas_informativas
+                      .filter((f) => f.valor !== 0)
+                      .map((f) => {
+                        const transacoesDaForma = u.transacoes_pendentes.find((t) => t.forma_pagamento === f.forma_pagamento)?.transacoes || [];
+                        if (transacoesDaForma.length === 0) {
+                          return (
+                            <span key={f.forma_pagamento} className="text-xs bg-stone-50 text-stone-500 rounded-lg px-3 py-1.5">
+                              {labelFormaPagamento(f.forma_pagamento)}: <span className="font-medium text-stone-600">{formatCurrency(f.valor)}</span>
+                            </span>
+                          );
+                        }
+                        const chave = `${u.usuario}::${f.forma_pagamento}`;
+                        return (
+                          <button
+                            key={f.forma_pagamento}
+                            type="button"
+                            onClick={() => setFormaExpandida(formaExpandida === chave ? null : chave)}
+                            className="text-xs bg-stone-50 hover:bg-stone-100 text-stone-500 rounded-lg px-3 py-1.5 transition-colors"
+                          >
+                            {formaExpandida === chave ? '▾' : '▸'} {labelFormaPagamento(f.forma_pagamento)}:{' '}
+                            <span className="font-medium text-stone-600">{formatCurrency(f.valor)}</span>{' '}
+                            <span className="text-stone-400">({transacoesDaForma.length})</span>
+                          </button>
+                        );
+                      })}
+                  </div>
+
                   {u.proximo_esperado.formas_informativas
                     .filter((f) => f.valor !== 0)
-                    .map((f) => (
-                      <span key={f.forma_pagamento} className="text-xs bg-stone-50 text-stone-500 rounded-lg px-3 py-1.5">
-                        {labelFormaPagamento(f.forma_pagamento)}: <span className="font-medium text-stone-600">{formatCurrency(f.valor)}</span>
-                      </span>
-                    ))}
+                    .map((f) => {
+                      const chave = `${u.usuario}::${f.forma_pagamento}`;
+                      if (formaExpandida !== chave) return null;
+                      const transacoesDaForma = u.transacoes_pendentes.find((t) => t.forma_pagamento === f.forma_pagamento)?.transacoes || [];
+                      if (transacoesDaForma.length === 0) return null;
+                      const idsSelecionados = transacoesDaForma.filter((t) => selecionadas[t.id]).map((t) => t.id);
+                      return (
+                        <div key={chave} className="bg-stone-50 border border-stone-200 rounded-lg p-3 space-y-1.5">
+                          {transacoesDaForma.map((t) => (
+                            <label key={t.id} className="flex items-center justify-between gap-3 text-xs cursor-pointer">
+                              <span className="flex items-center gap-2 text-stone-600">
+                                <input
+                                  type="checkbox"
+                                  checked={!!selecionadas[t.id]}
+                                  onChange={(e) => setSelecionadas((prev) => ({ ...prev, [t.id]: e.target.checked }))}
+                                  className="rounded border-stone-300"
+                                />
+                                {t.historico || 'Sem descrição'}
+                              </span>
+                              <span className="font-medium text-stone-700 whitespace-nowrap">{formatCurrency(t.valor)}</span>
+                            </label>
+                          ))}
+                          <div className="pt-2 flex justify-end">
+                            <button
+                              type="button"
+                              disabled={idsSelecionados.length === 0 || isConciliando}
+                              onClick={() => handleConciliar(idsSelecionados)}
+                              className="px-3 py-1.5 bg-stone-900 hover:bg-stone-800 text-white text-xs font-medium rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                            >
+                              {isConciliando ? 'Conciliando...' : `Conciliar Selecionadas (${idsSelecionados.length})`}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
                 </div>
               )}
 

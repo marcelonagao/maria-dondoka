@@ -110,6 +110,47 @@ Aceita `?mes=YYYY-MM&chave=...`, itera dia a dia dentro do mês e manda um paylo
 (Jan–Ago/26), conferindo o DRE entre uma execução e outra — reexecutar o mesmo mês duplica
 as linhas (sem constraint única em `vendas_itens`).
 
+## Conciliação linha a linha de formas não-dinheiro — implementado (2026-09-08)
+
+`vendas_diarias_formas_pagamento` guarda só o total agregado por forma/usuário/dia — não dá
+pra conferir transação por transação (ex: bater um extrato de maquininha linha a linha).
+Nova tabela `vendas_transacoes_pagamento` grava cada transação individual de forma
+não-dinheiro (dinheiro continua só agregado — não tem o que conciliar linha a linha nele,
+é contagem física de gaveta).
+
+**Contrato pro PHP das outras 6 lojas** (ainda só implementado no TypeScript de
+Loja1/Loja4, `sincronizarLoja()` em `src/lib/lojasDiretas.ts` — aplicar essa mesma query no
+PHP quando chegar a vez de cada loja):
+
+```sql
+SELECT auto, conta, valor, usuario, historico
+FROM movimento
+WHERE data = CURDATE() AND es = 'E' AND conta IN (8, 9, 10, 11, 12)
+ORDER BY conta, auto
+```
+
+Mesmos `conta` de `formas` (exceto 1/dinheiro, que não entra aqui) e mesmo
+`$MAPA_CONTA_FORMA` de resolução. Payload: `transacoes: [{ usuario, forma_pagamento, valor,
+origem_id, historico }]` — `auto` vira `origem_id` (dedupe, mesmo padrão de `retiradas`),
+`historico` vai puro (ex: `"Venda Vista:215545 VENDA RAPIDA Vd DEISE"`) pra exibição na UI.
+**Achado**: `historico` não tem horário embutido — `movimento` não tem coluna de hora (só
+`data`), então não existe "horário da transação" pra extrair; a UI mostra o `historico` cru
+como descrição, sem inventar um horário.
+
+**Gravação**: `/api/pdv/sync` faz upsert em `vendas_transacoes_pagamento` com
+`onConflict: 'franchise_id, origem_id', ignoreDuplicates: true` — mesmo padrão de
+`movimentacoes_caixa`.
+
+**Conciliação é independente de fechamento de dinheiro** (decisão de escopo, não a mesma
+coisa — cartão/pix não têm contagem física, o valor já é exato). `fechamento_id` na tabela
+fica sempre `null` nesse fluxo; o estado "conciliado" é só `conciliado_por`/`conciliado_em`.
+UI em `/vendas`: cada chip de forma não-dinheiro com transações pendentes vira clicável,
+expande uma lista com checkbox + histórico + valor, e um botão "Conciliar Selecionadas"
+chama `POST /api/fechamentos/conciliar-transacoes` (`{ ids }`), que seta
+`conciliado_por`/`conciliado_em` nas linhas selecionadas (travado por `franchise_id` do
+servidor, nunca confia no client; idempotente contra clique duplo via
+`conciliado_em is null` na própria condição do update).
+
 ## Lojas sem barreira de IP (Loja1-Caraguatatuba, Loja4-Jacareí) — implementado (2026-09-08)
 
 Diferente das outras franquias (hospedagem Locaweb, MySQL só acessível de dentro do

@@ -42,10 +42,21 @@ const ItemVendaSchema = z.object({
   origem_id: z.string().nullable().optional(),
 });
 
+const TransacaoPagamentoSchema = z.object({
+  usuario: z.string().min(1),
+  forma_pagamento: z.enum(FORMAS_PAGAMENTO).refine((f) => f !== 'dinheiro', {
+    message: 'dinheiro não deve aparecer em transacoes, só em formas (agregado)',
+  }),
+  valor: z.number().nonnegative(),
+  origem_id: z.string().min(1),
+  historico: z.string().nullable().optional(),
+});
+
 const VendasDiariasSchema = z.object({
   data: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   formas: z.array(FormaPagamentoValorSchema).default([]),
   retiradas: z.array(RetiradaSchema).default([]),
+  transacoes: z.array(TransacaoPagamentoSchema).default([]),
   itens: z.array(ItemVendaSchema).default([]),
 });
 
@@ -154,6 +165,31 @@ export async function POST(request: Request) {
 
       if (retiradasError) {
         console.error(`[pdv-sync:${requestId}] erro ao gravar retiradas:`, retiradasError.message);
+      }
+    }
+
+    // Transações individuais de formas não-dinheiro (cartão/pix/etc) — mesmo padrão de
+    // dedupe por origem_id das retiradas. Usadas na conciliação linha a linha, separado
+    // do total agregado em vendas_diarias_formas_pagamento (que continua existindo).
+    if (vendas.transacoes.length > 0) {
+      const { error: transacoesError } = await supabaseAdmin
+        .from('vendas_transacoes_pagamento')
+        .upsert(
+          vendas.transacoes.map((t) => ({
+            franchise_id: device.franchise_id,
+            pdv_device_id: device.id,
+            usuario: t.usuario,
+            data_venda: vendas.data,
+            forma_pagamento: t.forma_pagamento,
+            valor: t.valor,
+            origem_id: t.origem_id,
+            historico: t.historico,
+          })),
+          { onConflict: 'franchise_id, origem_id', ignoreDuplicates: true }
+        );
+
+      if (transacoesError) {
+        console.error(`[pdv-sync:${requestId}] erro ao gravar transações de pagamento:`, transacoesError.message);
       }
     }
 
