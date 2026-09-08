@@ -203,6 +203,24 @@ export default function PainelExecutivoDpPage() {
 
   const cetDoMes = custoDoMes.salarios + custoDoMes.horasExtras + custoDoMes.encargos + custoDoMes.beneficios;
   const temDadoNoMes = cetDoMes > 0;
+  const cetPorFuncionario = custoDoMes.funcionarios > 0 ? cetDoMes / custoDoMes.funcionarios : 0;
+  const pctHoraExtra = cetDoMes > 0 ? (custoDoMes.horasExtras / cetDoMes) * 100 : 0;
+
+  // Só faz sentido comparar franquias entre si no modo "Todas" — nenhuma query nova, usa
+  // os mesmos dados por franquia que já alimentam o gráfico de tendência.
+  const maiorPercentualHoraExtra = useMemo(() => {
+    if (franquiaSelecionada) return null;
+    let melhor: { nome: string; pct: number } | null = null;
+    for (const fid of franquiasComDado) {
+      const celula = custosPorFranquia.get(fid)?.get(mesSelecionado);
+      if (!celula) continue;
+      const totalFranquia = celula.salarios + celula.horasExtras + celula.encargos + celula.beneficios;
+      if (totalFranquia <= 0) continue;
+      const pct = (celula.horasExtras / totalFranquia) * 100;
+      if (!melhor || pct > melhor.pct) melhor = { nome: nomeFranquia(fid), pct };
+    }
+    return melhor;
+  }, [franquiaSelecionada, franquiasComDado, custosPorFranquia, mesSelecionado, nomeFranquia]);
 
   // Série do gráfico: uma linha por franquia (se "Todas") ou uma linha só (franquia filtrada).
   const dadosGrafico = useMemo(() => {
@@ -271,6 +289,22 @@ export default function PainelExecutivoDpPage() {
         <div className="bg-white border border-stone-200 rounded-xl shadow-sm p-8 text-center text-red-500 text-sm">{erro}</div>
       ) : (
         <>
+          {temDadoNoMes && (
+            <>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <HeroCard label="CET total do período" value={formatCurrency(cetDoMes)} valueSizeClassName="text-2xl" />
+                <HeroCard label="Nº de funcionários" value={custoDoMes.funcionarios} valueSizeClassName="text-2xl" />
+                <HeroCard label="CET por funcionário" value={formatCurrency(cetPorFuncionario)} valueSizeClassName="text-2xl" />
+                <HeroCard label="% hora extra sobre CET" value={`${pctHoraExtra.toFixed(1).replace('.', ',')}%`} valueSizeClassName="text-2xl" />
+              </div>
+              {maiorPercentualHoraExtra && (
+                <p className="text-xs text-stone-400">
+                  Maior % de hora extra: {maiorPercentualHoraExtra.nome}, {maiorPercentualHoraExtra.pct.toFixed(1).replace('.', ',')}%
+                </p>
+              )}
+            </>
+          )}
+
           {!temDadoNoMes ? (
             <div className="bg-white border border-stone-200 rounded-2xl p-6">
               <p className="text-sm font-medium text-stone-500 mb-1">Custo efetivo total</p>
