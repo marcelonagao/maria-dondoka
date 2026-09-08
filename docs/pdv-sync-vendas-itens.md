@@ -131,3 +131,12 @@ GitHub Actions (`.github/workflows/sync-lojas-diretas.yml`, `schedule: cron: '*/
 repositório, mesmo valor cadastrado na Vercel). Timing é best-effort do runner do GitHub
 (pode atrasar alguns minutos em picos de fila), mas sem custo adicional — alternativa
 seria upgrade pro plano Pro da Vercel.
+
+**Achado em produção (2026-09-08)**: `movimento` grava saída de caixa (`es='S'`,
+retiradas/sangria) com `valor` **negativo** — convenção da própria origem, não
+documentada até então. O schema de `/api/pdv/sync` exige `valor: z.number().positive()`,
+e a validação do payload é atômica (formas + retiradas + itens numa checagem só) — uma
+retirada negativa sem tratamento rejeita a sincronização inteira daquele ciclo, não só a
+retirada.
+Corrigido em `src/lib/lojasDiretas.ts` com `Math.abs()` no `valor` das retiradas antes de
+montar o payload.

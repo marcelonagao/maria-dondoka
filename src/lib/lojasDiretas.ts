@@ -124,7 +124,10 @@ export async function sincronizarLoja(loja: LojaDireta, origin: string) {
     );
     const retiradas = retiradasRows.map((r) => ({
       origem_id: String(r.auto),
-      valor: Number(r.valor),
+      // `movimento` grava saída de caixa (es='S') com valor negativo — o schema de
+      // /api/pdv/sync exige positive(), então sem abs() aqui QUALQUER retirada negativa
+      // rejeita o payload inteiro (formas + retiradas + itens juntos, é uma validação só).
+      valor: Math.abs(Number(r.valor)),
       motivo: r.historico || 'Sangria',
       usuario: String(r.usuario),
     }));
