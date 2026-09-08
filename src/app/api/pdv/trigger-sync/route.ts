@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getPerfilAutenticado } from '../../../../lib/server-auth';
+import { LOJAS_DIRETAS, sincronizarLoja } from '../../../../lib/lojasDiretas';
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -8,9 +9,24 @@ const supabaseAdmin = createClient(
   { auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false } }
 );
 
-export async function POST() {
+export async function POST(request: Request) {
   const perfil = await getPerfilAutenticado();
   if (!perfil) return NextResponse.json({ error: 'NAO_AUTORIZADO' }, { status: 401 });
+
+  // Loja1/Loja4 não têm script PHP nem sync_url — sincronizam direto via mysql2, mesma
+  // lógica do cron (src/lib/lojasDiretas.ts), só disparada na hora em vez de agendada.
+  const lojaDireta = LOJAS_DIRETAS.find((l) => l.franchiseId === perfil.franchiseId);
+  if (lojaDireta) {
+    try {
+      const origin = new URL(request.url).origin;
+      const resultado = await sincronizarLoja(lojaDireta, origin);
+      const resposta = `Sincronizado: ${resultado.formas} forma(s) de pagamento, ${resultado.retiradas} retirada(s), ${resultado.itens} item(ns) de venda (${resultado.data}).`;
+      return NextResponse.json({ ok: true, status: 200, resposta });
+    } catch (err: any) {
+      console.error('Erro ao sincronizar loja direta:', err);
+      return NextResponse.json({ error: 'FALHA_AO_SINCRONIZAR', detalhe: err?.message || 'Não foi possível sincronizar agora.' }, { status: 502 });
+    }
+  }
 
   const { data: franquia, error } = await supabaseAdmin
     .from('franchises')
