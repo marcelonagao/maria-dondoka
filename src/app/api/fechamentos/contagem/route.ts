@@ -113,6 +113,24 @@ export async function GET(request: Request) {
     const movimentacoesPendentes = (movimentacoesRelevantes || []).filter((m) => m.fechamento_id === null);
     const movimentacoesReconciliadas = (movimentacoesRelevantes || []).filter((m) => m.fechamento_id !== null);
 
+    // Conciliação linha a linha (cartão/pix/etc): independente de fechamento de dinheiro —
+    // "pendente" aqui é conciliado_em is null, não fechamento_id (que fica sempre null
+    // nesse fluxo, ver docs/pdv-sync-vendas-itens.md).
+    const { data: transacoesPendentesRaw, error: transacoesError } = await supabaseAdmin
+      .from('vendas_transacoes_pagamento')
+      .select('id, usuario, forma_pagamento, valor, historico, criado_em')
+      .eq('franchise_id', perfil.franchiseId)
+      .eq('data_venda', data)
+      .is('conciliado_em', null);
+    if (transacoesError) throw new Error(`vendas_transacoes_pagamento: ${JSON.stringify(transacoesError)}`);
+
+    const transacoesPorUsuario = new Map<string, typeof transacoesPendentesRaw>();
+    for (const t of transacoesPendentesRaw || []) {
+      const lista = transacoesPorUsuario.get(t.usuario) || [];
+      lista.push(t);
+      transacoesPorUsuario.set(t.usuario, lista);
+    }
+
     const formasPorFechamento = new Map<string, typeof formasFechamentos>();
     for (const f of formasFechamentos || []) {
       const lista = formasPorFechamento.get(f.fechamento_id) || [];
@@ -175,10 +193,27 @@ export async function GET(request: Request) {
         .map(([forma_pagamento, valor]) => ({ forma_pagamento, valor }));
       const total = Array.from(esperadoPorForma.values()).reduce((acc, v) => acc + v, 0);
 
+      const transacoesDoUsuario = transacoesPorUsuario.get(usuario) || [];
+      const transacoesPorForma = new Map<string, typeof transacoesDoUsuario>();
+      for (const t of transacoesDoUsuario) {
+        const lista = transacoesPorForma.get(t.forma_pagamento) || [];
+        lista.push(t);
+        transacoesPorForma.set(t.forma_pagamento, lista);
+      }
+
       return {
         usuario,
         acumulado_atualizado_em: atualizadoEmPorUsuario.get(usuario) || null,
         proximo_esperado: { dinheiro, formas_informativas: formasInformativas, total },
+        transacoes_pendentes: Array.from(transacoesPorForma.entries()).map(([forma_pagamento, transacoes]) => ({
+          forma_pagamento,
+          transacoes: transacoes.map((t: any) => ({
+            id: t.id,
+            valor: Number(t.valor),
+            historico: t.historico,
+            criado_em: t.criado_em,
+          })),
+        })),
         movimentacoes_pendentes: pendentes.map((m: any) => ({
           id: m.id,
           tipo: m.tipo,

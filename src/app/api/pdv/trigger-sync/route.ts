@@ -20,7 +20,7 @@ export async function POST(request: Request) {
     try {
       const origin = new URL(request.url).origin;
       const resultado = await sincronizarLoja(lojaDireta, origin);
-      const resposta = `Sincronizado: ${resultado.formas} forma(s) de pagamento, ${resultado.retiradas} retirada(s), ${resultado.itens} item(ns) de venda (${resultado.data}).`;
+      const resposta = `Sincronizado: ${resultado.formas} forma(s) de pagamento, ${resultado.retiradas} retirada(s), ${resultado.transacoes} transação(ões) de pagamento, ${resultado.itens} item(ns) de venda (${resultado.data}).`;
       return NextResponse.json({ ok: true, status: 200, resposta });
     } catch (err: any) {
       console.error('Erro ao sincronizar loja direta:', err);

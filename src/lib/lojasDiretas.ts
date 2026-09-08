@@ -62,6 +62,14 @@ interface RetiradaRow extends RowDataPacket {
   usuario: string;
 }
 
+interface TransacaoRow extends RowDataPacket {
+  auto: number;
+  conta: number;
+  valor: string | number;
+  usuario: string;
+  historico: string | null;
+}
+
 interface ItemRow extends RowDataPacket {
   auto: number;
   venda_referencia: string | null;
@@ -132,6 +140,28 @@ export async function sincronizarLoja(loja: LojaDireta, origin: string) {
       usuario: String(r.usuario),
     }));
 
+    // Transações individuais das formas não-dinheiro (cartão/pix/etc) — mesmos contas de
+    // CONTA_PARA_FORMA_PAGAMENTO exceto 1 (dinheiro, que só existe agregado em `formas`).
+    // Usadas na conciliação linha a linha em /vendas, separado do total agregado.
+    const [transacoesRows] = await conexao.query<TransacaoRow[]>(
+      `SELECT auto, conta, valor, usuario, historico
+       FROM movimento
+       WHERE data = CURDATE() AND es = 'E' AND conta IN (8, 9, 10, 11, 12)
+       ORDER BY conta, auto`
+    );
+    const transacoes = transacoesRows
+      .map((r) => ({
+        usuario: String(r.usuario),
+        forma_pagamento: CONTA_PARA_FORMA_PAGAMENTO[Number(r.conta)],
+        valor: Number(r.valor),
+        origem_id: String(r.auto),
+        historico: r.historico,
+      }))
+      .filter(
+        (t): t is { usuario: string; forma_pagamento: (typeof FORMAS_PAGAMENTO)[number]; valor: number; origem_id: string; historico: string | null } =>
+          t.forma_pagamento !== undefined
+      );
+
     const [itensRows] = await conexao.query<ItemRow[]>(
       `SELECT
          mp.auto,
@@ -168,7 +198,7 @@ export async function sincronizarLoja(loja: LojaDireta, origin: string) {
       origem_id: String(item.auto),
     }));
 
-    const payload = { data: hoje, formas, retiradas, itens };
+    const payload = { data: hoje, formas, retiradas, transacoes, itens };
     const body = JSON.stringify(payload);
     const timestamp = Date.now().toString();
     const signature = createHmac('sha256', loja.pdvSecret).update(`${timestamp}.${body}`).digest('hex');
@@ -187,7 +217,7 @@ export async function sincronizarLoja(loja: LojaDireta, origin: string) {
     const respostaTexto = await res.text();
     if (!res.ok) throw new Error(`/api/pdv/sync retornou ${res.status}: ${respostaTexto}`);
 
-    return { data: hoje, formas: formas.length, retiradas: retiradas.length, itens: itens.length };
+    return { data: hoje, formas: formas.length, retiradas: retiradas.length, transacoes: transacoes.length, itens: itens.length };
   } finally {
     await conexao.end();
   }
