@@ -11,6 +11,11 @@ interface Dispositivo {
   created_at: string;
 }
 
+interface Franquia {
+  id: string;
+  name: string;
+}
+
 interface Funcionario {
   id: string;
   nome: string;
@@ -35,6 +40,9 @@ export default function ConfiguracoesPage() {
   const [dispositivos, setDispositivos] = useState<Dispositivo[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [naoAutorizado, setNaoAutorizado] = useState(false);
+  const [isSocio, setIsSocio] = useState(false);
+  const [franquias, setFranquias] = useState<Franquia[]>([]);
+  const [franquiaSelecionada, setFranquiaSelecionada] = useState<string>('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [novoLabel, setNovoLabel] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -84,11 +92,31 @@ export default function ConfiguracoesPage() {
     }
   };
 
+// Mesmo padrão de escopo do Dashboard/DRE: só sócio (escopo todas_franquias) vê o
+// seletor; sem esse escopo a tela continua mostrando só a própria franquia.
+const carregarEscopoEFranquias = async () => {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return;
+  const { data } = await supabase.from('profiles').select('franchise_id, roles(escopo)').eq('id', user.id).maybeSingle();
+  const papel = data?.roles as unknown as { escopo: string } | null;
+  const socio = papel?.escopo === 'todas_franquias';
+  setIsSocio(socio);
+  if (!socio) return;
+
+  const { data: franquiasData, error } = await supabase.from('franchises').select('id, name').order('name', { ascending: true });
+  if (error) { console.error('Erro ao carregar franquias:', error); return; }
+  setFranquias(franquiasData || []);
+  if (data?.franchise_id) setFranquiaSelecionada(data.franchise_id);
+};
+
 const carregarDispositivos = async () => {
   try {
     setIsLoading(true);
     setErro(null);
-    const res = await fetch('/api/admin/pdv-devices');
+    const url = isSocio && franquiaSelecionada
+      ? `/api/admin/pdv-devices?franchise_id=${franquiaSelecionada}`
+      : '/api/admin/pdv-devices';
+    const res = await fetch(url);
     if (res.status === 401) {
       setNaoAutorizado(true);
       return;
@@ -148,11 +176,17 @@ const carregarDispositivos = async () => {
   };
 
   useEffect(() => {
+    carregarEscopoEFranquias();
     carregarDispositivos();
     carregarFuncionarios();
     carregarSyncUrl();
     carregarPlanoContas();
   }, []);
+
+  // Recarrega só a lista de dispositivos quando o sócio troca de franquia no seletor.
+  useEffect(() => {
+    if (isSocio && franquiaSelecionada) carregarDispositivos();
+  }, [isSocio, franquiaSelecionada]);
 
   const handleCriarFuncionario = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -258,7 +292,10 @@ const carregarDispositivos = async () => {
       const res = await fetch('/api/admin/pdv-devices', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ device_label: novoLabel }),
+        body: JSON.stringify({
+          device_label: novoLabel,
+          ...(isSocio && franquiaSelecionada ? { franchise_id: franquiaSelecionada } : {}),
+        }),
       });
       if (!res.ok) throw new Error('Falha ao criar dispositivo');
       const data = await res.json();
@@ -287,7 +324,11 @@ const carregarDispositivos = async () => {
       const res = await fetch('/api/admin/pdv-devices', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: dispositivoParaEditar.id, device_label: novoNomeEdicao }),
+        body: JSON.stringify({
+          id: dispositivoParaEditar.id,
+          device_label: novoNomeEdicao,
+          ...(isSocio && franquiaSelecionada ? { franchise_id: franquiaSelecionada } : {}),
+        }),
       });
       if (!res.ok) throw new Error('Falha ao renomear dispositivo');
       setDispositivoParaEditar(null);
@@ -308,7 +349,11 @@ const carregarDispositivos = async () => {
       const res = await fetch('/api/admin/pdv-devices', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, is_active: !ativoAtual }),
+        body: JSON.stringify({
+          id,
+          is_active: !ativoAtual,
+          ...(isSocio && franquiaSelecionada ? { franchise_id: franquiaSelecionada } : {}),
+        }),
       });
       if (!res.ok) throw new Error('Falha ao atualizar dispositivo');
       await carregarDispositivos();
@@ -325,7 +370,10 @@ const carregarDispositivos = async () => {
       const res = await fetch('/api/admin/pdv-devices', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id }),
+        body: JSON.stringify({
+          id,
+          ...(isSocio && franquiaSelecionada ? { franchise_id: franquiaSelecionada } : {}),
+        }),
       });
       if (res.status === 409) {
         alert('Não é possível excluir: este dispositivo já tem fechamentos, sangrias/suprimentos ou vendas registradas. Revogue-o em vez de excluir.');
@@ -354,7 +402,20 @@ const carregarDispositivos = async () => {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold text-stone-800">Configurações</h1>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <h1 className="text-2xl font-semibold text-stone-800">Configurações</h1>
+        {isSocio && (
+          <select
+            className="px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none bg-white text-stone-700 text-sm"
+            value={franquiaSelecionada}
+            onChange={(e) => setFranquiaSelecionada(e.target.value)}
+          >
+            {franquias.map((f) => (
+              <option key={f.id} value={f.id}>{f.name}</option>
+            ))}
+          </select>
+        )}
+      </div>
 
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
