@@ -109,3 +109,16 @@ Aceita `?mes=YYYY-MM&chave=...`, itera dia a dia dentro do mês e manda um paylo
 (`formas: [], retiradas: [], itens: [...]`) pro mesmo webhook. Rodar uma vez por mês
 (Jan–Ago/26), conferindo o DRE entre uma execução e outra — reexecutar o mesmo mês duplica
 as linhas (sem constraint única em `vendas_itens`).
+
+## Lojas sem barreira de IP (Loja1-Caraguatatuba, Loja4-Jacareí) — implementado (2026-09-08)
+
+Diferente das outras franquias (hospedagem Locaweb, MySQL só acessível de dentro do
+próprio hosting — por isso o PHP roda lá e empurra pro webhook), Loja1 e Loja4 estão em
+`hospedagemdesites.ws`, que não filtra por IP. Pra essas duas, não existe script PHP: um
+Vercel Cron (`src/app/api/cron/sync-lojas-diretas/route.ts`, a cada 15 min, protegido por
+`CRON_SECRET`) conecta direto via `mysql2/promise`, roda as mesmas 3 queries acima
+(formas por usuário, retiradas, itens), monta o mesmo payload, assina com HMAC (mesma
+lógica do PHP, em TypeScript) e chama o próprio `/api/pdv/sync` — mesma porta de entrada,
+mesma validação de token/assinatura, nenhum caminho especial. Credenciais de banco e de
+device (token/secret gerados em Configurações, franquia real de cada loja) vêm de env
+vars na Vercel (`LOJA1_*`/`LOJA4_*`), nunca hardcoded.
