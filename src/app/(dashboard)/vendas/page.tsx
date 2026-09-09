@@ -350,11 +350,16 @@ export default function PrestacaoContasPage() {
                             key={f.forma_pagamento}
                             type="button"
                             onClick={() => setFormaExpandida(formaExpandida === chave ? null : chave)}
-                            className="text-xs bg-stone-50 hover:bg-stone-100 text-stone-500 rounded-lg px-3 py-1.5 transition-colors"
+                            className="text-xs bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 rounded-lg px-3 py-1.5 transition-colors flex items-center gap-1.5"
                           >
-                            {formaExpandida === chave ? '▾' : '▸'} {labelFormaPagamento(f.forma_pagamento)}:{' '}
-                            <span className="font-medium text-stone-600">{formatCurrency(f.valor)}</span>{' '}
-                            <span className="text-stone-400">({transacoesDaForma.length})</span>
+                            <span>
+                              {formaExpandida === chave ? '▾' : '▸'} {labelFormaPagamento(f.forma_pagamento)}:{' '}
+                              <span className="font-medium">{formatCurrency(f.valor)}</span>{' '}
+                              · {transacoesDaForma.length} pendente{transacoesDaForma.length === 1 ? '' : 's'}
+                            </span>
+                            <span className="px-1.5 py-0.5 bg-amber-600 text-white rounded text-[10px] font-semibold uppercase tracking-wide">
+                              Conciliar
+                            </span>
                           </button>
                         );
                       })}
