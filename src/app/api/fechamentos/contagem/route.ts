@@ -131,6 +131,23 @@ export async function GET(request: Request) {
       transacoesPorUsuario.set(t.usuario, lista);
     }
 
+    // Conferência manual contra o comprovante da maquininha — histórico (não sobrescreve),
+    // aqui só pegamos a mais recente por forma pra mostrar o último resultado na tela.
+    const { data: conferenciasRaw, error: conferenciasError } = await supabaseAdmin
+      .from('conferencia_maquininha')
+      .select('forma_pagamento, valor_esperado, valor_comprovante, diferenca, conferido_em')
+      .eq('franchise_id', perfil.franchiseId)
+      .eq('data', data)
+      .order('conferido_em', { ascending: false });
+    if (conferenciasError) throw new Error(`conferencia_maquininha: ${JSON.stringify(conferenciasError)}`);
+
+    const conferenciaMaisRecentePorForma = new Map<string, (typeof conferenciasRaw)[number]>();
+    for (const c of conferenciasRaw || []) {
+      if (!conferenciaMaisRecentePorForma.has(c.forma_pagamento)) {
+        conferenciaMaisRecentePorForma.set(c.forma_pagamento, c);
+      }
+    }
+
     const formasPorFechamento = new Map<string, typeof formasFechamentos>();
     for (const f of formasFechamentos || []) {
       const lista = formasPorFechamento.get(f.fechamento_id) || [];
@@ -252,8 +269,21 @@ export async function GET(request: Request) {
     );
     const totalPorForma = Array.from(totalPorFormaMapa.entries()).map(([forma_pagamento, valor]) => ({ forma_pagamento, valor }));
     const totalVendidoBruto = Array.from(totalPorFormaMapa.values()).reduce((acc, v) => acc + v, 0);
+    const conferenciaPorForma = Array.from(conferenciaMaisRecentePorForma.entries()).map(([forma_pagamento, c]) => ({
+      forma_pagamento,
+      valor_esperado: Number(c.valor_esperado),
+      valor_comprovante: Number(c.valor_comprovante),
+      diferenca: Number(c.diferenca),
+      conferido_em: c.conferido_em,
+    }));
 
-    return NextResponse.json({ data, caixas: resultado, total_vendido_bruto: totalVendidoBruto, total_por_forma: totalPorForma });
+    return NextResponse.json({
+      data,
+      caixas: resultado,
+      total_vendido_bruto: totalVendidoBruto,
+      total_por_forma: totalPorForma,
+      conferencia_por_forma: conferenciaPorForma,
+    });
   } catch (err: any) {
     console.error('Erro em GET /api/fechamentos/contagem:', err);
     return NextResponse.json({ error: 'ERRO_INTERNO' }, { status: 500 });
