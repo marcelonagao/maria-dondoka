@@ -32,16 +32,20 @@ hora** (só `data`, tipo `DATE`) — por isso o payload de retiradas não manda 
 `juros_calc`, `empresa`. Vale conferir contra essa lista antes de assumir outros nomes de
 coluna nesta tabela no futuro (ex: pro agente de `vendas_itens`).
 
-Mapeamento de `conta` (confirmado em produção, tabela `conta` do A7 Pharma):
+Mapeamento de `conta` (confirmado em produção, tabela `conta` do A7 Pharma) — **não é
+igual entre lojas** (achado em 2026-09-09, ver seção de lojas diretas abaixo): cada loja
+cadastra sua própria tabela `conta`, então 8/9/10/12 podem apontar pra formas diferentes
+de loja pra loja. A tabela abaixo é a de Loja1-Caraguatatuba; confirmar a tabela `conta`
+real de cada loja antes de reaproveitar este mapeamento (não assumir que é universal).
 
-| código | forma de pagamento     |
-|--------|-------------------------|
-| 1      | Dinheiro (CAIXA)        |
-| 8      | Cartão Débito           |
-| 9      | Cartão Crédito          |
-| 10     | Venda p/ Internet       |
-| 11     | Depósito                |
-| 12     | Pix                     |
+| código | forma de pagamento (Loja1-Caraguatatuba) |
+|--------|-------------------------------------------|
+| 1      | Dinheiro (CAIXA)                          |
+| 8      | Cartão Débito                             |
+| 9      | Cartão Crédito                            |
+| 10     | Venda p/ Internet                         |
+| 11     | Depósito                                  |
+| 12     | Pix                                       |
 
 Payload enviado pro webhook: `formas: [{ usuario, forma_pagamento, valor }]` e
 `retiradas: [{ origem_id, valor, motivo, usuario }]` (`criado_em` é opcional no schema
@@ -181,3 +185,22 @@ retirada negativa sem tratamento rejeita a sincronização inteira daquele ciclo
 retirada.
 Corrigido em `src/lib/lojasDiretas.ts` com `Math.abs()` no `valor` das retiradas antes de
 montar o payload.
+
+**Achado em produção (2026-09-09)**: o mapeamento `conta → forma_pagamento` **não é igual
+entre lojas** — confirmado com a tabela `conta` real de cada uma. Loja4 tem 8/9
+(débito/crédito) e 10/12 (pix/venda internet) invertidos em relação a Loja1:
+
+| código | Loja1-Caraguatatuba | Loja4-Jacareí     |
+|--------|----------------------|--------------------|
+| 8      | cartao_debito        | cartao_credito     |
+| 9      | cartao_credito       | cartao_debito      |
+| 10     | venda_internet       | pix                |
+| 12     | pix                  | venda_internet     |
+
+Corrigido: `mapaContaForma` deixou de ser uma constante global e passou a ser uma
+propriedade de cada entrada em `LOJAS_DIRETAS` (`src/lib/lojasDiretas.ts`) — cada loja usa
+o seu próprio mapa, nunca compartilhado. Antes desse fix, toda transação de cartão/pix de
+Loja4 estava gravada com a forma errada em `vendas_diarias_formas_pagamento` e
+`vendas_transacoes_pagamento` desde que o sync direto entrou no ar — dados já sincronizados
+de Loja4 continuam com o mapeamento antigo (invertido) até uma correção/re-sync retroativa,
+ainda não feita.

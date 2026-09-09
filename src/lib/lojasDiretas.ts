@@ -2,6 +2,8 @@ import mysql, { type RowDataPacket } from 'mysql2/promise';
 import { createHmac } from 'crypto';
 import { FORMAS_PAGAMENTO } from './formasPagamento';
 
+type FormaPagamento = (typeof FORMAS_PAGAMENTO)[number];
+
 export interface LojaDireta {
   nome: string;
   franchiseId?: string;
@@ -11,6 +13,10 @@ export interface LojaDireta {
   dbName?: string;
   pdvToken?: string;
   pdvSecret?: string;
+  // Mapeamento de `conta` NÃO é igual entre lojas — confirmado com a tabela `conta` real
+  // de cada uma (Loja4 tem 8/9 e 10/12 invertidos em relação a Loja1). Cada loja carrega
+  // o seu próprio, nunca uma constante global.
+  mapaContaForma: Record<number, FormaPagamento>;
 }
 
 // Lojas sem barreira de IP (ver docs/pdv-sync-vendas-itens.md) — sincronizadas direto por
@@ -25,6 +31,14 @@ export const LOJAS_DIRETAS: LojaDireta[] = [
     dbName: process.env.LOJA1_DB_NAME,
     pdvToken: process.env.LOJA1_PDV_TOKEN,
     pdvSecret: process.env.LOJA1_PDV_SECRET,
+    mapaContaForma: {
+      1: 'dinheiro',
+      8: 'cartao_debito',
+      9: 'cartao_credito',
+      10: 'venda_internet',
+      11: 'deposito',
+      12: 'pix',
+    },
   },
   {
     nome: 'Loja4-Jacarei',
@@ -35,19 +49,16 @@ export const LOJAS_DIRETAS: LojaDireta[] = [
     dbName: process.env.LOJA4_DB_NAME,
     pdvToken: process.env.LOJA4_PDV_TOKEN,
     pdvSecret: process.env.LOJA4_PDV_SECRET,
+    mapaContaForma: {
+      1: 'dinheiro',
+      8: 'cartao_credito',
+      9: 'cartao_debito',
+      10: 'pix',
+      11: 'deposito',
+      12: 'venda_internet',
+    },
   },
 ];
-
-// Mapeamento de `conta` documentado em docs/pdv-sync-vendas-itens.md (tabela `conta`
-// do A7 Pharma, confirmado em produção) — mesmo mapeamento que o script PHP usa.
-const CONTA_PARA_FORMA_PAGAMENTO: Record<number, (typeof FORMAS_PAGAMENTO)[number]> = {
-  1: 'dinheiro',
-  8: 'cartao_debito',
-  9: 'cartao_credito',
-  10: 'venda_internet',
-  11: 'deposito',
-  12: 'pix',
-};
 
 interface FormaRow extends RowDataPacket {
   usuario: string;
@@ -120,10 +131,10 @@ export async function sincronizarLoja(loja: LojaDireta, origin: string) {
     const formas = formasRows
       .map((r) => ({
         usuario: String(r.usuario),
-        forma_pagamento: CONTA_PARA_FORMA_PAGAMENTO[Number(r.conta)],
+        forma_pagamento: loja.mapaContaForma[Number(r.conta)],
         valor: Number(r.total),
       }))
-      .filter((f): f is { usuario: string; forma_pagamento: (typeof FORMAS_PAGAMENTO)[number]; valor: number } => f.forma_pagamento !== undefined);
+      .filter((f): f is { usuario: string; forma_pagamento: FormaPagamento; valor: number } => f.forma_pagamento !== undefined);
 
     const [retiradasRows] = await conexao.query<RetiradaRow[]>(
       `SELECT auto, valor, historico, usuario
@@ -140,8 +151,8 @@ export async function sincronizarLoja(loja: LojaDireta, origin: string) {
       usuario: String(r.usuario),
     }));
 
-    // Transações individuais das formas não-dinheiro (cartão/pix/etc) — mesmos contas de
-    // CONTA_PARA_FORMA_PAGAMENTO exceto 1 (dinheiro, que só existe agregado em `formas`).
+    // Transações individuais das formas não-dinheiro (cartão/pix/etc) — mesmos contas do
+    // mapaContaForma da loja, exceto 1 (dinheiro, que só existe agregado em `formas`).
     // Usadas na conciliação linha a linha em /vendas, separado do total agregado.
     const [transacoesRows] = await conexao.query<TransacaoRow[]>(
       `SELECT auto, conta, valor, usuario, historico
@@ -152,13 +163,13 @@ export async function sincronizarLoja(loja: LojaDireta, origin: string) {
     const transacoes = transacoesRows
       .map((r) => ({
         usuario: String(r.usuario),
-        forma_pagamento: CONTA_PARA_FORMA_PAGAMENTO[Number(r.conta)],
+        forma_pagamento: loja.mapaContaForma[Number(r.conta)],
         valor: Number(r.valor),
         origem_id: String(r.auto),
         historico: r.historico,
       }))
       .filter(
-        (t): t is { usuario: string; forma_pagamento: (typeof FORMAS_PAGAMENTO)[number]; valor: number; origem_id: string; historico: string | null } =>
+        (t): t is { usuario: string; forma_pagamento: FormaPagamento; valor: number; origem_id: string; historico: string | null } =>
           t.forma_pagamento !== undefined
       );
 
