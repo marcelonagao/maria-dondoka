@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../../lib/supabase';
 import { hojeBrasilia } from '../../../lib/date';
 import { labelFormaPagamento } from '../../../lib/formasPagamento';
+import HeroCard from '../../../components/HeroCard';
 
 interface FormaPagamentoValor {
   forma_pagamento: string;
@@ -81,6 +82,7 @@ export default function PrestacaoContasPage() {
   const [formaExpandida, setFormaExpandida] = useState<string | null>(null);
   const [selecionadas, setSelecionadas] = useState<Record<string, boolean>>({});
   const [isConciliando, setIsConciliando] = useState(false);
+  const [totalVendidoBruto, setTotalVendidoBruto] = useState(0);
 
   const handleSincronizarAgora = async () => {
     setIsSincronizando(true);
@@ -117,6 +119,7 @@ export default function PrestacaoContasPage() {
       if (!res.ok) throw new Error(`status ${res.status}`);
       const json = await res.json();
       setUsuarios(json.caixas || []);
+      setTotalVendidoBruto(json.total_vendido_bruto || 0);
     } catch (err) {
       console.error('Erro ao carregar prestação de contas:', err);
       setErro('Não foi possível carregar os dados. Tente novamente.');
@@ -219,6 +222,7 @@ export default function PrestacaoContasPage() {
   const usuariosPendentes = usuarios.filter((u) => (u.proximo_esperado?.dinheiro || 0) > 0.005).map((u) => u.usuario);
   const dataEstaNoPassado = dataSelecionada < hoje;
   const rotuloData = dataSelecionada === hoje ? 'hoje' : `em ${dataSelecionada.split('-').reverse().join('/')}`;
+  const rotuloDataKpi = dataSelecionada === hoje ? 'Hoje' : `em ${dataSelecionada.split('-').reverse().join('/')}`;
 
   return (
     <div className="space-y-6">
@@ -245,6 +249,12 @@ export default function PrestacaoContasPage() {
           />
         </div>
       </div>
+
+      {!isLoading && !erro && usuarios.length > 0 && (
+        <div className="max-w-xs">
+          <HeroCard label={`Total Vendido ${rotuloDataKpi}`} value={formatCurrency(totalVendidoBruto)} valueSizeClassName="text-3xl sm:text-4xl" />
+        </div>
+      )}
 
       {!isLoading && !erro && dataEstaNoPassado && totalPendente > 0.005 && (
         <div className="bg-stone-100 border border-stone-200 rounded-xl px-6 py-4 text-stone-600 text-sm">

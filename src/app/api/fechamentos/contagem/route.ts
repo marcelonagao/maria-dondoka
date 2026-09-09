@@ -243,7 +243,12 @@ export async function GET(request: Request) {
       };
     });
 
-    return NextResponse.json({ data, caixas: resultado });
+    // Bruto (todas as formas, todos os usuários) — não descontado de reconciliação, ao
+    // contrário de proximo_esperado.total (que é o que falta conferir). Perguntas
+    // diferentes: "quanto vendeu" vs. "quanto falta bater".
+    const totalVendidoBruto = (acumulados || []).reduce((acc, a) => acc + Number(a.valor), 0);
+
+    return NextResponse.json({ data, caixas: resultado, total_vendido_bruto: totalVendidoBruto });
   } catch (err: any) {
     console.error('Erro em GET /api/fechamentos/contagem:', err);
     return NextResponse.json({ error: 'ERRO_INTERNO' }, { status: 500 });
