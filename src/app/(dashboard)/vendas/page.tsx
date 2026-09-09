@@ -83,6 +83,7 @@ export default function PrestacaoContasPage() {
   const [selecionadas, setSelecionadas] = useState<Record<string, boolean>>({});
   const [isConciliando, setIsConciliando] = useState(false);
   const [totalVendidoBruto, setTotalVendidoBruto] = useState(0);
+  const [totalPorForma, setTotalPorForma] = useState<FormaPagamentoValor[]>([]);
 
   const handleSincronizarAgora = async () => {
     setIsSincronizando(true);
@@ -120,6 +121,7 @@ export default function PrestacaoContasPage() {
       const json = await res.json();
       setUsuarios(json.caixas || []);
       setTotalVendidoBruto(json.total_vendido_bruto || 0);
+      setTotalPorForma(json.total_por_forma || []);
     } catch (err) {
       console.error('Erro ao carregar prestação de contas:', err);
       setErro('Não foi possível carregar os dados. Tente novamente.');
@@ -224,6 +226,16 @@ export default function PrestacaoContasPage() {
   const rotuloData = dataSelecionada === hoje ? 'hoje' : `em ${dataSelecionada.split('-').reverse().join('/')}`;
   const rotuloDataKpi = dataSelecionada === hoje ? 'Hoje' : `em ${dataSelecionada.split('-').reverse().join('/')}`;
 
+  // Ordem fixa pedida (não é a ordem "natural" do enum FORMAS_PAGAMENTO): dinheiro/débito/
+  // crédito/pix sempre aparecem, venda_internet/depósito só quando há valor — resumo pra
+  // comparar contra o comprovante da maquininha, não uma lista genérica de formas.
+  const ORDEM_RESUMO_MODALIDADE = ['dinheiro', 'cartao_debito', 'cartao_credito', 'pix', 'venda_internet', 'deposito'];
+  const SEMPRE_EXIBIR_NO_RESUMO = new Set(['dinheiro', 'cartao_debito', 'cartao_credito', 'pix']);
+  const resumoPorModalidade = ORDEM_RESUMO_MODALIDADE
+    .map((forma) => ({ forma_pagamento: forma, valor: totalPorForma.find((t) => t.forma_pagamento === forma)?.valor || 0 }))
+    .filter((t) => SEMPRE_EXIBIR_NO_RESUMO.has(t.forma_pagamento) || t.valor > 0.005);
+  const totalResumoModalidade = resumoPorModalidade.reduce((acc, t) => acc + t.valor, 0);
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -261,6 +273,25 @@ export default function PrestacaoContasPage() {
           Este fechamento é de um dia anterior. A contagem física de dinheiro pode não representar
           mais o caixa real, já que o valor provavelmente já se misturou com vendas de dias
           seguintes na mesma gaveta.
+        </div>
+      )}
+
+      {!isLoading && !erro && resumoPorModalidade.length > 0 && (
+        <div className="bg-white border border-stone-200 rounded-xl shadow-sm p-6">
+          <h2 className="text-sm font-semibold text-stone-800">Resumo do Dia por Modalidade</h2>
+          <p className="text-xs text-stone-400 mt-0.5 mb-3">Compare com o comprovante da maquininha.</p>
+          <div className="space-y-1.5 text-sm max-w-sm">
+            {resumoPorModalidade.map((t) => (
+              <div key={t.forma_pagamento} className="flex justify-between text-stone-600">
+                <span>{labelFormaPagamento(t.forma_pagamento)}</span>
+                <span className="tabular-nums font-medium text-stone-700">{formatCurrency(t.valor)}</span>
+              </div>
+            ))}
+            <div className="flex justify-between border-t border-stone-200 pt-2 mt-2 font-semibold text-stone-800">
+              <span>Total</span>
+              <span className="tabular-nums">{formatCurrency(totalResumoModalidade)}</span>
+            </div>
+          </div>
         </div>
       )}
 

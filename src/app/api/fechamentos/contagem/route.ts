@@ -245,10 +245,15 @@ export async function GET(request: Request) {
 
     // Bruto (todas as formas, todos os usuários) — não descontado de reconciliação, ao
     // contrário de proximo_esperado.total (que é o que falta conferir). Perguntas
-    // diferentes: "quanto vendeu" vs. "quanto falta bater".
-    const totalVendidoBruto = (acumulados || []).reduce((acc, a) => acc + Number(a.valor), 0);
+    // diferentes: "quanto vendeu" vs. "quanto falta bater". Usado tanto no KPI do topo
+    // quanto no resumo por modalidade (comparação manual contra a maquininha).
+    const totalPorFormaMapa = acumularPorForma(
+      (acumulados || []).map((a) => ({ forma_pagamento: a.forma_pagamento, valor: Number(a.valor) }))
+    );
+    const totalPorForma = Array.from(totalPorFormaMapa.entries()).map(([forma_pagamento, valor]) => ({ forma_pagamento, valor }));
+    const totalVendidoBruto = Array.from(totalPorFormaMapa.values()).reduce((acc, v) => acc + v, 0);
 
-    return NextResponse.json({ data, caixas: resultado, total_vendido_bruto: totalVendidoBruto });
+    return NextResponse.json({ data, caixas: resultado, total_vendido_bruto: totalVendidoBruto, total_por_forma: totalPorForma });
   } catch (err: any) {
     console.error('Erro em GET /api/fechamentos/contagem:', err);
     return NextResponse.json({ error: 'ERRO_INTERNO' }, { status: 500 });
