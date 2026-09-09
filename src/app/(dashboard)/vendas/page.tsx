@@ -335,8 +335,12 @@ export default function PrestacaoContasPage() {
     }
   };
 
-  const totalPendente = usuarios.reduce((acc, u) => acc + (u.proximo_esperado?.dinheiro || 0), 0);
-  const usuariosPendentes = usuarios.filter((u) => (u.proximo_esperado?.dinheiro || 0) > 0.005).map((u) => u.usuario);
+  // SISTEMA = venda automática/integração, sem operador logado — nunca precisa de
+  // fechamento, então fica fora do cálculo de pendência (senão "Tudo conferido" nunca
+  // ficaria verdadeiro).
+  const usuariosComFechamento = usuarios.filter((u) => u.usuario !== 'SISTEMA');
+  const totalPendente = usuariosComFechamento.reduce((acc, u) => acc + (u.proximo_esperado?.dinheiro || 0), 0);
+  const usuariosPendentes = usuariosComFechamento.filter((u) => (u.proximo_esperado?.dinheiro || 0) > 0.005).map((u) => u.usuario);
   const dataEstaNoPassado = dataSelecionada < hoje;
   const rotuloData = dataSelecionada === hoje ? 'hoje' : `em ${dataSelecionada.split('-').reverse().join('/')}`;
   const rotuloDataKpi = dataSelecionada === hoje ? 'Hoje' : `em ${dataSelecionada.split('-').reverse().join('/')}`;
@@ -359,6 +363,25 @@ export default function PrestacaoContasPage() {
     }
   }
   const modalidadesResumo = resumoPorModalidade.map((t) => ({ ...t, pendentes: pendentesPorForma.get(t.forma_pagamento) || 0 }));
+
+  // Linhas da grade de comparação com a fita, com a diferença já calculada — reusado no
+  // corpo da tabela e na linha de total, pra não duplicar a lógica.
+  const linhasFita = modalidadesResumo
+    .filter((m) => m.forma_pagamento !== 'dinheiro')
+    .map((m) => {
+      const volume = volumePorForma.find((v) => v.forma_pagamento === m.forma_pagamento)?.volume || 0;
+      const fitas = fitasParaExibir(m.forma_pagamento);
+      const somaFitas = fitas.reduce((acc, f) => {
+        const v = parseFloat(f.valor);
+        return acc + (isNaN(v) ? 0 : v);
+      }, 0);
+      const algumaFitaPreenchida = fitas.some((f) => f.valor.trim() !== '');
+      const diferenca = m.valor - somaFitas;
+      return { ...m, volume, fitas, algumaFitaPreenchida, diferenca };
+    });
+  const algumaFitaPreenchidaGeral = linhasFita.some((l) => l.algumaFitaPreenchida);
+  const diferencaTotalFita = linhasFita.filter((l) => l.algumaFitaPreenchida).reduce((acc, l) => acc + l.diferenca, 0);
+  const bateuTotalFita = Math.abs(diferencaTotalFita) <= 0.005;
 
   return (
     <div className="space-y-6">
@@ -388,10 +411,15 @@ export default function PrestacaoContasPage() {
 
       {!isLoading && !erro && usuarios.length > 0 && (
         <div className="bg-white border border-stone-200 rounded-xl shadow-sm overflow-hidden">
-          <div className="p-6 flex items-center gap-1.5">
-            <h3 className="font-medium text-stone-800">Total Vendido {rotuloDataKpi}</h3>
-            <span className="text-stone-400 text-xs cursor-help" title="Compare com o comprovante da maquininha.">ⓘ</span>
-            <span className="ml-auto font-semibold text-stone-800">{formatCurrency(totalVendidoBruto)}</span>
+          <div className="p-6 flex items-center justify-between gap-4">
+            <div>
+              <h3 className="font-medium text-stone-800">Comparação com a Fita da Maquininha</h3>
+              <p className="text-xs text-stone-400 mt-1 max-w-xl">
+                Dia inteiro, todas as vendas da loja. Detecta modalidade errada selecionada na
+                venda — é diferente da conferência de cada fechamento abaixo.
+              </p>
+            </div>
+            <span className="font-semibold text-stone-800 whitespace-nowrap">{formatCurrency(totalVendidoBruto)}</span>
           </div>
 
           <div className="overflow-x-auto">
@@ -411,39 +439,25 @@ export default function PrestacaoContasPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100">
-                {modalidadesResumo.map((m) => {
-                  const volume = volumePorForma.find((v) => v.forma_pagamento === m.forma_pagamento)?.volume || 0;
-
-                  if (m.forma_pagamento === 'dinheiro') {
-                    return (
-                      <tr key={m.forma_pagamento}>
-                        <td className="px-6 py-3 font-medium text-stone-700">{labelFormaPagamento(m.forma_pagamento)}</td>
-                        <td className="px-6 py-3">{formatCurrency(m.valor)}</td>
-                        <td className="px-6 py-3 text-stone-400">—</td>
-                        <td className="px-6 py-3 text-stone-400">—</td>
-                        <td className="px-6 py-3 text-stone-400">—</td>
-                      </tr>
-                    );
-                  }
-
-                  const fitas = fitasParaExibir(m.forma_pagamento);
-                  const somaFitas = fitas.reduce((acc, f) => {
-                    const v = parseFloat(f.valor);
-                    return acc + (isNaN(v) ? 0 : v);
-                  }, 0);
-                  const algumaFitaPreenchida = fitas.some((f) => f.valor.trim() !== '');
-                  const diferenca = m.valor - somaFitas;
-                  const bateu = Math.abs(diferenca) <= 0.005;
-                  const corDiferenca = !algumaFitaPreenchida ? 'text-stone-400' : bateu ? 'text-emerald-600' : 'text-red-600';
+                <tr>
+                  <td className="px-6 py-3 font-medium text-stone-700">Dinheiro</td>
+                  <td className="px-6 py-3">{formatCurrency(resumoPorModalidade.find((m) => m.forma_pagamento === 'dinheiro')?.valor || 0)}</td>
+                  <td className="px-6 py-3 text-stone-400">—</td>
+                  <td className="px-6 py-3 text-stone-400">—</td>
+                  <td className="px-6 py-3 text-stone-400">—</td>
+                </tr>
+                {linhasFita.map((m) => {
+                  const bateu = Math.abs(m.diferenca) <= 0.005;
+                  const corDiferenca = !m.algumaFitaPreenchida ? 'text-stone-400' : bateu ? 'text-emerald-600' : 'text-red-600';
 
                   return (
                     <tr key={m.forma_pagamento}>
                       <td className="px-6 py-3 font-medium text-stone-700 align-top">{labelFormaPagamento(m.forma_pagamento)}</td>
                       <td className="px-6 py-3 align-top">{formatCurrency(m.valor)}</td>
-                      <td className="px-6 py-3 text-stone-500 align-top whitespace-nowrap">{volume} venda{volume === 1 ? '' : 's'}</td>
+                      <td className="px-6 py-3 text-stone-500 align-top whitespace-nowrap">{m.volume} venda{m.volume === 1 ? '' : 's'}</td>
                       <td className="px-6 py-3 align-top">
                         <div className="space-y-1.5">
-                          {fitas.map((fita, index) => {
+                          {m.fitas.map((fita, index) => {
                             const chave = `${m.forma_pagamento}::${index}`;
                             return (
                               <div key={index} className="flex items-center gap-1.5">
@@ -487,12 +501,20 @@ export default function PrestacaoContasPage() {
                         </div>
                       </td>
                       <td className={`px-6 py-3 align-top font-semibold whitespace-nowrap ${corDiferenca}`}>
-                        {!algumaFitaPreenchida ? '—' : `${bateu ? '✓ ' : ''}${formatCurrency(diferenca)}`}
+                        {!m.algumaFitaPreenchida ? '—' : `${bateu ? '✓ ' : ''}${formatCurrency(m.diferenca)}`}
                       </td>
                     </tr>
                   );
                 })}
               </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-stone-200 font-semibold text-stone-800">
+                  <td className="px-6 py-3" colSpan={4}>Diferença Total (Fita vs. Sistema)</td>
+                  <td className={`px-6 py-3 whitespace-nowrap ${!algumaFitaPreenchidaGeral ? 'text-stone-400' : bateuTotalFita ? 'text-emerald-600' : 'text-red-600'}`}>
+                    {!algumaFitaPreenchidaGeral ? '—' : `${bateuTotalFita ? '✓ ' : ''}${formatCurrency(diferencaTotalFita)}`}
+                  </td>
+                </tr>
+              </tfoot>
             </table>
           </div>
         </div>
@@ -538,8 +560,36 @@ export default function PrestacaoContasPage() {
       ) : (
         <div className="space-y-4">
           {usuarios.map((u) => {
+            // SISTEMA = venda automática/integração, sem operador logado (confirmado) —
+            // referência informativa, nunca um card de fechamento.
+            if (u.usuario === 'SISTEMA') {
+              return (
+                <div key={u.usuario} className="bg-stone-50 border border-stone-200 rounded-xl px-6 py-4 text-sm text-stone-500">
+                  Vendas sem operador identificado (SISTEMA):{' '}
+                  <span className="font-medium text-stone-700">{formatCurrency(u.proximo_esperado?.total || 0)}</span>
+                  {' '}— incluídas automaticamente no total da loja.
+                </div>
+              );
+            }
+
             const dinheiroEsperado = u.proximo_esperado?.dinheiro ?? 0;
             const formasNaoDinheiro = u.proximo_esperado ? u.proximo_esperado.formas_informativas.filter((f) => f.valor !== 0) : [];
+
+            const valorContadoTexto = valoresDigitados[u.usuario] || '';
+            const valorContadoNumerico = parseFloat(valorContadoTexto);
+            const dinheiroFoiDigitado = valorContadoTexto.trim() !== '' && !isNaN(valorContadoNumerico);
+            const diferencaDinheiro = dinheiroFoiDigitado ? valorContadoNumerico - dinheiroEsperado : null;
+
+            const linhasNaoDinheiro = formasNaoDinheiro.map((f) => {
+              const transacoesDaForma = u.transacoes_pendentes.find((t) => t.forma_pagamento === f.forma_pagamento)?.transacoes || [];
+              const diferenca = transacoesDaForma.reduce((acc, t) => acc + t.valor, 0);
+              return { ...f, transacoesDaForma, diferenca };
+            });
+
+            const diferencaTotal = diferencaDinheiro === null
+              ? null
+              : diferencaDinheiro + linhasNaoDinheiro.reduce((acc, l) => acc + l.diferenca, 0);
+            const totalBateu = diferencaTotal !== null && Math.abs(diferencaTotal) <= 0.005;
 
             return (
             <div key={u.usuario} className="bg-white border border-stone-200 rounded-xl shadow-sm overflow-hidden">
@@ -568,7 +618,8 @@ export default function PrestacaoContasPage() {
                     <tr>
                       <th className="px-6 py-2">Forma de Pagamento</th>
                       <th className="px-6 py-2">Esperado</th>
-                      <th className="px-6 py-2">Ação</th>
+                      <th className="px-6 py-2">Informado/Resultado</th>
+                      <th className="px-6 py-2">Diferença</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-stone-100">
@@ -603,14 +654,19 @@ export default function PrestacaoContasPage() {
                           <span className="text-stone-400">Nada a conferir hoje</span>
                         )}
                       </td>
+                      <td className={`px-6 py-3 font-medium whitespace-nowrap ${
+                        diferencaDinheiro === null ? 'text-stone-400' : Math.abs(diferencaDinheiro) <= 0.005 ? 'text-emerald-600' : 'text-red-600'
+                      }`}>
+                        {diferencaDinheiro === null ? '—' : `${Math.abs(diferencaDinheiro) <= 0.005 ? '✓ ' : ''}${formatCurrency(diferencaDinheiro)}`}
+                      </td>
                     </tr>
 
-                    {formasNaoDinheiro.map((f) => {
-                      const transacoesDaForma = u.transacoes_pendentes.find((t) => t.forma_pagamento === f.forma_pagamento)?.transacoes || [];
+                    {linhasNaoDinheiro.map((f) => {
                       const chave = `${u.usuario}::${f.forma_pagamento}`;
-                      const selecionadasDaForma = transacoesDaForma.filter((t) => selecionadas[t.id]);
+                      const selecionadasDaForma = f.transacoesDaForma.filter((t) => selecionadas[t.id]);
                       const idsSelecionados = selecionadasDaForma.map((t) => t.id);
                       const valorSelecionado = selecionadasDaForma.reduce((acc, t) => acc + t.valor, 0);
+                      const bateu = Math.abs(f.diferenca) <= 0.005;
 
                       return (
                         <React.Fragment key={f.forma_pagamento}>
@@ -618,25 +674,28 @@ export default function PrestacaoContasPage() {
                             <td className="px-6 py-3 font-medium text-stone-700">{labelFormaPagamento(f.forma_pagamento)}</td>
                             <td className="px-6 py-3">
                               {formatCurrency(f.valor)}{' '}
-                              <span className="text-stone-400">({transacoesDaForma.length} venda{transacoesDaForma.length === 1 ? '' : 's'})</span>
+                              <span className="text-stone-400">({f.transacoesDaForma.length} venda{f.transacoesDaForma.length === 1 ? '' : 's'})</span>
                             </td>
                             <td className="px-6 py-3">
-                              {transacoesDaForma.length > 0 ? (
+                              {f.transacoesDaForma.length > 0 ? (
                                 <button
                                   type="button"
                                   onClick={() => setFormaExpandida(formaExpandida === chave ? null : chave)}
                                   className="text-amber-800 font-medium hover:underline"
                                 >
-                                  {formaExpandida === chave ? '▾' : '▸'} {transacoesDaForma.length} pendente{transacoesDaForma.length === 1 ? '' : 's'} → Conciliar
+                                  {formaExpandida === chave ? '▾' : '▸'} {f.transacoesDaForma.length} sinalizada{f.transacoesDaForma.length === 1 ? '' : 's'} → Conciliar
                                 </button>
                               ) : (
-                                <span className="text-emerald-600">✓ Conciliado</span>
+                                <span className="text-emerald-600">✓ Conferidas</span>
                               )}
                             </td>
+                            <td className={`px-6 py-3 font-medium whitespace-nowrap ${bateu ? 'text-emerald-600' : 'text-red-600'}`}>
+                              {bateu ? '✓ ' : ''}{formatCurrency(f.diferenca)}
+                            </td>
                           </tr>
-                          {formaExpandida === chave && transacoesDaForma.length > 0 && (
+                          {formaExpandida === chave && f.transacoesDaForma.length > 0 && (
                             <tr>
-                              <td colSpan={3} className="px-6 pb-4">
+                              <td colSpan={4} className="px-6 pb-4">
                                 <div className="bg-stone-50 border border-stone-200 rounded-lg p-3 space-y-1.5">
                                   <div className="flex items-center justify-between pb-1">
                                     <button
@@ -644,7 +703,7 @@ export default function PrestacaoContasPage() {
                                       onClick={() =>
                                         setSelecionadas((prev) => {
                                           const proximo = { ...prev };
-                                          transacoesDaForma.forEach((t) => { proximo[t.id] = true; });
+                                          f.transacoesDaForma.forEach((t) => { proximo[t.id] = true; });
                                           return proximo;
                                         })
                                       }
@@ -658,7 +717,7 @@ export default function PrestacaoContasPage() {
                                         : 'Nenhuma selecionada'}
                                     </span>
                                   </div>
-                                  {transacoesDaForma.map((t) => (
+                                  {f.transacoesDaForma.map((t) => (
                                     <label key={t.id} className="flex items-center justify-between gap-3 text-xs cursor-pointer">
                                       <span className="flex items-center gap-2 text-stone-600">
                                         <input
@@ -690,6 +749,16 @@ export default function PrestacaoContasPage() {
                       );
                     })}
                   </tbody>
+                  <tfoot>
+                    <tr className="border-t-2 border-stone-200 font-semibold text-stone-800">
+                      <td className="px-6 py-3" colSpan={3}>Diferença Total deste Fechamento</td>
+                      <td className={`px-6 py-3 whitespace-nowrap ${
+                        diferencaTotal === null ? 'text-stone-400' : totalBateu ? 'text-emerald-600' : 'text-red-600'
+                      }`}>
+                        {diferencaTotal === null ? '—' : `${totalBateu ? '✓ ' : ''}${formatCurrency(diferencaTotal)}`}
+                      </td>
+                    </tr>
+                  </tfoot>
                 </table>
               </div>
 
