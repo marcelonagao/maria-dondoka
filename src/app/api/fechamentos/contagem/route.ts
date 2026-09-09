@@ -131,21 +131,35 @@ export async function GET(request: Request) {
       transacoesPorUsuario.set(t.usuario, lista);
     }
 
-    // Conferência manual contra o comprovante da maquininha — histórico (não sobrescreve),
-    // aqui só pegamos a mais recente por forma pra mostrar o último resultado na tela.
+    // Volume: total de transações da forma no dia (pendente + já conciliada), pra coluna
+    // "Volume" do resumo — diferente do count de pendentes usado na conciliação por operador.
+    const { data: volumeRaw, error: volumeError } = await supabaseAdmin
+      .from('vendas_transacoes_pagamento')
+      .select('forma_pagamento')
+      .eq('franchise_id', perfil.franchiseId)
+      .eq('data_venda', data);
+    if (volumeError) throw new Error(`vendas_transacoes_pagamento (volume): ${JSON.stringify(volumeError)}`);
+    const volumePorFormaMapa = new Map<string, number>();
+    for (const v of volumeRaw || []) {
+      volumePorFormaMapa.set(v.forma_pagamento, (volumePorFormaMapa.get(v.forma_pagamento) || 0) + 1);
+    }
+
+    // Conferência manual contra o comprovante da maquininha — uma fita pode ter mais de
+    // uma linha (mais de uma maquininha/caixa no mesmo dia/forma), por isso trazemos todas,
+    // não só a mais recente. Diferença é calculada no client (esperado − soma das fitas).
     const { data: conferenciasRaw, error: conferenciasError } = await supabaseAdmin
       .from('conferencia_maquininha')
-      .select('forma_pagamento, valor_esperado, valor_comprovante, diferenca, conferido_em')
+      .select('id, forma_pagamento, rotulo, valor_comprovante, conferido_em')
       .eq('franchise_id', perfil.franchiseId)
       .eq('data', data)
-      .order('conferido_em', { ascending: false });
+      .order('conferido_em', { ascending: true });
     if (conferenciasError) throw new Error(`conferencia_maquininha: ${JSON.stringify(conferenciasError)}`);
 
-    const conferenciaMaisRecentePorForma = new Map<string, (typeof conferenciasRaw)[number]>();
+    const fitasPorForma = new Map<string, typeof conferenciasRaw>();
     for (const c of conferenciasRaw || []) {
-      if (!conferenciaMaisRecentePorForma.has(c.forma_pagamento)) {
-        conferenciaMaisRecentePorForma.set(c.forma_pagamento, c);
-      }
+      const lista = fitasPorForma.get(c.forma_pagamento) || [];
+      lista.push(c);
+      fitasPorForma.set(c.forma_pagamento, lista);
     }
 
     const formasPorFechamento = new Map<string, typeof formasFechamentos>();
@@ -269,12 +283,15 @@ export async function GET(request: Request) {
     );
     const totalPorForma = Array.from(totalPorFormaMapa.entries()).map(([forma_pagamento, valor]) => ({ forma_pagamento, valor }));
     const totalVendidoBruto = Array.from(totalPorFormaMapa.values()).reduce((acc, v) => acc + v, 0);
-    const conferenciaPorForma = Array.from(conferenciaMaisRecentePorForma.entries()).map(([forma_pagamento, c]) => ({
+    const volumePorForma = Array.from(volumePorFormaMapa.entries()).map(([forma_pagamento, volume]) => ({ forma_pagamento, volume }));
+    const conferenciasPorForma = Array.from(fitasPorForma.entries()).map(([forma_pagamento, fitas]) => ({
       forma_pagamento,
-      valor_esperado: Number(c.valor_esperado),
-      valor_comprovante: Number(c.valor_comprovante),
-      diferenca: Number(c.diferenca),
-      conferido_em: c.conferido_em,
+      fitas: fitas.map((f) => ({
+        id: f.id,
+        rotulo: f.rotulo,
+        valor_comprovante: Number(f.valor_comprovante),
+        conferido_em: f.conferido_em,
+      })),
     }));
 
     return NextResponse.json({
@@ -282,7 +299,8 @@ export async function GET(request: Request) {
       caixas: resultado,
       total_vendido_bruto: totalVendidoBruto,
       total_por_forma: totalPorForma,
-      conferencia_por_forma: conferenciaPorForma,
+      volume_por_forma: volumePorForma,
+      conferencias_por_forma: conferenciasPorForma,
     });
   } catch (err: any) {
     console.error('Erro em GET /api/fechamentos/contagem:', err);

@@ -60,12 +60,28 @@ interface Funcionario {
   nome: string;
 }
 
-interface ConferenciaForma {
-  forma_pagamento: string;
-  valor_esperado: number;
+interface FitaSalva {
+  id: string;
+  rotulo: string | null;
   valor_comprovante: number;
-  diferenca: number;
   conferido_em: string;
+}
+
+interface ConferenciaModalidade {
+  forma_pagamento: string;
+  fitas: FitaSalva[];
+}
+
+interface VolumeForma {
+  forma_pagamento: string;
+  volume: number;
+}
+
+// Estado editável de uma fita — `id: null` significa rascunho ainda não salvo.
+interface FitaDraft {
+  id: string | null;
+  rotulo: string;
+  valor: string;
 }
 
 const formatCurrency = (value: number) =>
@@ -91,9 +107,9 @@ export default function PrestacaoContasPage() {
   const [isConciliando, setIsConciliando] = useState(false);
   const [totalVendidoBruto, setTotalVendidoBruto] = useState(0);
   const [totalPorForma, setTotalPorForma] = useState<FormaPagamentoValor[]>([]);
-  const [conferenciaPorForma, setConferenciaPorForma] = useState<Record<string, ConferenciaForma>>({});
-  const [comprovanteDigitado, setComprovanteDigitado] = useState<Record<string, string>>({});
-  const [isSalvandoConferencia, setIsSalvandoConferencia] = useState<string | null>(null);
+  const [volumePorForma, setVolumePorForma] = useState<VolumeForma[]>([]);
+  const [fitasPorForma, setFitasPorForma] = useState<Record<string, FitaDraft[]>>({});
+  const [salvandoFitaChave, setSalvandoFitaChave] = useState<string | null>(null);
 
   const handleSincronizarAgora = async () => {
     setIsSincronizando(true);
@@ -132,8 +148,16 @@ export default function PrestacaoContasPage() {
       setUsuarios(json.caixas || []);
       setTotalVendidoBruto(json.total_vendido_bruto || 0);
       setTotalPorForma(json.total_por_forma || []);
-      const conferencias: ConferenciaForma[] = json.conferencia_por_forma || [];
-      setConferenciaPorForma(Object.fromEntries(conferencias.map((c) => [c.forma_pagamento, c])));
+      setVolumePorForma(json.volume_por_forma || []);
+      const conferencias: ConferenciaModalidade[] = json.conferencias_por_forma || [];
+      setFitasPorForma(
+        Object.fromEntries(
+          conferencias.map((c) => [
+            c.forma_pagamento,
+            c.fitas.map((f) => ({ id: f.id, rotulo: f.rotulo || '', valor: String(f.valor_comprovante) })),
+          ])
+        )
+      );
     } catch (err) {
       console.error('Erro ao carregar prestação de contas:', err);
       setErro('Não foi possível carregar os dados. Tente novamente.');
@@ -232,36 +256,82 @@ export default function PrestacaoContasPage() {
     }
   };
 
-  const handleSalvarConferencia = async (forma_pagamento: string) => {
-    const texto = comprovanteDigitado[forma_pagamento];
-    if (texto === undefined || texto.trim() === '') return;
-    const valor = parseFloat(texto);
-    if (isNaN(valor)) return;
+  // Sem fita salva ainda, mostra 1 campo vazio pra começar (spec) — o estado guardado só
+  // tem entrada pra forma que já tem pelo menos uma fita gravada.
+  const fitasParaExibir = (forma: string): FitaDraft[] => {
+    const fitas = fitasPorForma[forma];
+    return fitas && fitas.length > 0 ? fitas : [{ id: null, rotulo: '', valor: '' }];
+  };
 
-    setIsSalvandoConferencia(forma_pagamento);
+  const handleAdicionarFita = (forma: string) => {
+    setFitasPorForma((prev) => ({ ...prev, [forma]: [...fitasParaExibir(forma), { id: null, rotulo: '', valor: '' }] }));
+  };
+
+  const handleAlterarFita = (forma: string, index: number, campo: 'rotulo' | 'valor', valorNovo: string) => {
+    setFitasPorForma((prev) => {
+      const atual = [...fitasParaExibir(forma)];
+      atual[index] = { ...atual[index], [campo]: valorNovo };
+      return { ...prev, [forma]: atual };
+    });
+  };
+
+  const handleRemoverFita = async (forma: string, index: number) => {
+    const atual = fitasParaExibir(forma);
+    const fita = atual[index];
+    if (!fita.id) {
+      // Rascunho ainda não salvo — remove só localmente, sem chamada nenhuma.
+      setFitasPorForma((prev) => {
+        const lista = [...atual];
+        lista.splice(index, 1);
+        return { ...prev, [forma]: lista };
+      });
+      return;
+    }
+    if (!confirm('Excluir esta fita? Essa ação não pode ser desfeita.')) return;
     try {
       const res = await fetch('/api/fechamentos/conferencia-maquininha', {
-        method: 'POST',
+        method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data: dataSelecionada, forma_pagamento, valor_comprovante: valor }),
+        body: JSON.stringify({ id: fita.id }),
       });
-      if (!res.ok) throw new Error('Falha ao salvar conferência');
-      const json = await res.json();
-      setConferenciaPorForma((prev) => ({
-        ...prev,
-        [forma_pagamento]: {
-          forma_pagamento,
-          valor_esperado: json.valor_esperado,
-          valor_comprovante: valor,
-          diferenca: json.diferenca,
-          conferido_em: new Date().toISOString(),
-        },
-      }));
+      if (!res.ok) throw new Error('Falha ao excluir fita');
+      await carregar(dataSelecionada);
     } catch (err) {
-      console.error('Erro ao salvar conferência da maquininha:', err);
-      alert('Erro ao salvar a conferência. Verifique o console.');
+      console.error('Erro ao excluir fita:', err);
+      alert('Erro ao excluir a fita. Verifique o console.');
+    }
+  };
+
+  const handleSalvarFita = async (forma: string, index: number) => {
+    const fita = fitasParaExibir(forma)[index];
+    if (!fita || fita.valor.trim() === '') return;
+    const valorNumerico = parseFloat(fita.valor);
+    if (isNaN(valorNumerico)) return;
+
+    const chave = `${forma}::${index}`;
+    setSalvandoFitaChave(chave);
+    try {
+      if (fita.id) {
+        const res = await fetch('/api/fechamentos/conferencia-maquininha', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: fita.id, rotulo: fita.rotulo || undefined, valor_comprovante: valorNumerico }),
+        });
+        if (!res.ok) throw new Error('Falha ao atualizar fita');
+      } else {
+        const res = await fetch('/api/fechamentos/conferencia-maquininha', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ data: dataSelecionada, forma_pagamento: forma, rotulo: fita.rotulo || undefined, valor_comprovante: valorNumerico }),
+        });
+        if (!res.ok) throw new Error('Falha ao salvar fita');
+      }
+      await carregar(dataSelecionada);
+    } catch (err) {
+      console.error('Erro ao salvar fita:', err);
+      alert('Erro ao salvar a fita. Verifique o console.');
     } finally {
-      setIsSalvandoConferencia(null);
+      setSalvandoFitaChave(null);
     }
   };
 
@@ -318,67 +388,124 @@ export default function PrestacaoContasPage() {
 
       {!isLoading && !erro && usuarios.length > 0 && (
         <div className="bg-white border border-stone-200 rounded-xl shadow-sm overflow-hidden">
-          <div className="p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="flex items-center gap-1.5">
-              <h3 className="font-medium text-stone-800">Total Vendido {rotuloDataKpi}</h3>
-              <span className="text-stone-400 text-xs cursor-help" title="Compare com o comprovante da maquininha.">ⓘ</span>
-            </div>
-            <p className="font-semibold text-stone-800">{formatCurrency(totalVendidoBruto)}</p>
+          <div className="p-6 flex items-center gap-1.5">
+            <h3 className="font-medium text-stone-800">Total Vendido {rotuloDataKpi}</h3>
+            <span className="text-stone-400 text-xs cursor-help" title="Compare com o comprovante da maquininha.">ⓘ</span>
+            <span className="ml-auto font-semibold text-stone-800">{formatCurrency(totalVendidoBruto)}</span>
           </div>
 
-          <div className="px-6 pb-4 -mt-2 flex flex-wrap gap-2">
-            {modalidadesResumo.map((m) => {
-              if (m.forma_pagamento === 'dinheiro') {
-                return (
-                  <span key={m.forma_pagamento} className="text-xs bg-stone-50 text-stone-500 rounded-lg px-3 py-1.5">
-                    {labelFormaPagamento(m.forma_pagamento)}: <span className="font-medium text-stone-600">{formatCurrency(m.valor)}</span>
-                  </span>
-                );
-              }
-              const conferencia = conferenciaPorForma[m.forma_pagamento];
-              const diferenca = conferencia?.diferenca;
-              const corDiferenca = diferenca === undefined ? 'text-stone-400' : Math.abs(diferenca) <= 0.005 ? 'text-emerald-600' : 'text-red-600';
-              return (
-                <div
-                  key={m.forma_pagamento}
-                  className={`flex items-center gap-2 text-xs rounded-lg px-3 py-1.5 ${m.pendentes > 0 ? 'bg-amber-50 border border-amber-200 text-amber-800' : 'bg-stone-50 text-stone-500'}`}
-                >
-                  <span>
-                    {labelFormaPagamento(m.forma_pagamento)}: <span className="font-medium">{formatCurrency(m.valor)}</span>
-                    {m.pendentes > 0 && ` · ${m.pendentes} pendente${m.pendentes === 1 ? '' : 's'}`}
-                  </span>
-                  <span
-                    className="text-stone-400 cursor-help whitespace-nowrap"
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm text-stone-600">
+              <thead className="bg-stone-50 text-stone-500 uppercase text-xs">
+                <tr>
+                  <th className="px-6 py-2">Forma de Pagamento</th>
+                  <th className="px-6 py-2">Esperado (Sistema)</th>
+                  <th className="px-6 py-2">Volume</th>
+                  <th
+                    className="px-6 py-2 cursor-help"
                     title="Some os sub-totais da(s) bandeira(s) no comprovante antes de digitar, se a maquininha imprimir separado por bandeira."
                   >
-                    Comprovante ⓘ:
-                  </span>
-                  <input
-                    type="number"
-                    step="0.01"
-                    placeholder="0,00"
-                    value={comprovanteDigitado[m.forma_pagamento] ?? (conferencia ? String(conferencia.valor_comprovante) : '')}
-                    onChange={(e) => setComprovanteDigitado((prev) => ({ ...prev, [m.forma_pagamento]: e.target.value }))}
-                    onBlur={() => handleSalvarConferencia(m.forma_pagamento)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-                    disabled={isSalvandoConferencia === m.forma_pagamento}
-                    className="w-20 px-2 py-1 border border-stone-300 rounded text-stone-700 focus:ring-2 focus:ring-stone-400 outline-none disabled:opacity-60"
-                  />
-                  <span className={`font-medium whitespace-nowrap ${corDiferenca}`}>
-                    diferença: {diferenca === undefined ? '—' : formatCurrency(diferenca)}
-                  </span>
-                </div>
-              );
-            })}
+                    Comprovante(s) da Fita ⓘ
+                  </th>
+                  <th className="px-6 py-2">Diferença</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-stone-100">
+                {modalidadesResumo.map((m) => {
+                  const volume = volumePorForma.find((v) => v.forma_pagamento === m.forma_pagamento)?.volume || 0;
+
+                  if (m.forma_pagamento === 'dinheiro') {
+                    return (
+                      <tr key={m.forma_pagamento}>
+                        <td className="px-6 py-3 font-medium text-stone-700">{labelFormaPagamento(m.forma_pagamento)}</td>
+                        <td className="px-6 py-3">{formatCurrency(m.valor)}</td>
+                        <td className="px-6 py-3 text-stone-400">—</td>
+                        <td className="px-6 py-3 text-stone-400">—</td>
+                        <td className="px-6 py-3 text-stone-400">—</td>
+                      </tr>
+                    );
+                  }
+
+                  const fitas = fitasParaExibir(m.forma_pagamento);
+                  const somaFitas = fitas.reduce((acc, f) => {
+                    const v = parseFloat(f.valor);
+                    return acc + (isNaN(v) ? 0 : v);
+                  }, 0);
+                  const algumaFitaPreenchida = fitas.some((f) => f.valor.trim() !== '');
+                  const diferenca = m.valor - somaFitas;
+                  const bateu = Math.abs(diferenca) <= 0.005;
+                  const corDiferenca = !algumaFitaPreenchida ? 'text-stone-400' : bateu ? 'text-emerald-600' : 'text-red-600';
+
+                  return (
+                    <tr key={m.forma_pagamento}>
+                      <td className="px-6 py-3 font-medium text-stone-700 align-top">{labelFormaPagamento(m.forma_pagamento)}</td>
+                      <td className="px-6 py-3 align-top">{formatCurrency(m.valor)}</td>
+                      <td className="px-6 py-3 text-stone-500 align-top whitespace-nowrap">{volume} venda{volume === 1 ? '' : 's'}</td>
+                      <td className="px-6 py-3 align-top">
+                        <div className="space-y-1.5">
+                          {fitas.map((fita, index) => {
+                            const chave = `${m.forma_pagamento}::${index}`;
+                            return (
+                              <div key={index} className="flex items-center gap-1.5">
+                                <input
+                                  type="text"
+                                  placeholder="Rótulo (opcional)"
+                                  value={fita.rotulo}
+                                  onChange={(e) => handleAlterarFita(m.forma_pagamento, index, 'rotulo', e.target.value)}
+                                  onBlur={() => handleSalvarFita(m.forma_pagamento, index)}
+                                  className="w-24 px-2 py-1 border border-stone-300 rounded text-xs text-stone-600 focus:ring-2 focus:ring-stone-400 outline-none"
+                                />
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  placeholder="R$ 0,00"
+                                  value={fita.valor}
+                                  onChange={(e) => handleAlterarFita(m.forma_pagamento, index, 'valor', e.target.value)}
+                                  onBlur={() => handleSalvarFita(m.forma_pagamento, index)}
+                                  onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                                  disabled={salvandoFitaChave === chave}
+                                  className="w-24 px-2 py-1 border border-stone-300 rounded text-xs text-stone-700 focus:ring-2 focus:ring-stone-400 outline-none disabled:opacity-60"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoverFita(m.forma_pagamento, index)}
+                                  className="text-stone-300 hover:text-red-500 text-xs px-1"
+                                  title="Remover esta fita"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            );
+                          })}
+                          <button
+                            type="button"
+                            onClick={() => handleAdicionarFita(m.forma_pagamento)}
+                            className="text-xs text-stone-500 hover:text-stone-700 underline underline-offset-2"
+                          >
+                            + Adicionar fita
+                          </button>
+                        </div>
+                      </td>
+                      <td className={`px-6 py-3 align-top font-semibold whitespace-nowrap ${corDiferenca}`}>
+                        {!algumaFitaPreenchida ? '—' : `${bateu ? '✓ ' : ''}${formatCurrency(diferenca)}`}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
 
       {!isLoading && !erro && dataEstaNoPassado && totalPendente > 0.005 && (
-        <div className="bg-stone-100 border border-stone-200 rounded-xl px-6 py-4 text-stone-600 text-sm">
-          Este fechamento é de um dia anterior. A contagem física de dinheiro pode não representar
-          mais o caixa real, já que o valor provavelmente já se misturou com vendas de dias
-          seguintes na mesma gaveta.
+        <div className="bg-blue-50 border border-blue-200 rounded-xl px-6 py-4 text-blue-800 text-sm flex items-start gap-2">
+          <span>⚠️</span>
+          <span>
+            Este fechamento é de um dia anterior. A contagem física de dinheiro pode não representar
+            mais o caixa real, já que o valor provavelmente já se misturou com vendas de dias
+            seguintes na mesma gaveta.
+          </span>
         </div>
       )}
 
@@ -412,115 +539,7 @@ export default function PrestacaoContasPage() {
         <div className="space-y-4">
           {usuarios.map((u) => {
             const dinheiroEsperado = u.proximo_esperado?.dinheiro ?? 0;
-            const temPendenciaConciliacao = u.transacoes_pendentes.some((t) => t.transacoes.length > 0);
-            const temChipsExibiveis = !!u.proximo_esperado && u.proximo_esperado.formas_informativas.some((f) => f.valor !== 0);
-
-            const botaoSangria = (
-              <button
-                type="button"
-                onClick={() => abrirModalMovimentacao(u.usuario)}
-                className="px-3 py-2 border border-stone-300 text-stone-600 hover:bg-stone-50 text-sm font-medium rounded-lg transition-colors"
-              >
-                Sangria/Suprimento
-              </button>
-            );
-
-            const conteudoChips = temChipsExibiveis ? (
-              <>
-                <div className="flex flex-wrap gap-2">
-                  {u.proximo_esperado!.formas_informativas
-                    .filter((f) => f.valor !== 0)
-                    .map((f) => {
-                      const transacoesDaForma = u.transacoes_pendentes.find((t) => t.forma_pagamento === f.forma_pagamento)?.transacoes || [];
-                      if (transacoesDaForma.length === 0) {
-                        return (
-                          <span key={f.forma_pagamento} className="text-xs bg-stone-50 text-stone-500 rounded-lg px-3 py-1.5">
-                            {labelFormaPagamento(f.forma_pagamento)}: <span className="font-medium text-stone-600">{formatCurrency(f.valor)}</span>
-                          </span>
-                        );
-                      }
-                      const chave = `${u.usuario}::${f.forma_pagamento}`;
-                      return (
-                        <button
-                          key={f.forma_pagamento}
-                          type="button"
-                          onClick={() => setFormaExpandida(formaExpandida === chave ? null : chave)}
-                          className="text-xs bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 rounded-lg px-3 py-1.5 transition-colors flex items-center gap-1.5"
-                        >
-                          <span>
-                            {formaExpandida === chave ? '▾' : '▸'} {labelFormaPagamento(f.forma_pagamento)}:{' '}
-                            <span className="font-medium">{formatCurrency(f.valor)}</span>{' '}
-                            · {transacoesDaForma.length} pendente{transacoesDaForma.length === 1 ? '' : 's'}
-                          </span>
-                          <span className="px-1.5 py-0.5 bg-amber-600 text-white rounded text-[10px] font-semibold uppercase tracking-wide">
-                            Conciliar
-                          </span>
-                        </button>
-                      );
-                    })}
-                </div>
-
-                {u.proximo_esperado!.formas_informativas
-                  .filter((f) => f.valor !== 0)
-                  .map((f) => {
-                    const chave = `${u.usuario}::${f.forma_pagamento}`;
-                    if (formaExpandida !== chave) return null;
-                    const transacoesDaForma = u.transacoes_pendentes.find((t) => t.forma_pagamento === f.forma_pagamento)?.transacoes || [];
-                    if (transacoesDaForma.length === 0) return null;
-                    const selecionadasDaForma = transacoesDaForma.filter((t) => selecionadas[t.id]);
-                    const idsSelecionados = selecionadasDaForma.map((t) => t.id);
-                    const valorSelecionado = selecionadasDaForma.reduce((acc, t) => acc + t.valor, 0);
-                    return (
-                      <div key={chave} className="bg-stone-50 border border-stone-200 rounded-lg p-3 space-y-1.5">
-                        <div className="flex items-center justify-between pb-1">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setSelecionadas((prev) => {
-                                const proximo = { ...prev };
-                                transacoesDaForma.forEach((t) => { proximo[t.id] = true; });
-                                return proximo;
-                              })
-                            }
-                            className="text-xs text-stone-500 hover:text-stone-700 font-medium underline underline-offset-2"
-                          >
-                            Marcar Todas
-                          </button>
-                          <span className="text-xs text-stone-500">
-                            {idsSelecionados.length > 0
-                              ? `${idsSelecionados.length} selecionada(s) — ${formatCurrency(valorSelecionado)}`
-                              : 'Nenhuma selecionada'}
-                          </span>
-                        </div>
-                        {transacoesDaForma.map((t) => (
-                          <label key={t.id} className="flex items-center justify-between gap-3 text-xs cursor-pointer">
-                            <span className="flex items-center gap-2 text-stone-600">
-                              <input
-                                type="checkbox"
-                                checked={!!selecionadas[t.id]}
-                                onChange={(e) => setSelecionadas((prev) => ({ ...prev, [t.id]: e.target.checked }))}
-                                className="rounded border-stone-300"
-                              />
-                              {t.historico || 'Sem descrição'}
-                            </span>
-                            <span className="font-medium text-stone-700 whitespace-nowrap">{formatCurrency(t.valor)}</span>
-                          </label>
-                        ))}
-                        <div className="pt-2 flex justify-end">
-                          <button
-                            type="button"
-                            disabled={idsSelecionados.length === 0 || isConciliando}
-                            onClick={() => handleConciliar(idsSelecionados)}
-                            className="px-3 py-1.5 bg-stone-900 hover:bg-stone-800 text-white text-xs font-medium rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                          >
-                            {isConciliando ? 'Conciliando...' : `Conciliar Selecionadas (${idsSelecionados.length})`}
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-              </>
-            ) : null;
+            const formasNaoDinheiro = u.proximo_esperado ? u.proximo_esperado.formas_informativas.filter((f) => f.valor !== 0) : [];
 
             return (
             <div key={u.usuario} className="bg-white border border-stone-200 rounded-xl shadow-sm overflow-hidden">
@@ -534,60 +553,155 @@ export default function PrestacaoContasPage() {
                     {u.historico.length > 0 && ` · ${u.historico.length} fechamento(s) já registrado(s) hoje`}
                   </p>
                 </div>
-
-                {dinheiroEsperado > 0 ? (
-                  <div className="flex items-center gap-3">
-                    {botaoSangria}
-                    <div className="text-right">
-                      <p className="text-xs text-stone-400 uppercase tracking-wider">Dinheiro esperado</p>
-                      <p className="font-semibold text-stone-800">{formatCurrency(dinheiroEsperado)}</p>
-                    </div>
-                    {funcionarios.length > 0 && (
-                      <select
-                        value={funcionarioSelecionado[u.usuario] || ''}
-                        onChange={(e) => setFuncionarioSelecionado((prev) => ({ ...prev, [u.usuario]: e.target.value }))}
-                        className="px-3 py-2 border border-stone-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-400 outline-none bg-white text-stone-700"
-                      >
-                        <option value="">Quem está fechando?</option>
-                        {funcionarios.map((f) => (
-                          <option key={f.id} value={f.id}>{f.nome}</option>
-                        ))}
-                      </select>
-                    )}
-                    <input
-                      type="number"
-                      step="0.01"
-                      placeholder="Valor contado"
-                      value={valoresDigitados[u.usuario] || ''}
-                      onChange={(e) => setValoresDigitados((prev) => ({ ...prev, [u.usuario]: e.target.value }))}
-                      className="w-32 px-3 py-2 border border-stone-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-400 outline-none disabled:bg-stone-50 disabled:text-stone-300"
-                    />
-                    <button
-                      onClick={() => handleSalvar(u.usuario)}
-                      disabled={salvandoId === u.usuario}
-                      className="px-4 py-2 bg-stone-900 hover:bg-stone-800 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      {salvandoId === u.usuario ? 'Salvando...' : 'Fechar Caixa'}
-                    </button>
-                  </div>
-                ) : (
-                  botaoSangria
-                )}
+                <button
+                  type="button"
+                  onClick={() => abrirModalMovimentacao(u.usuario)}
+                  className="px-3 py-2 border border-stone-300 text-stone-600 hover:bg-stone-50 text-sm font-medium rounded-lg transition-colors"
+                >
+                  Sangria/Suprimento
+                </button>
               </div>
 
-              {dinheiroEsperado === 0 && temPendenciaConciliacao && conteudoChips && (
-                <div className="px-6 pb-4 space-y-2">{conteudoChips}</div>
-              )}
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm text-stone-600">
+                  <thead className="bg-stone-50 text-stone-500 uppercase text-xs">
+                    <tr>
+                      <th className="px-6 py-2">Forma de Pagamento</th>
+                      <th className="px-6 py-2">Esperado</th>
+                      <th className="px-6 py-2">Ação</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-stone-100">
+                    <tr>
+                      <td className="px-6 py-3 font-medium text-stone-700">Dinheiro</td>
+                      <td className="px-6 py-3">{formatCurrency(dinheiroEsperado)}</td>
+                      <td className="px-6 py-3">
+                        {dinheiroEsperado > 0 ? (
+                          <div className="flex flex-wrap items-center gap-2">
+                            <input
+                              type="number"
+                              step="0.01"
+                              placeholder="Valor contado"
+                              value={valoresDigitados[u.usuario] || ''}
+                              onChange={(e) => setValoresDigitados((prev) => ({ ...prev, [u.usuario]: e.target.value }))}
+                              className="w-32 px-3 py-1.5 border border-stone-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-400 outline-none"
+                            />
+                            {funcionarios.length > 0 && (
+                              <select
+                                value={funcionarioSelecionado[u.usuario] || ''}
+                                onChange={(e) => setFuncionarioSelecionado((prev) => ({ ...prev, [u.usuario]: e.target.value }))}
+                                className="px-3 py-1.5 border border-stone-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-400 outline-none bg-white text-stone-700"
+                              >
+                                <option value="">Quem está fechando?</option>
+                                {funcionarios.map((f) => (
+                                  <option key={f.id} value={f.id}>{f.nome}</option>
+                                ))}
+                              </select>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-stone-400">Nada a conferir hoje</span>
+                        )}
+                      </td>
+                    </tr>
 
-              {dinheiroEsperado === 0 && (
-                <div className="px-6 pb-4 -mt-2">
-                  <span className="text-sm text-stone-400">Dinheiro: nada a conferir hoje</span>
-                </div>
-              )}
+                    {formasNaoDinheiro.map((f) => {
+                      const transacoesDaForma = u.transacoes_pendentes.find((t) => t.forma_pagamento === f.forma_pagamento)?.transacoes || [];
+                      const chave = `${u.usuario}::${f.forma_pagamento}`;
+                      const selecionadasDaForma = transacoesDaForma.filter((t) => selecionadas[t.id]);
+                      const idsSelecionados = selecionadasDaForma.map((t) => t.id);
+                      const valorSelecionado = selecionadasDaForma.reduce((acc, t) => acc + t.valor, 0);
 
-              {(dinheiroEsperado > 0 || (dinheiroEsperado === 0 && !temPendenciaConciliacao)) && conteudoChips && (
-                <div className="px-6 pb-4 -mt-2 space-y-2">{conteudoChips}</div>
-              )}
+                      return (
+                        <React.Fragment key={f.forma_pagamento}>
+                          <tr>
+                            <td className="px-6 py-3 font-medium text-stone-700">{labelFormaPagamento(f.forma_pagamento)}</td>
+                            <td className="px-6 py-3">
+                              {formatCurrency(f.valor)}{' '}
+                              <span className="text-stone-400">({transacoesDaForma.length} venda{transacoesDaForma.length === 1 ? '' : 's'})</span>
+                            </td>
+                            <td className="px-6 py-3">
+                              {transacoesDaForma.length > 0 ? (
+                                <button
+                                  type="button"
+                                  onClick={() => setFormaExpandida(formaExpandida === chave ? null : chave)}
+                                  className="text-amber-800 font-medium hover:underline"
+                                >
+                                  {formaExpandida === chave ? '▾' : '▸'} {transacoesDaForma.length} pendente{transacoesDaForma.length === 1 ? '' : 's'} → Conciliar
+                                </button>
+                              ) : (
+                                <span className="text-emerald-600">✓ Conciliado</span>
+                              )}
+                            </td>
+                          </tr>
+                          {formaExpandida === chave && transacoesDaForma.length > 0 && (
+                            <tr>
+                              <td colSpan={3} className="px-6 pb-4">
+                                <div className="bg-stone-50 border border-stone-200 rounded-lg p-3 space-y-1.5">
+                                  <div className="flex items-center justify-between pb-1">
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setSelecionadas((prev) => {
+                                          const proximo = { ...prev };
+                                          transacoesDaForma.forEach((t) => { proximo[t.id] = true; });
+                                          return proximo;
+                                        })
+                                      }
+                                      className="text-xs text-stone-500 hover:text-stone-700 font-medium underline underline-offset-2"
+                                    >
+                                      Marcar Todas
+                                    </button>
+                                    <span className="text-xs text-stone-500">
+                                      {idsSelecionados.length > 0
+                                        ? `${idsSelecionados.length} selecionada(s) — ${formatCurrency(valorSelecionado)}`
+                                        : 'Nenhuma selecionada'}
+                                    </span>
+                                  </div>
+                                  {transacoesDaForma.map((t) => (
+                                    <label key={t.id} className="flex items-center justify-between gap-3 text-xs cursor-pointer">
+                                      <span className="flex items-center gap-2 text-stone-600">
+                                        <input
+                                          type="checkbox"
+                                          checked={!!selecionadas[t.id]}
+                                          onChange={(e) => setSelecionadas((prev) => ({ ...prev, [t.id]: e.target.checked }))}
+                                          className="rounded border-stone-300"
+                                        />
+                                        {t.historico || 'Sem descrição'}
+                                      </span>
+                                      <span className="font-medium text-stone-700 whitespace-nowrap">{formatCurrency(t.valor)}</span>
+                                    </label>
+                                  ))}
+                                  <div className="pt-2 flex justify-end">
+                                    <button
+                                      type="button"
+                                      disabled={idsSelecionados.length === 0 || isConciliando}
+                                      onClick={() => handleConciliar(idsSelecionados)}
+                                      className="px-3 py-1.5 bg-stone-900 hover:bg-stone-800 text-white text-xs font-medium rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                    >
+                                      {isConciliando ? 'Conciliando...' : `Conciliar Selecionadas (${idsSelecionados.length})`}
+                                    </button>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="px-6 py-4 flex justify-center border-t border-stone-100">
+                <button
+                  onClick={() => handleSalvar(u.usuario)}
+                  disabled={!valoresDigitados[u.usuario] || salvandoId === u.usuario}
+                  className="px-6 py-2 bg-stone-900 hover:bg-stone-800 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {salvandoId === u.usuario ? 'Salvando...' : 'Finalizar Fechamento'}
+                </button>
+              </div>
 
               {u.movimentacoes_pendentes.length > 0 && (
                 <div className="px-6 pb-4 -mt-2 space-y-1.5">
