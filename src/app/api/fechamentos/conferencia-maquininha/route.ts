@@ -10,9 +10,13 @@ const supabaseAdmin = createClient(
   { auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false } }
 );
 
-const ConferenciaSchema = z.object({
+// Uma linha por fita (comprovante físico) — pode haver mais de uma maquininha/caixa no
+// mesmo dia/forma. Diferença é calculada em runtime no GET (soma de todas as fitas),
+// não guardada aqui, pra não precisar de agregado sobrescrito.
+const CriarSchema = z.object({
   data: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   forma_pagamento: z.enum(FORMAS_PAGAMENTO),
+  rotulo: z.string().trim().max(80).optional(),
   valor_comprovante: z.number(),
 });
 
@@ -20,36 +24,73 @@ export async function POST(request: Request) {
   const perfil = await getPerfilAutenticado();
   if (!perfil) return NextResponse.json({ error: 'NAO_AUTORIZADO' }, { status: 401 });
 
-  const parsed = ConferenciaSchema.safeParse(await request.json());
+  const parsed = CriarSchema.safeParse(await request.json());
   if (!parsed.success) {
     return NextResponse.json({ error: 'DADOS_INVALIDOS', detalhe: parsed.error.flatten() }, { status: 400 });
   }
-  const { data, forma_pagamento, valor_comprovante } = parsed.data;
+  const { data, forma_pagamento, rotulo, valor_comprovante } = parsed.data;
 
-  // Recalcula o esperado no servidor, no momento do envio — nunca confia em valor vindo do
-  // cliente (mesmo padrão de /api/fechamentos/contagem). É o bruto agregado da forma no
-  // dia, todos os usuários — mesma pergunta que o resumo do topo de /vendas responde.
-  const { data: linhas, error: linhasError } = await supabaseAdmin
-    .from('vendas_diarias_formas_pagamento')
-    .select('valor')
-    .eq('franchise_id', perfil.franchiseId)
-    .eq('data_venda', data)
-    .eq('forma_pagamento', forma_pagamento);
-  if (linhasError) return NextResponse.json({ error: 'ERRO_INTERNO', detalhe: linhasError.message }, { status: 500 });
-
-  const valorEsperado = (linhas || []).reduce((acc, l) => acc + Number(l.valor), 0);
-  const diferenca = valor_comprovante - valorEsperado;
-
-  const { error } = await supabaseAdmin.from('conferencia_maquininha').insert({
-    franchise_id: perfil.franchiseId,
-    data,
-    forma_pagamento,
-    valor_esperado: valorEsperado,
-    valor_comprovante,
-    diferenca,
-    conferido_por: perfil.userId,
-  });
+  const { data: nova, error } = await supabaseAdmin
+    .from('conferencia_maquininha')
+    .insert({
+      franchise_id: perfil.franchiseId,
+      data,
+      forma_pagamento,
+      rotulo: rotulo || null,
+      valor_comprovante,
+      conferido_por: perfil.userId,
+    })
+    .select('id')
+    .single();
   if (error) return NextResponse.json({ error: 'ERRO_INTERNO', detalhe: error.message }, { status: 500 });
 
-  return NextResponse.json({ ok: true, valor_esperado: valorEsperado, diferenca });
+  return NextResponse.json({ ok: true, id: nova.id });
+}
+
+const EditarSchema = z.object({
+  id: z.string().uuid(),
+  rotulo: z.string().trim().max(80).optional(),
+  valor_comprovante: z.number(),
+});
+
+export async function PATCH(request: Request) {
+  const perfil = await getPerfilAutenticado();
+  if (!perfil) return NextResponse.json({ error: 'NAO_AUTORIZADO' }, { status: 401 });
+
+  const parsed = EditarSchema.safeParse(await request.json());
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'DADOS_INVALIDOS', detalhe: parsed.error.flatten() }, { status: 400 });
+  }
+
+  const { error } = await supabaseAdmin
+    .from('conferencia_maquininha')
+    .update({ rotulo: parsed.data.rotulo || null, valor_comprovante: parsed.data.valor_comprovante })
+    .eq('id', parsed.data.id)
+    .eq('franchise_id', perfil.franchiseId); // trava: só edita fita da própria franquia
+
+  if (error) return NextResponse.json({ error: 'ERRO_INTERNO', detalhe: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true });
+}
+
+const ExcluirSchema = z.object({
+  id: z.string().uuid(),
+});
+
+export async function DELETE(request: Request) {
+  const perfil = await getPerfilAutenticado();
+  if (!perfil) return NextResponse.json({ error: 'NAO_AUTORIZADO' }, { status: 401 });
+
+  const parsed = ExcluirSchema.safeParse(await request.json());
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'DADOS_INVALIDOS', detalhe: parsed.error.flatten() }, { status: 400 });
+  }
+
+  const { error } = await supabaseAdmin
+    .from('conferencia_maquininha')
+    .delete()
+    .eq('id', parsed.data.id)
+    .eq('franchise_id', perfil.franchiseId); // trava: só exclui fita da própria franquia
+
+  if (error) return NextResponse.json({ error: 'ERRO_INTERNO', detalhe: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true });
 }
