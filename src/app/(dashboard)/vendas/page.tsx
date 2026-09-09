@@ -5,6 +5,16 @@ import { supabase } from '../../../lib/supabase';
 import { hojeBrasilia } from '../../../lib/date';
 import { labelFormaPagamento } from '../../../lib/formasPagamento';
 import HeroCard from '../../../components/HeroCard';
+import MetricList from '../../../components/MetricList';
+
+const CORES_MODALIDADE: Record<string, string> = {
+  dinheiro: '#34d399',
+  cartao_debito: '#38bdf8',
+  cartao_credito: '#818cf8',
+  pix: '#fb923c',
+  venda_internet: '#f472b6',
+  deposito: '#94a3b8',
+};
 
 interface FormaPagamentoValor {
   forma_pagamento: string;
@@ -234,7 +244,6 @@ export default function PrestacaoContasPage() {
   const resumoPorModalidade = ORDEM_RESUMO_MODALIDADE
     .map((forma) => ({ forma_pagamento: forma, valor: totalPorForma.find((t) => t.forma_pagamento === forma)?.valor || 0 }))
     .filter((t) => SEMPRE_EXIBIR_NO_RESUMO.has(t.forma_pagamento) || t.valor > 0.005);
-  const totalResumoModalidade = resumoPorModalidade.reduce((acc, t) => acc + t.valor, 0);
 
   return (
     <div className="space-y-6">
@@ -263,8 +272,18 @@ export default function PrestacaoContasPage() {
       </div>
 
       {!isLoading && !erro && usuarios.length > 0 && (
-        <div className="max-w-xs">
-          <HeroCard label={`Total Vendido ${rotuloDataKpi}`} value={formatCurrency(totalVendidoBruto)} valueSizeClassName="text-3xl sm:text-4xl" />
+        <div className="max-w-sm">
+          <HeroCard label={`Total Vendido ${rotuloDataKpi}`} value={formatCurrency(totalVendidoBruto)} valueSizeClassName="text-3xl sm:text-4xl">
+            <p className="text-xs text-stone-500 -mt-1 mb-2">Compare com o comprovante da maquininha.</p>
+            <MetricList
+              variant="dark"
+              items={resumoPorModalidade.map((t) => ({
+                label: labelFormaPagamento(t.forma_pagamento),
+                value: formatCurrency(t.valor),
+                dotColor: CORES_MODALIDADE[t.forma_pagamento],
+              }))}
+            />
+          </HeroCard>
         </div>
       )}
 
@@ -273,25 +292,6 @@ export default function PrestacaoContasPage() {
           Este fechamento é de um dia anterior. A contagem física de dinheiro pode não representar
           mais o caixa real, já que o valor provavelmente já se misturou com vendas de dias
           seguintes na mesma gaveta.
-        </div>
-      )}
-
-      {!isLoading && !erro && resumoPorModalidade.length > 0 && (
-        <div className="bg-white border border-stone-200 rounded-xl shadow-sm p-6">
-          <h2 className="text-sm font-semibold text-stone-800">Resumo do Dia por Modalidade</h2>
-          <p className="text-xs text-stone-400 mt-0.5 mb-3">Compare com o comprovante da maquininha.</p>
-          <div className="space-y-1.5 text-sm max-w-sm">
-            {resumoPorModalidade.map((t) => (
-              <div key={t.forma_pagamento} className="flex justify-between text-stone-600">
-                <span>{labelFormaPagamento(t.forma_pagamento)}</span>
-                <span className="tabular-nums font-medium text-stone-700">{formatCurrency(t.valor)}</span>
-              </div>
-            ))}
-            <div className="flex justify-between border-t border-stone-200 pt-2 mt-2 font-semibold text-stone-800">
-              <span>Total</span>
-              <span className="tabular-nums">{formatCurrency(totalResumoModalidade)}</span>
-            </div>
-          </div>
         </div>
       )}
 
@@ -323,7 +323,119 @@ export default function PrestacaoContasPage() {
         </div>
       ) : (
         <div className="space-y-4">
-          {usuarios.map((u) => (
+          {usuarios.map((u) => {
+            const dinheiroEsperado = u.proximo_esperado?.dinheiro ?? 0;
+            const temPendenciaConciliacao = u.transacoes_pendentes.some((t) => t.transacoes.length > 0);
+            const temChipsExibiveis = !!u.proximo_esperado && u.proximo_esperado.formas_informativas.some((f) => f.valor !== 0);
+
+            const botaoSangria = (
+              <button
+                type="button"
+                onClick={() => abrirModalMovimentacao(u.usuario)}
+                className="px-3 py-2 border border-stone-300 text-stone-600 hover:bg-stone-50 text-sm font-medium rounded-lg transition-colors"
+              >
+                Sangria/Suprimento
+              </button>
+            );
+
+            const conteudoChips = temChipsExibiveis ? (
+              <>
+                <div className="flex flex-wrap gap-2">
+                  {u.proximo_esperado!.formas_informativas
+                    .filter((f) => f.valor !== 0)
+                    .map((f) => {
+                      const transacoesDaForma = u.transacoes_pendentes.find((t) => t.forma_pagamento === f.forma_pagamento)?.transacoes || [];
+                      if (transacoesDaForma.length === 0) {
+                        return (
+                          <span key={f.forma_pagamento} className="text-xs bg-stone-50 text-stone-500 rounded-lg px-3 py-1.5">
+                            {labelFormaPagamento(f.forma_pagamento)}: <span className="font-medium text-stone-600">{formatCurrency(f.valor)}</span>
+                          </span>
+                        );
+                      }
+                      const chave = `${u.usuario}::${f.forma_pagamento}`;
+                      return (
+                        <button
+                          key={f.forma_pagamento}
+                          type="button"
+                          onClick={() => setFormaExpandida(formaExpandida === chave ? null : chave)}
+                          className="text-xs bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 rounded-lg px-3 py-1.5 transition-colors flex items-center gap-1.5"
+                        >
+                          <span>
+                            {formaExpandida === chave ? '▾' : '▸'} {labelFormaPagamento(f.forma_pagamento)}:{' '}
+                            <span className="font-medium">{formatCurrency(f.valor)}</span>{' '}
+                            · {transacoesDaForma.length} pendente{transacoesDaForma.length === 1 ? '' : 's'}
+                          </span>
+                          <span className="px-1.5 py-0.5 bg-amber-600 text-white rounded text-[10px] font-semibold uppercase tracking-wide">
+                            Conciliar
+                          </span>
+                        </button>
+                      );
+                    })}
+                </div>
+
+                {u.proximo_esperado!.formas_informativas
+                  .filter((f) => f.valor !== 0)
+                  .map((f) => {
+                    const chave = `${u.usuario}::${f.forma_pagamento}`;
+                    if (formaExpandida !== chave) return null;
+                    const transacoesDaForma = u.transacoes_pendentes.find((t) => t.forma_pagamento === f.forma_pagamento)?.transacoes || [];
+                    if (transacoesDaForma.length === 0) return null;
+                    const selecionadasDaForma = transacoesDaForma.filter((t) => selecionadas[t.id]);
+                    const idsSelecionados = selecionadasDaForma.map((t) => t.id);
+                    const valorSelecionado = selecionadasDaForma.reduce((acc, t) => acc + t.valor, 0);
+                    return (
+                      <div key={chave} className="bg-stone-50 border border-stone-200 rounded-lg p-3 space-y-1.5">
+                        <div className="flex items-center justify-between pb-1">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setSelecionadas((prev) => {
+                                const proximo = { ...prev };
+                                transacoesDaForma.forEach((t) => { proximo[t.id] = true; });
+                                return proximo;
+                              })
+                            }
+                            className="text-xs text-stone-500 hover:text-stone-700 font-medium underline underline-offset-2"
+                          >
+                            Marcar Todas
+                          </button>
+                          <span className="text-xs text-stone-500">
+                            {idsSelecionados.length > 0
+                              ? `${idsSelecionados.length} selecionada(s) — ${formatCurrency(valorSelecionado)}`
+                              : 'Nenhuma selecionada'}
+                          </span>
+                        </div>
+                        {transacoesDaForma.map((t) => (
+                          <label key={t.id} className="flex items-center justify-between gap-3 text-xs cursor-pointer">
+                            <span className="flex items-center gap-2 text-stone-600">
+                              <input
+                                type="checkbox"
+                                checked={!!selecionadas[t.id]}
+                                onChange={(e) => setSelecionadas((prev) => ({ ...prev, [t.id]: e.target.checked }))}
+                                className="rounded border-stone-300"
+                              />
+                              {t.historico || 'Sem descrição'}
+                            </span>
+                            <span className="font-medium text-stone-700 whitespace-nowrap">{formatCurrency(t.valor)}</span>
+                          </label>
+                        ))}
+                        <div className="pt-2 flex justify-end">
+                          <button
+                            type="button"
+                            disabled={idsSelecionados.length === 0 || isConciliando}
+                            onClick={() => handleConciliar(idsSelecionados)}
+                            className="px-3 py-1.5 bg-stone-900 hover:bg-stone-800 text-white text-xs font-medium rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            {isConciliando ? 'Conciliando...' : `Conciliar Selecionadas (${idsSelecionados.length})`}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </>
+            ) : null;
+
+            return (
             <div key={u.usuario} className="bg-white border border-stone-200 rounded-xl shadow-sm overflow-hidden">
               <div className="p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
@@ -336,146 +448,58 @@ export default function PrestacaoContasPage() {
                   </p>
                 </div>
 
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => abrirModalMovimentacao(u.usuario)}
-                    className="px-3 py-2 border border-stone-300 text-stone-600 hover:bg-stone-50 text-sm font-medium rounded-lg transition-colors"
-                  >
-                    Sangria/Suprimento
-                  </button>
-                  <div className="text-right">
-                    <p className="text-xs text-stone-400 uppercase tracking-wider">Dinheiro esperado</p>
-                    <p className="font-semibold text-stone-800">
-                      {u.proximo_esperado ? formatCurrency(u.proximo_esperado.dinheiro) : '—'}
-                    </p>
-                  </div>
-                  {funcionarios.length > 0 && (
-                    <select
-                      value={funcionarioSelecionado[u.usuario] || ''}
-                      onChange={(e) => setFuncionarioSelecionado((prev) => ({ ...prev, [u.usuario]: e.target.value }))}
-                      className="px-3 py-2 border border-stone-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-400 outline-none bg-white text-stone-700"
+                {dinheiroEsperado > 0 ? (
+                  <div className="flex items-center gap-3">
+                    {botaoSangria}
+                    <div className="text-right">
+                      <p className="text-xs text-stone-400 uppercase tracking-wider">Dinheiro esperado</p>
+                      <p className="font-semibold text-stone-800">{formatCurrency(dinheiroEsperado)}</p>
+                    </div>
+                    {funcionarios.length > 0 && (
+                      <select
+                        value={funcionarioSelecionado[u.usuario] || ''}
+                        onChange={(e) => setFuncionarioSelecionado((prev) => ({ ...prev, [u.usuario]: e.target.value }))}
+                        className="px-3 py-2 border border-stone-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-400 outline-none bg-white text-stone-700"
+                      >
+                        <option value="">Quem está fechando?</option>
+                        {funcionarios.map((f) => (
+                          <option key={f.id} value={f.id}>{f.nome}</option>
+                        ))}
+                      </select>
+                    )}
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="Valor contado"
+                      value={valoresDigitados[u.usuario] || ''}
+                      onChange={(e) => setValoresDigitados((prev) => ({ ...prev, [u.usuario]: e.target.value }))}
+                      className="w-32 px-3 py-2 border border-stone-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-400 outline-none disabled:bg-stone-50 disabled:text-stone-300"
+                    />
+                    <button
+                      onClick={() => handleSalvar(u.usuario)}
+                      disabled={salvandoId === u.usuario}
+                      className="px-4 py-2 bg-stone-900 hover:bg-stone-800 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                     >
-                      <option value="">Quem está fechando?</option>
-                      {funcionarios.map((f) => (
-                        <option key={f.id} value={f.id}>{f.nome}</option>
-                      ))}
-                    </select>
-                  )}
-                  <input
-                    type="number"
-                    step="0.01"
-                    placeholder="Valor contado"
-                    disabled={!u.proximo_esperado || u.proximo_esperado.dinheiro === 0}
-                    value={valoresDigitados[u.usuario] || ''}
-                    onChange={(e) => setValoresDigitados((prev) => ({ ...prev, [u.usuario]: e.target.value }))}
-                    className="w-32 px-3 py-2 border border-stone-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-400 outline-none disabled:bg-stone-50 disabled:text-stone-300"
-                  />
-                  <button
-                onClick={() => handleSalvar(u.usuario)}
-                disabled={!u.proximo_esperado || u.proximo_esperado.dinheiro === 0 || salvandoId === u.usuario}
-                className="px-4 py-2 bg-stone-900 hover:bg-stone-800 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                    {salvandoId === u.usuario ? 'Salvando...' : 'Fechar Caixa'}
-                  </button>
-                </div>
+                      {salvandoId === u.usuario ? 'Salvando...' : 'Fechar Caixa'}
+                    </button>
+                  </div>
+                ) : (
+                  botaoSangria
+                )}
               </div>
 
-              {u.proximo_esperado && u.proximo_esperado.formas_informativas.some((f) => f.valor !== 0) && (
-                <div className="px-6 pb-4 -mt-2 space-y-2">
-                  <div className="flex flex-wrap gap-2">
-                    {u.proximo_esperado.formas_informativas
-                      .filter((f) => f.valor !== 0)
-                      .map((f) => {
-                        const transacoesDaForma = u.transacoes_pendentes.find((t) => t.forma_pagamento === f.forma_pagamento)?.transacoes || [];
-                        if (transacoesDaForma.length === 0) {
-                          return (
-                            <span key={f.forma_pagamento} className="text-xs bg-stone-50 text-stone-500 rounded-lg px-3 py-1.5">
-                              {labelFormaPagamento(f.forma_pagamento)}: <span className="font-medium text-stone-600">{formatCurrency(f.valor)}</span>
-                            </span>
-                          );
-                        }
-                        const chave = `${u.usuario}::${f.forma_pagamento}`;
-                        return (
-                          <button
-                            key={f.forma_pagamento}
-                            type="button"
-                            onClick={() => setFormaExpandida(formaExpandida === chave ? null : chave)}
-                            className="text-xs bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 rounded-lg px-3 py-1.5 transition-colors flex items-center gap-1.5"
-                          >
-                            <span>
-                              {formaExpandida === chave ? '▾' : '▸'} {labelFormaPagamento(f.forma_pagamento)}:{' '}
-                              <span className="font-medium">{formatCurrency(f.valor)}</span>{' '}
-                              · {transacoesDaForma.length} pendente{transacoesDaForma.length === 1 ? '' : 's'}
-                            </span>
-                            <span className="px-1.5 py-0.5 bg-amber-600 text-white rounded text-[10px] font-semibold uppercase tracking-wide">
-                              Conciliar
-                            </span>
-                          </button>
-                        );
-                      })}
-                  </div>
+              {dinheiroEsperado === 0 && temPendenciaConciliacao && conteudoChips && (
+                <div className="px-6 pb-4 space-y-2">{conteudoChips}</div>
+              )}
 
-                  {u.proximo_esperado.formas_informativas
-                    .filter((f) => f.valor !== 0)
-                    .map((f) => {
-                      const chave = `${u.usuario}::${f.forma_pagamento}`;
-                      if (formaExpandida !== chave) return null;
-                      const transacoesDaForma = u.transacoes_pendentes.find((t) => t.forma_pagamento === f.forma_pagamento)?.transacoes || [];
-                      if (transacoesDaForma.length === 0) return null;
-                      const selecionadasDaForma = transacoesDaForma.filter((t) => selecionadas[t.id]);
-                      const idsSelecionados = selecionadasDaForma.map((t) => t.id);
-                      const valorSelecionado = selecionadasDaForma.reduce((acc, t) => acc + t.valor, 0);
-                      return (
-                        <div key={chave} className="bg-stone-50 border border-stone-200 rounded-lg p-3 space-y-1.5">
-                          <div className="flex items-center justify-between pb-1">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setSelecionadas((prev) => {
-                                  const proximo = { ...prev };
-                                  transacoesDaForma.forEach((t) => { proximo[t.id] = true; });
-                                  return proximo;
-                                })
-                              }
-                              className="text-xs text-stone-500 hover:text-stone-700 font-medium underline underline-offset-2"
-                            >
-                              Marcar Todas
-                            </button>
-                            <span className="text-xs text-stone-500">
-                              {idsSelecionados.length > 0
-                                ? `${idsSelecionados.length} selecionada(s) — ${formatCurrency(valorSelecionado)}`
-                                : 'Nenhuma selecionada'}
-                            </span>
-                          </div>
-                          {transacoesDaForma.map((t) => (
-                            <label key={t.id} className="flex items-center justify-between gap-3 text-xs cursor-pointer">
-                              <span className="flex items-center gap-2 text-stone-600">
-                                <input
-                                  type="checkbox"
-                                  checked={!!selecionadas[t.id]}
-                                  onChange={(e) => setSelecionadas((prev) => ({ ...prev, [t.id]: e.target.checked }))}
-                                  className="rounded border-stone-300"
-                                />
-                                {t.historico || 'Sem descrição'}
-                              </span>
-                              <span className="font-medium text-stone-700 whitespace-nowrap">{formatCurrency(t.valor)}</span>
-                            </label>
-                          ))}
-                          <div className="pt-2 flex justify-end">
-                            <button
-                              type="button"
-                              disabled={idsSelecionados.length === 0 || isConciliando}
-                              onClick={() => handleConciliar(idsSelecionados)}
-                              className="px-3 py-1.5 bg-stone-900 hover:bg-stone-800 text-white text-xs font-medium rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                            >
-                              {isConciliando ? 'Conciliando...' : `Conciliar Selecionadas (${idsSelecionados.length})`}
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
+              {dinheiroEsperado === 0 && (
+                <div className="px-6 pb-4 -mt-2">
+                  <span className="text-sm text-stone-400">Dinheiro: nada a conferir hoje</span>
                 </div>
+              )}
+
+              {(dinheiroEsperado > 0 || (dinheiroEsperado === 0 && !temPendenciaConciliacao)) && conteudoChips && (
+                <div className="px-6 pb-4 -mt-2 space-y-2">{conteudoChips}</div>
               )}
 
               {u.movimentacoes_pendentes.length > 0 && (
@@ -545,7 +569,8 @@ export default function PrestacaoContasPage() {
                 </div>
               )}
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
