@@ -217,6 +217,8 @@ export default function PrestacaoContasPage() {
 
   const totalPendente = usuarios.reduce((acc, u) => acc + (u.proximo_esperado?.dinheiro || 0), 0);
   const usuariosPendentes = usuarios.filter((u) => (u.proximo_esperado?.dinheiro || 0) > 0.005).map((u) => u.usuario);
+  const dataEstaNoPassado = dataSelecionada < hoje;
+  const rotuloData = dataSelecionada === hoje ? 'hoje' : `em ${dataSelecionada.split('-').reverse().join('/')}`;
 
   return (
     <div className="space-y-6">
@@ -244,6 +246,14 @@ export default function PrestacaoContasPage() {
         </div>
       </div>
 
+      {!isLoading && !erro && dataEstaNoPassado && totalPendente > 0.005 && (
+        <div className="bg-stone-100 border border-stone-200 rounded-xl px-6 py-4 text-stone-600 text-sm">
+          Este fechamento é de um dia anterior. A contagem física de dinheiro pode não representar
+          mais o caixa real, já que o valor provavelmente já se misturou com vendas de dias
+          seguintes na mesma gaveta.
+        </div>
+      )}
+
       {funcionarios.length === 0 && (
         <p className="text-xs text-stone-400">
           Cadastre funcionários em Configurações para rastrear quem fecha o caixa.
@@ -253,11 +263,11 @@ export default function PrestacaoContasPage() {
       {!isLoading && !erro && usuarios.length > 0 && (
         totalPendente > 0.005 ? (
           <div className="bg-amber-50 border border-amber-200 rounded-xl px-6 py-4 text-amber-800 text-sm font-medium">
-            {formatCurrency(totalPendente)} ainda não conferidos hoje — pendente: {usuariosPendentes.join(', ')}
+            {formatCurrency(totalPendente)} ainda não conferidos {rotuloData} — pendente: {usuariosPendentes.join(', ')}
           </div>
         ) : (
           <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-6 py-4 text-emerald-700 text-sm font-medium">
-            Tudo conferido hoje.
+            Tudo conferido {rotuloData}.
           </div>
         )
       )}
