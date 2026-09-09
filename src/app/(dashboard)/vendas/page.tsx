@@ -4,17 +4,6 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../../lib/supabase';
 import { hojeBrasilia } from '../../../lib/date';
 import { labelFormaPagamento } from '../../../lib/formasPagamento';
-import HeroCard from '../../../components/HeroCard';
-import MetricList from '../../../components/MetricList';
-
-const CORES_MODALIDADE: Record<string, string> = {
-  dinheiro: '#34d399',
-  cartao_debito: '#38bdf8',
-  cartao_credito: '#818cf8',
-  pix: '#fb923c',
-  venda_internet: '#f472b6',
-  deposito: '#94a3b8',
-};
 
 interface FormaPagamentoValor {
   forma_pagamento: string;
@@ -71,6 +60,14 @@ interface Funcionario {
   nome: string;
 }
 
+interface ConferenciaForma {
+  forma_pagamento: string;
+  valor_esperado: number;
+  valor_comprovante: number;
+  diferenca: number;
+  conferido_em: string;
+}
+
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
 
@@ -94,6 +91,9 @@ export default function PrestacaoContasPage() {
   const [isConciliando, setIsConciliando] = useState(false);
   const [totalVendidoBruto, setTotalVendidoBruto] = useState(0);
   const [totalPorForma, setTotalPorForma] = useState<FormaPagamentoValor[]>([]);
+  const [conferenciaPorForma, setConferenciaPorForma] = useState<Record<string, ConferenciaForma>>({});
+  const [comprovanteDigitado, setComprovanteDigitado] = useState<Record<string, string>>({});
+  const [isSalvandoConferencia, setIsSalvandoConferencia] = useState<string | null>(null);
 
   const handleSincronizarAgora = async () => {
     setIsSincronizando(true);
@@ -132,6 +132,8 @@ export default function PrestacaoContasPage() {
       setUsuarios(json.caixas || []);
       setTotalVendidoBruto(json.total_vendido_bruto || 0);
       setTotalPorForma(json.total_por_forma || []);
+      const conferencias: ConferenciaForma[] = json.conferencia_por_forma || [];
+      setConferenciaPorForma(Object.fromEntries(conferencias.map((c) => [c.forma_pagamento, c])));
     } catch (err) {
       console.error('Erro ao carregar prestação de contas:', err);
       setErro('Não foi possível carregar os dados. Tente novamente.');
@@ -230,6 +232,39 @@ export default function PrestacaoContasPage() {
     }
   };
 
+  const handleSalvarConferencia = async (forma_pagamento: string) => {
+    const texto = comprovanteDigitado[forma_pagamento];
+    if (texto === undefined || texto.trim() === '') return;
+    const valor = parseFloat(texto);
+    if (isNaN(valor)) return;
+
+    setIsSalvandoConferencia(forma_pagamento);
+    try {
+      const res = await fetch('/api/fechamentos/conferencia-maquininha', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: dataSelecionada, forma_pagamento, valor_comprovante: valor }),
+      });
+      if (!res.ok) throw new Error('Falha ao salvar conferência');
+      const json = await res.json();
+      setConferenciaPorForma((prev) => ({
+        ...prev,
+        [forma_pagamento]: {
+          forma_pagamento,
+          valor_esperado: json.valor_esperado,
+          valor_comprovante: valor,
+          diferenca: json.diferenca,
+          conferido_em: new Date().toISOString(),
+        },
+      }));
+    } catch (err) {
+      console.error('Erro ao salvar conferência da maquininha:', err);
+      alert('Erro ao salvar a conferência. Verifique o console.');
+    } finally {
+      setIsSalvandoConferencia(null);
+    }
+  };
+
   const totalPendente = usuarios.reduce((acc, u) => acc + (u.proximo_esperado?.dinheiro || 0), 0);
   const usuariosPendentes = usuarios.filter((u) => (u.proximo_esperado?.dinheiro || 0) > 0.005).map((u) => u.usuario);
   const dataEstaNoPassado = dataSelecionada < hoje;
@@ -244,6 +279,16 @@ export default function PrestacaoContasPage() {
   const resumoPorModalidade = ORDEM_RESUMO_MODALIDADE
     .map((forma) => ({ forma_pagamento: forma, valor: totalPorForma.find((t) => t.forma_pagamento === forma)?.valor || 0 }))
     .filter((t) => SEMPRE_EXIBIR_NO_RESUMO.has(t.forma_pagamento) || t.valor > 0.005);
+
+  // Pendente aqui é agregado de TODOS os usuários — só informativo no resumo (sem botão),
+  // a ação de conciliar continua sendo por operador, no card de cada um.
+  const pendentesPorForma = new Map<string, number>();
+  for (const u of usuarios) {
+    for (const t of u.transacoes_pendentes) {
+      pendentesPorForma.set(t.forma_pagamento, (pendentesPorForma.get(t.forma_pagamento) || 0) + t.transacoes.length);
+    }
+  }
+  const modalidadesResumo = resumoPorModalidade.map((t) => ({ ...t, pendentes: pendentesPorForma.get(t.forma_pagamento) || 0 }));
 
   return (
     <div className="space-y-6">
@@ -272,18 +317,60 @@ export default function PrestacaoContasPage() {
       </div>
 
       {!isLoading && !erro && usuarios.length > 0 && (
-        <div className="max-w-sm">
-          <HeroCard label={`Total Vendido ${rotuloDataKpi}`} value={formatCurrency(totalVendidoBruto)} valueSizeClassName="text-3xl sm:text-4xl">
-            <p className="text-xs text-stone-500 -mt-1 mb-2">Compare com o comprovante da maquininha.</p>
-            <MetricList
-              variant="dark"
-              items={resumoPorModalidade.map((t) => ({
-                label: labelFormaPagamento(t.forma_pagamento),
-                value: formatCurrency(t.valor),
-                dotColor: CORES_MODALIDADE[t.forma_pagamento],
-              }))}
-            />
-          </HeroCard>
+        <div className="bg-white border border-stone-200 rounded-xl shadow-sm overflow-hidden">
+          <div className="p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-1.5">
+              <h3 className="font-medium text-stone-800">Total Vendido {rotuloDataKpi}</h3>
+              <span className="text-stone-400 text-xs cursor-help" title="Compare com o comprovante da maquininha.">ⓘ</span>
+            </div>
+            <p className="font-semibold text-stone-800">{formatCurrency(totalVendidoBruto)}</p>
+          </div>
+
+          <div className="px-6 pb-4 -mt-2 flex flex-wrap gap-2">
+            {modalidadesResumo.map((m) => {
+              if (m.forma_pagamento === 'dinheiro') {
+                return (
+                  <span key={m.forma_pagamento} className="text-xs bg-stone-50 text-stone-500 rounded-lg px-3 py-1.5">
+                    {labelFormaPagamento(m.forma_pagamento)}: <span className="font-medium text-stone-600">{formatCurrency(m.valor)}</span>
+                  </span>
+                );
+              }
+              const conferencia = conferenciaPorForma[m.forma_pagamento];
+              const diferenca = conferencia?.diferenca;
+              const corDiferenca = diferenca === undefined ? 'text-stone-400' : Math.abs(diferenca) <= 0.005 ? 'text-emerald-600' : 'text-red-600';
+              return (
+                <div
+                  key={m.forma_pagamento}
+                  className={`flex items-center gap-2 text-xs rounded-lg px-3 py-1.5 ${m.pendentes > 0 ? 'bg-amber-50 border border-amber-200 text-amber-800' : 'bg-stone-50 text-stone-500'}`}
+                >
+                  <span>
+                    {labelFormaPagamento(m.forma_pagamento)}: <span className="font-medium">{formatCurrency(m.valor)}</span>
+                    {m.pendentes > 0 && ` · ${m.pendentes} pendente${m.pendentes === 1 ? '' : 's'}`}
+                  </span>
+                  <span
+                    className="text-stone-400 cursor-help whitespace-nowrap"
+                    title="Some os sub-totais da(s) bandeira(s) no comprovante antes de digitar, se a maquininha imprimir separado por bandeira."
+                  >
+                    Comprovante ⓘ:
+                  </span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    placeholder="0,00"
+                    value={comprovanteDigitado[m.forma_pagamento] ?? (conferencia ? String(conferencia.valor_comprovante) : '')}
+                    onChange={(e) => setComprovanteDigitado((prev) => ({ ...prev, [m.forma_pagamento]: e.target.value }))}
+                    onBlur={() => handleSalvarConferencia(m.forma_pagamento)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                    disabled={isSalvandoConferencia === m.forma_pagamento}
+                    className="w-20 px-2 py-1 border border-stone-300 rounded text-stone-700 focus:ring-2 focus:ring-stone-400 outline-none disabled:opacity-60"
+                  />
+                  <span className={`font-medium whitespace-nowrap ${corDiferenca}`}>
+                    diferença: {diferenca === undefined ? '—' : formatCurrency(diferenca)}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
