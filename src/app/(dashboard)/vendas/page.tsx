@@ -46,10 +46,14 @@ interface FormaComTransacoes {
   transacoes: TransacaoPendente[];
 }
 
+interface FormaInformativa extends FormaPagamentoValor {
+  volume: number;
+}
+
 interface LinhaUsuario {
   usuario: string;
   acumulado_atualizado_em: string | null;
-  proximo_esperado: { dinheiro: number; formas_informativas: FormaPagamentoValor[]; total: number } | null;
+  proximo_esperado: { dinheiro: number; formas_informativas: FormaInformativa[]; total: number } | null;
   movimentacoes_pendentes: MovimentacaoPendente[];
   transacoes_pendentes: FormaComTransacoes[];
   historico: HistoricoItem[];
@@ -335,12 +339,10 @@ export default function PrestacaoContasPage() {
     }
   };
 
-  // SISTEMA = venda automática/integração, sem operador logado — nunca precisa de
-  // fechamento, então fica fora do cálculo de pendência (senão "Tudo conferido" nunca
-  // ficaria verdadeiro).
-  const usuariosComFechamento = usuarios.filter((u) => u.usuario !== 'SISTEMA');
-  const totalPendente = usuariosComFechamento.reduce((acc, u) => acc + (u.proximo_esperado?.dinheiro || 0), 0);
-  const usuariosPendentes = usuariosComFechamento.filter((u) => (u.proximo_esperado?.dinheiro || 0) > 0.005).map((u) => u.usuario);
+  // SISTEMA é um login genérico/compartilhado (não venda automática) — precisa de
+  // fechamento igual a qualquer outro operador, então entra normalmente aqui.
+  const totalPendente = usuarios.reduce((acc, u) => acc + (u.proximo_esperado?.dinheiro || 0), 0);
+  const usuariosPendentes = usuarios.filter((u) => (u.proximo_esperado?.dinheiro || 0) > 0.005).map((u) => u.usuario);
   const dataEstaNoPassado = dataSelecionada < hoje;
   const rotuloData = dataSelecionada === hoje ? 'hoje' : `em ${dataSelecionada.split('-').reverse().join('/')}`;
   const rotuloDataKpi = dataSelecionada === hoje ? 'Hoje' : `em ${dataSelecionada.split('-').reverse().join('/')}`;
@@ -560,18 +562,8 @@ export default function PrestacaoContasPage() {
       ) : (
         <div className="space-y-4">
           {usuarios.map((u) => {
-            // SISTEMA = venda automática/integração, sem operador logado (confirmado) —
-            // referência informativa, nunca um card de fechamento.
-            if (u.usuario === 'SISTEMA') {
-              return (
-                <div key={u.usuario} className="bg-stone-50 border border-stone-200 rounded-xl px-6 py-4 text-sm text-stone-500">
-                  Vendas sem operador identificado (SISTEMA):{' '}
-                  <span className="font-medium text-stone-700">{formatCurrency(u.proximo_esperado?.total || 0)}</span>
-                  {' '}— incluídas automaticamente no total da loja.
-                </div>
-              );
-            }
-
+            // SISTEMA é login genérico/compartilhado, não venda automática — renderiza
+            // como qualquer outro operador, sem exceção (mesma grade, mesmo fechamento).
             const dinheiroEsperado = u.proximo_esperado?.dinheiro ?? 0;
             const formasNaoDinheiro = u.proximo_esperado ? u.proximo_esperado.formas_informativas.filter((f) => f.valor !== 0) : [];
 
@@ -582,7 +574,9 @@ export default function PrestacaoContasPage() {
 
             const linhasNaoDinheiro = formasNaoDinheiro.map((f) => {
               const transacoesDaForma = u.transacoes_pendentes.find((t) => t.forma_pagamento === f.forma_pagamento)?.transacoes || [];
-              const diferenca = transacoesDaForma.reduce((acc, t) => acc + t.valor, 0);
+              // Reage em tempo real ao check/uncheck do painel (antes até de salvar): marcar
+              // = "confirmei, tira da diferença"; desmarcar = "sinalizei, volta pra diferença".
+              const diferenca = transacoesDaForma.filter((t) => !selecionadas[t.id]).reduce((acc, t) => acc + t.valor, 0);
               return { ...f, transacoesDaForma, diferenca };
             });
 
@@ -618,7 +612,7 @@ export default function PrestacaoContasPage() {
                     <tr>
                       <th className="px-6 py-2">Forma de Pagamento</th>
                       <th className="px-6 py-2">Esperado</th>
-                      <th className="px-6 py-2">Informado/Resultado</th>
+                      <th className="px-6 py-2">Resultado</th>
                       <th className="px-6 py-2">Diferença</th>
                     </tr>
                   </thead>
@@ -674,7 +668,7 @@ export default function PrestacaoContasPage() {
                             <td className="px-6 py-3 font-medium text-stone-700">{labelFormaPagamento(f.forma_pagamento)}</td>
                             <td className="px-6 py-3">
                               {formatCurrency(f.valor)}{' '}
-                              <span className="text-stone-400">({f.transacoesDaForma.length} venda{f.transacoesDaForma.length === 1 ? '' : 's'})</span>
+                              <span className="text-stone-400">({f.volume} venda{f.volume === 1 ? '' : 's'})</span>
                             </td>
                             <td className="px-6 py-3">
                               {f.transacoesDaForma.length > 0 ? (
@@ -686,7 +680,7 @@ export default function PrestacaoContasPage() {
                                   {formaExpandida === chave ? '▾' : '▸'} {f.transacoesDaForma.length} sinalizada{f.transacoesDaForma.length === 1 ? '' : 's'} → Conciliar
                                 </button>
                               ) : (
-                                <span className="text-emerald-600">✓ Conferidas</span>
+                                <span className="text-emerald-600">✓ {f.volume}/{f.volume} conferidas</span>
                               )}
                             </td>
                             <td className={`px-6 py-3 font-medium whitespace-nowrap ${bateu ? 'text-emerald-600' : 'text-red-600'}`}>
@@ -750,7 +744,7 @@ export default function PrestacaoContasPage() {
                     })}
                   </tbody>
                   <tfoot>
-                    <tr className="border-t-2 border-stone-200 font-semibold text-stone-800">
+                    <tr className="border-t-2 border-stone-300 bg-stone-50 font-semibold text-stone-800 text-base">
                       <td className="px-6 py-3" colSpan={3}>Diferença Total deste Fechamento</td>
                       <td className={`px-6 py-3 whitespace-nowrap ${
                         diferencaTotal === null ? 'text-stone-400' : totalBateu ? 'text-emerald-600' : 'text-red-600'
