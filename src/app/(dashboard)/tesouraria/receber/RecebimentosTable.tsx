@@ -6,7 +6,7 @@ import type { Recebimento } from './types';
 
 function getStatusBadge(status: string) {
   const badges: Record<string, JSX.Element> = {
-    pendente: <span className="px-2.5 py-1 bg-amber-50 text-amber-700 text-xs font-medium rounded-md">A Receber</span>,
+    pendente: <span className="px-2.5 py-1 bg-stone-100 text-stone-500 text-xs font-medium rounded-md">A Receber</span>,
     atrasado: <span className="px-2.5 py-1 bg-red-50 text-red-700 text-xs font-medium rounded-md">Atrasado</span>,
     recebido: <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 text-xs font-medium rounded-md">Recebido</span>,
   };

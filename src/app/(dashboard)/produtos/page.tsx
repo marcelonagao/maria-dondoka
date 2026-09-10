@@ -202,7 +202,7 @@ export default function ProdutosPage() {
                   <label className="block text-sm font-medium text-stone-700 mb-1">SKU</label>
                   <input
                     type="text" required
-                    className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+                    className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none"
                     value={formData.sku}
                     onChange={(e) => setFormData({ ...formData, sku: e.target.value })}
                     placeholder="Ex: PERF-001"
@@ -212,7 +212,7 @@ export default function ProdutosPage() {
                   <label className="block text-sm font-medium text-stone-700 mb-1">Categoria</label>
                   <input
                     type="text"
-                    className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+                    className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none"
                     value={formData.categoria}
                     onChange={(e) => setFormData({ ...formData, categoria: e.target.value })}
                     placeholder="Ex: Perfumaria"
@@ -223,7 +223,7 @@ export default function ProdutosPage() {
                 <label className="block text-sm font-medium text-stone-700 mb-1">Nome</label>
                 <input
                   type="text" required
-                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none"
                   value={formData.nome}
                   onChange={(e) => setFormData({ ...formData, nome: e.target.value })}
                   placeholder="Ex: Perfume Floral 100ml"
@@ -232,7 +232,7 @@ export default function ProdutosPage() {
               <div>
                 <label className="block text-sm font-medium text-stone-700 mb-1">Descrição</label>
                 <textarea
-                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none"
                   rows={2}
                   value={formData.descricao}
                   onChange={(e) => setFormData({ ...formData, descricao: e.target.value })}
@@ -243,7 +243,7 @@ export default function ProdutosPage() {
                   <label className="block text-sm font-medium text-stone-700 mb-1">Custo (R$)</label>
                   <input
                     type="number" step="0.01"
-                    className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+                    className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none"
                     value={formData.preco_custo}
                     onChange={(e) => setFormData({ ...formData, preco_custo: e.target.value })}
                     placeholder="0.00"
@@ -253,7 +253,7 @@ export default function ProdutosPage() {
                   <label className="block text-sm font-medium text-stone-700 mb-1">Venda (R$)</label>
                   <input
                     type="number" step="0.01"
-                    className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+                    className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none"
                     value={formData.preco_venda}
                     onChange={(e) => setFormData({ ...formData, preco_venda: e.target.value })}
                     placeholder="0.00"
@@ -263,7 +263,7 @@ export default function ProdutosPage() {
                   <label className="block text-sm font-medium text-stone-700 mb-1">Estoque</label>
                   <input
                     type="number" step="1"
-                    className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+                    className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none"
                     value={formData.estoque_atual}
                     onChange={(e) => setFormData({ ...formData, estoque_atual: e.target.value })}
                   />

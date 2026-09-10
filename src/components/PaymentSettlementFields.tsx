@@ -35,7 +35,7 @@ export default function PaymentSettlementFields({
           type="date"
           required
           max={hojeBrasilia()}
-          className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none text-stone-700"
+          className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none text-stone-700"
           value={value.paidAt}
           onChange={(e) => onChange({ ...value, paidAt: e.target.value })}
         />
@@ -43,7 +43,7 @@ export default function PaymentSettlementFields({
 
       {pagoAposVencimento && (
         <div className="space-y-3">
-          <p className="text-sm font-medium text-amber-700">Pago após o vencimento</p>
+          <p className="text-sm font-medium text-stone-700">Pago após o vencimento</p>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-stone-700 mb-1">Juros (R$)</label>
@@ -51,7 +51,7 @@ export default function PaymentSettlementFields({
                 type="number"
                 step="0.01"
                 min="0"
-                className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+                className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none"
                 value={value.valorJuros}
                 onChange={(e) => onChange({ ...value, valorJuros: e.target.value })}
                 placeholder="0.00"
@@ -63,7 +63,7 @@ export default function PaymentSettlementFields({
                 type="number"
                 step="0.01"
                 min="0"
-                className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+                className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none"
                 value={value.valorMulta}
                 onChange={(e) => onChange({ ...value, valorMulta: e.target.value })}
                 placeholder="0.00"
@@ -79,7 +79,7 @@ export default function PaymentSettlementFields({
           <button
             type="button"
             onClick={onVerComprovanteExistente}
-            className="text-xs font-medium text-amber-600 hover:text-amber-700 mb-2 block"
+            className="text-xs font-medium text-stone-600 hover:text-stone-800 mb-2 block"
           >
             Ver comprovante atual
           </button>

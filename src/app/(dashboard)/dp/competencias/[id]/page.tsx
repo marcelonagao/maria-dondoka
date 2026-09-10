@@ -368,7 +368,7 @@ export default function RevisaoCompetenciaPage() {
   return (
     <div className="space-y-6">
       <div>
-        <Link href="/dp" className="text-sm font-medium text-amber-600 hover:text-amber-700">
+        <Link href="/dp" className="text-sm font-medium text-stone-600 hover:text-stone-800">
           ← Voltar para DP
         </Link>
       </div>
@@ -406,10 +406,10 @@ export default function RevisaoCompetenciaPage() {
         return (
           <div
             key={chave}
-            className={`bg-white border rounded-xl shadow-sm overflow-hidden ${semFranquia ? 'border-amber-300' : 'border-stone-200'}`}
+            className={`bg-white border rounded-xl shadow-sm overflow-hidden ${semFranquia ? 'border-stone-400' : 'border-stone-200'}`}
           >
-            <div className={`px-6 py-3 border-b ${semFranquia ? 'bg-amber-50 border-amber-200' : 'bg-stone-50 border-stone-200'}`}>
-              <h3 className={`text-sm font-semibold ${semFranquia ? 'text-amber-700' : 'text-stone-700'}`}>
+            <div className={`px-6 py-3 border-b ${semFranquia ? 'bg-stone-200 border-stone-300' : 'bg-stone-50 border-stone-200'}`}>
+              <h3 className={`text-sm font-semibold ${semFranquia ? 'text-stone-800' : 'text-stone-700'}`}>
                 {semFranquia ? '⚠ Franquia não identificada' : nomeFranquia(chave)}
               </h3>
             </div>
@@ -470,7 +470,7 @@ export default function RevisaoCompetenciaPage() {
                       <td className="px-4 py-2">
                         <select
                           disabled={!podeEditar}
-                          className={`px-2 py-1 border rounded text-xs bg-white ${semFranquia ? 'border-amber-300' : 'border-stone-200'}`}
+                          className={`px-2 py-1 border rounded text-xs bg-white ${semFranquia ? 'border-stone-400' : 'border-stone-200'}`}
                           value={item.franchise_id || ''}
                           onChange={(e) => atualizarItem(item.id, 'franchise_id', e.target.value || null)}
                         >
@@ -505,7 +505,7 @@ export default function RevisaoCompetenciaPage() {
         <div className="bg-white border border-stone-200 rounded-xl shadow-sm p-6 space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold text-stone-700">Guias avulsas (FGTS, INSS Patronal, Sindicato...)</h3>
-            <button type="button" onClick={adicionarGuia} className="text-xs font-medium text-amber-600 hover:text-amber-700">
+            <button type="button" onClick={adicionarGuia} className="text-xs font-medium text-stone-600 hover:text-stone-800">
               + Adicionar guia
             </button>
           </div>
@@ -555,10 +555,10 @@ export default function RevisaoCompetenciaPage() {
         <div className="bg-white border border-stone-200 rounded-xl shadow-sm p-6 space-y-4">
           <div>
             <label className="block text-sm font-medium text-stone-700 mb-1">Vencimento (usado em todos os lançamentos gerados)</label>
-            <input type="date" className="w-48 px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none text-stone-700" value={vencimento} onChange={(e) => setVencimento(e.target.value)} />
+            <input type="date" className="w-48 px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none text-stone-700" value={vencimento} onChange={(e) => setVencimento(e.target.value)} />
           </div>
           {existeItemSemFranquia && (
-            <p className="text-sm text-amber-600">Resolva a franquia de todos os funcionários destacados acima antes de validar.</p>
+            <p className="text-sm text-stone-700 font-medium">Resolva a franquia de todos os funcionários destacados acima antes de validar.</p>
           )}
           <button
             onClick={handleValidar}
@@ -585,7 +585,7 @@ export default function RevisaoCompetenciaPage() {
                 <label className="block text-sm font-medium text-stone-700 mb-1">Motivo (opcional)</label>
                 <input
                   type="text"
-                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none"
                   value={motivoCancelamento}
                   onChange={(e) => setMotivoCancelamento(e.target.value)}
                   placeholder="Ex: competência errada, era Agosto"

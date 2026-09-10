@@ -69,7 +69,7 @@ export default function ContasReceberPage() {
                   type="date"
                   required
                   max={hojeBrasilia()}
-                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none text-stone-700"
+                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none text-stone-700"
                   value={dataRecebimento}
                   onChange={e => setDataRecebimento(e.target.value)}
                 />

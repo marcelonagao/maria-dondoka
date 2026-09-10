@@ -319,7 +319,7 @@ export default function PainelExecutivoDpPage() {
                   <span className="text-sm text-stone-400">
                     {custoDoMes.funcionarios} funcionário{custoDoMes.funcionarios === 1 ? '' : 's'}
                   </span>
-                  <span className="text-sm font-medium text-amber-400">{formatCompetenciaCurta(mesSelecionado)}</span>
+                  <span className="text-sm font-medium text-brand">{formatCompetenciaCurta(mesSelecionado)}</span>
                 </div>
               }
             >
@@ -380,7 +380,7 @@ export default function PainelExecutivoDpPage() {
       )}
 
       <div>
-        <Link href="/dp" className="text-sm font-medium text-amber-600 hover:text-amber-700">
+        <Link href="/dp" className="text-sm font-medium text-stone-600 hover:text-stone-800">
           ← Voltar para DP
         </Link>
       </div>

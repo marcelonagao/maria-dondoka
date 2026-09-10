@@ -20,9 +20,8 @@ export default function SemAcessoPage() {
     <div className="min-h-screen flex items-center justify-center bg-stone-50 p-4">
       <div className="max-w-md w-full bg-white rounded-2xl shadow-xl overflow-hidden border border-stone-200">
         <div className="p-8 text-center bg-stone-900 border-b border-stone-800">
-          <h1 className="text-3xl font-serif tracking-tight text-white">
-            Maria<span className="text-amber-400">Dondoka</span>
-          </h1>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo-negativo.png" alt="Maria Dondoka" className="max-w-full h-auto w-48 mx-auto" />
         </div>
 
         <div className="p-8 text-center space-y-4">

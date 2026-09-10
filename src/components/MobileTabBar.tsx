@@ -52,7 +52,7 @@ export default function MobileTabBar({ telasPermitidas }: MobileTabBarProps) {
               key={item.tela}
               href={item.path}
               className={`flex-1 flex flex-col items-center justify-center gap-0.5 py-2 text-xs ${
-                ativo ? 'text-amber-400' : 'text-stone-400'
+                ativo ? 'text-stone-50 font-medium' : 'text-stone-400'
               }`}
             >
               <span className="text-lg">{item.icon}</span>

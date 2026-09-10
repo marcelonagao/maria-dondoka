@@ -30,7 +30,7 @@ interface GrupoMes {
 }
 
 const STATUS_LABELS: Record<string, { label: string; className: string }> = {
-  processando: { label: 'Processando...', className: 'bg-amber-50 text-amber-700' },
+  processando: { label: 'Processando...', className: 'bg-stone-100 text-stone-500' },
   aguardando_revisao: { label: 'Aguardando revisão', className: 'bg-blue-50 text-blue-700' },
   validado: { label: 'Validado', className: 'bg-emerald-50 text-emerald-700' },
   erro: { label: 'Erro na extração', className: 'bg-red-50 text-red-600' },
@@ -174,10 +174,10 @@ export default function DpPage() {
           <p className="text-stone-500 text-sm mt-1">Envie o recibo mensal e revise antes de lançar em Contas a Pagar.</p>
         </div>
         <div className="flex items-center gap-3">
-          <Link href="/dp/funcionarios" className="text-sm font-medium text-amber-600 hover:text-amber-700">
+          <Link href="/dp/funcionarios" className="text-sm font-medium text-stone-600 hover:text-stone-800">
             Funcionários →
           </Link>
-          <Link href="/dp/painel-executivo" className="text-sm font-medium text-amber-600 hover:text-amber-700">
+          <Link href="/dp/painel-executivo" className="text-sm font-medium text-stone-600 hover:text-stone-800">
             Painel Executivo →
           </Link>
           <button
@@ -245,7 +245,7 @@ export default function DpPage() {
                                     <div className="flex items-center gap-3">
                                       <span className={`px-2.5 py-1 text-xs font-medium rounded-md ${statusInfo.className}`}>{statusInfo.label}</span>
                                       {(c.status === 'aguardando_revisao' || c.status === 'validado' || c.status === 'cancelado') && (
-                                        <Link href={`/dp/competencias/${c.id}`} className="text-xs font-medium px-3 py-1.5 rounded-lg transition-colors text-amber-600 hover:bg-amber-50">
+                                        <Link href={`/dp/competencias/${c.id}`} className="text-xs font-medium px-3 py-1.5 rounded-lg transition-colors text-stone-600 hover:bg-stone-100">
                                           {c.status === 'aguardando_revisao' ? 'Revisar' : 'Ver'}
                                         </Link>
                                       )}
@@ -282,7 +282,7 @@ export default function DpPage() {
                 <input
                   type="month"
                   required
-                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none text-stone-700"
+                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none text-stone-700"
                   value={mesReferencia}
                   onChange={(e) => setMesReferencia(e.target.value)}
                 />
