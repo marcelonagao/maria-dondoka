@@ -131,17 +131,21 @@ export async function GET(request: Request) {
       transacoesPorUsuario.set(t.usuario, lista);
     }
 
-    // Volume: total de transações da forma no dia (pendente + já conciliada), pra coluna
-    // "Volume" do resumo — diferente do count de pendentes usado na conciliação por operador.
+    // Volume: total de transações da forma no dia (pendente + já conciliada) — pra coluna
+    // "Volume" do resumo (agregado, todos os usuários) e pro "N/N conferidas" por operador
+    // (volumePorUsuarioFormaMapa), diferente do count de pendentes usado na conciliação.
     const { data: volumeRaw, error: volumeError } = await supabaseAdmin
       .from('vendas_transacoes_pagamento')
-      .select('forma_pagamento')
+      .select('usuario, forma_pagamento')
       .eq('franchise_id', perfil.franchiseId)
       .eq('data_venda', data);
     if (volumeError) throw new Error(`vendas_transacoes_pagamento (volume): ${JSON.stringify(volumeError)}`);
     const volumePorFormaMapa = new Map<string, number>();
+    const volumePorUsuarioFormaMapa = new Map<string, number>();
     for (const v of volumeRaw || []) {
       volumePorFormaMapa.set(v.forma_pagamento, (volumePorFormaMapa.get(v.forma_pagamento) || 0) + 1);
+      const chaveUsuario = `${v.usuario}::${v.forma_pagamento}`;
+      volumePorUsuarioFormaMapa.set(chaveUsuario, (volumePorUsuarioFormaMapa.get(chaveUsuario) || 0) + 1);
     }
 
     // Conferência manual contra o comprovante da maquininha — uma fita pode ter mais de
@@ -221,7 +225,11 @@ export async function GET(request: Request) {
       const dinheiro = esperadoPorForma.get('dinheiro') || 0;
       const formasInformativas = Array.from(esperadoPorForma.entries())
         .filter(([forma]) => forma !== 'dinheiro')
-        .map(([forma_pagamento, valor]) => ({ forma_pagamento, valor }));
+        .map(([forma_pagamento, valor]) => ({
+          forma_pagamento,
+          valor,
+          volume: volumePorUsuarioFormaMapa.get(`${usuario}::${forma_pagamento}`) || 0,
+        }));
       const total = Array.from(esperadoPorForma.values()).reduce((acc, v) => acc + v, 0);
 
       const transacoesDoUsuario = transacoesPorUsuario.get(usuario) || [];
