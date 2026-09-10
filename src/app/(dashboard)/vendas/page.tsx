@@ -580,10 +580,11 @@ export default function PrestacaoContasPage() {
               return { ...f, transacoesDaForma, diferenca };
             });
 
-            const diferencaTotal = diferencaDinheiro === null
-              ? null
-              : diferencaDinheiro + linhasNaoDinheiro.reduce((acc, l) => acc + l.diferenca, 0);
-            const totalBateu = diferencaTotal !== null && Math.abs(diferencaTotal) <= 0.005;
+            // Total é sempre a soma ao vivo do que já se sabe — dinheiro ainda não digitado
+            // entra como 0 (não bloqueia o total), diferente da célula da própria linha de
+            // Dinheiro, que continua mostrando "—" até haver algo digitado (ver abaixo).
+            const diferencaTotal = (diferencaDinheiro ?? 0) + linhasNaoDinheiro.reduce((acc, l) => acc + l.diferenca, 0);
+            const totalBateu = Math.abs(diferencaTotal) <= 0.005;
 
             return (
             <div key={u.usuario} className="bg-white border border-stone-200 rounded-xl shadow-sm overflow-hidden">
@@ -746,10 +747,8 @@ export default function PrestacaoContasPage() {
                   <tfoot>
                     <tr className="border-t-2 border-stone-300 bg-stone-50 font-semibold text-stone-800 text-base">
                       <td className="px-6 py-3" colSpan={3}>Diferença Total deste Fechamento</td>
-                      <td className={`px-6 py-3 whitespace-nowrap ${
-                        diferencaTotal === null ? 'text-stone-400' : totalBateu ? 'text-emerald-600' : 'text-red-600'
-                      }`}>
-                        {diferencaTotal === null ? '—' : `${totalBateu ? '✓ ' : ''}${formatCurrency(diferencaTotal)}`}
+                      <td className={`px-6 py-3 whitespace-nowrap ${totalBateu ? 'text-emerald-600' : 'text-red-600'}`}>
+                        {totalBateu ? '✓ ' : ''}{formatCurrency(diferencaTotal)}
                       </td>
                     </tr>
                   </tfoot>
