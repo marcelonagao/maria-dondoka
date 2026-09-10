@@ -199,7 +199,7 @@ export async function POST(request: Request) {
     // diferentes, já que a query de origem filtra por dia); reenvio do mesmo dia
     // duplica, por isso o backfill histórico roda uma vez por mês/dia, não solto.
     if (vendas.itens.length > 0) {
-      const { error: itensError } = await supabaseAdmin.from('vendas_itens').insert(
+      const { error: itensError } = await supabaseAdmin.from('vendas_itens').upsert(
         vendas.itens.map((item) => ({
           franchise_id: device.franchise_id,
           pdv_device_id: device.id,
@@ -222,7 +222,8 @@ export async function POST(request: Request) {
           usuario: item.usuario,
           vendedor: item.vendedor,
           origem_id: item.origem_id,
-        }))
+        })),
+        { onConflict: 'franchise_id, origem_id', ignoreDuplicates: true }
       );
 
       if (itensError) {

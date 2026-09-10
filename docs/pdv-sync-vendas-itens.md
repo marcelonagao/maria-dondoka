@@ -114,6 +114,20 @@ Aceita `?mes=YYYY-MM&chave=...`, itera dia a dia dentro do mês e manda um paylo
 (Jan–Ago/26), conferindo o DRE entre uma execução e outra — reexecutar o mesmo mês duplica
 as linhas (sem constraint única em `vendas_itens`).
 
+**Achado em produção (2026-09-10)**: sem constraint única, `vendas_itens` duplicava a cada
+ciclo de sync automático (não só em reexecução manual do backfill) — cada sincronização
+reinseria as vendas do dia inteiras, confirmado até 38x de duplicação nas lojas rodando via
+cron-job.org a cada 15min. Diferente de `movimentacoes_caixa`/`vendas_transacoes_pagamento`,
+que já usavam upsert com dedupe por `origem_id` desde o início. Corrigido no caminho
+TypeScript (Loja1/Loja4): `origem_id` (mp.auto) já vinha sendo enviado por
+`sincronizarLoja()` desde a implementação original, só não era usado do lado da gravação —
+`/api/pdv/sync` trocou `insert` por `upsert(..., { onConflict: 'franchise_id, origem_id',
+ignoreDuplicates: true })`, mesmo padrão das outras duas tabelas. Caminho PHP das outras 6
+lojas corrigido separadamente, fora deste repositório. Constraint única
+`unique (franchise_id, origem_id)` em `vendas_itens` só deve ser aplicada depois de um
+truncate manual (dado histórico anterior não tem `origem_id` preenchido) — até lá, upserts
+de itens falham silenciosamente no log (não derrubam o resto do sync) em vez de duplicar.
+
 ## Conciliação linha a linha de formas não-dinheiro — implementado (2026-09-08)
 
 `vendas_diarias_formas_pagamento` guarda só o total agregado por forma/usuário/dia — não dá
