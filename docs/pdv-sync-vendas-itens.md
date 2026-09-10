@@ -218,3 +218,22 @@ Loja4 estava gravada com a forma errada em `vendas_diarias_formas_pagamento` e
 `vendas_transacoes_pagamento` desde que o sync direto entrou no ar — dados já sincronizados
 de Loja4 continuam com o mapeamento antigo (invertido) até uma correção/re-sync retroativa,
 ainda não feita.
+
+## Vigia automático de duplicidade em vendas_itens — implementado (2026-09-10)
+
+Depois do bug de `vendas_itens` duplicando por falta de dedupe (ver seção de backfill
+acima), a checagem manual usada pra caçar o bug virou rotina: `/api/cron/auditoria-
+duplicidade` (`vercel.json`, 1x/dia — dentro do limite do plano Hobby, diferente do sync de
+15min que precisou do GitHub Actions). Compara `COUNT(*)` vs `COUNT(DISTINCT origem_id)`
+por franquia/dia nos últimos 7 dias; fator > 1.0 grava uma linha em `alertas_sistema`
+(dedupe por `tipo + franchise_id + data_referencia`, não recria o mesmo alerta todo dia
+enquanto a data ainda está na janela de 7 dias). Dias/franquias sem nenhum `origem_id`
+preenchido no grupo são ignorados — não é caso de duplicidade avaliável, é dado anterior à
+correção ou loja ainda não migrada.
+
+`/api/alertas` (GET) expõe os alertas não resolvidos pra quem tem `escopo=todas_franquias`
+(mesmo padrão de escopo do Dashboard/DRE) — banner vermelho no Dashboard quando há algum.
+Escopo desta rotina: só detecção por `origem_id` (duplicidade de sincronização,
+estruturalmente já bloqueada pela constraint única — isso é cinto e suspensório).
+"Resolvido" fica de marcação manual (sem UI própria ainda) — decisão de escopo, não
+esquecimento.
