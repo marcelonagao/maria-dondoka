@@ -18,12 +18,20 @@ interface Metricas {
   aPagar: number;
 }
 
+interface Alerta {
+  id: string;
+  franquia_nome: string | null;
+  data_referencia: string | null;
+  detalhe: string | null;
+}
+
 export default function DashboardPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSocio, setIsSocio] = useState(false);
   const [franquias, setFranquias] = useState<Franquia[]>([]);
   const [metricasPorFranquia, setMetricasPorFranquia] = useState<Record<string, Metricas>>({});
   const [franquiaSelecionada, setFranquiaSelecionada] = useState<string>('');
+  const [alertas, setAlertas] = useState<Alerta[]>([]);
 
   useEffect(() => {
     async function carregarDashboard() {
@@ -84,6 +92,13 @@ export default function DashboardPage() {
     }
 
     carregarDashboard();
+
+    // /api/alertas já filtra por escopo no servidor (devolve lista vazia pra quem não é
+    // sócio) — não precisa esperar isSocio resolver aqui.
+    fetch('/api/alertas')
+      .then((res) => res.json())
+      .then((json) => setAlertas(json.alertas || []))
+      .catch((err) => console.error('Erro ao carregar alertas:', err));
   }, []);
 
   const franquiasParaTotal = isSocio && franquiaSelecionada
@@ -125,6 +140,19 @@ export default function DashboardPage() {
           </select>
         )}
       </div>
+
+      {alertas.length > 0 && (
+        <div className="bg-red-50 border border-red-200 rounded-xl px-6 py-4 text-red-700 text-sm space-y-1">
+          {alertas.map((a) => (
+            <p key={a.id}>
+              ⚠️ Possível duplicidade detectada em{' '}
+              <strong>{a.franquia_nome || 'franquia não identificada'}</strong>
+              {a.data_referencia && `, ${a.data_referencia.split('-').reverse().join('/')}`} — verificar
+              antes de confiar no DRE desse período.
+            </p>
+          ))}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <Card className="flex flex-col justify-center">
