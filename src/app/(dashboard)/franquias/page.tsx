@@ -118,7 +118,7 @@ export default function FranquiasPage() {
             <label className="block text-sm font-medium text-stone-700 mb-1">Nome da franquia</label>
             <input
               type="text" required
-              className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+              className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none"
               placeholder="Ex: Loja Filial - São Sebastião"
               value={nome}
               onChange={(e) => setNome(e.target.value)}
@@ -128,7 +128,7 @@ export default function FranquiasPage() {
             <label className="block text-sm font-medium text-stone-700 mb-1">E-mail do administrador</label>
             <input
               type="email" required
-              className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+              className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none"
               placeholder="admin@novaloja.com.br"
               value={emailAdmin}
               onChange={(e) => setEmailAdmin(e.target.value)}
@@ -166,7 +166,7 @@ export default function FranquiasPage() {
                   <label className="block text-sm font-medium text-stone-700 mb-1">Nome do banco de dados no fornecedor</label>
                   <input
                     type="text" required
-                    className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+                    className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none"
                     placeholder="Ex: brXXXXX"
                     value={nomeBancoDados}
                     onChange={(e) => setNomeBancoDados(e.target.value)}
@@ -185,7 +185,7 @@ export default function FranquiasPage() {
               </form>
             ) : (
               <div className="space-y-4">
-                <p className="text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+                <p className="text-sm text-stone-600 bg-stone-100 border border-stone-200 rounded-lg px-3 py-2">
                   Copie este script agora e envie ao fornecedor. Por segurança, o token e o secret não serão exibidos novamente.
                 </p>
                 <div className="relative">

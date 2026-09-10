@@ -13,6 +13,11 @@ const config: Config = {
         'gradient-conic':
           'conic-gradient(from 180deg at 50% 50%, var(--tw-gradient-stops))',
       },
+      colors: {
+        // Cor de marca (logo real) — uso restrito: só logo, número-herói e destaque de
+        // período atual em gráfico. Nunca em nav, botões ou qualquer elemento repetido.
+        brand: '#EC008C',
+      },
     },
   },
   plugins: [],

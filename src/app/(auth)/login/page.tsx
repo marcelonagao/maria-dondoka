@@ -38,9 +38,8 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-stone-50 p-4">
       <div className="max-w-md w-full bg-white rounded-2xl shadow-xl overflow-hidden border border-stone-200">
         <div className="p-8 text-center bg-stone-900 border-b border-stone-800">
-          <h1 className="text-3xl font-serif tracking-tight text-white">
-            Maria<span className="text-amber-400">Dondoka</span>
-          </h1>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo-negativo.png" alt="Maria Dondoka" className="max-w-full h-auto w-48 mx-auto" />
           <p className="text-stone-400 text-sm mt-2">
             Gestão inteligente multi-franquias
           </p>
@@ -65,7 +64,7 @@ export default function LoginPage() {
               <input
                 type="email"
                 required
-                className="w-full px-4 py-3 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none transition-all"
+                className="w-full px-4 py-3 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none transition-all"
                 placeholder="admin@loja1.com.br"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -79,7 +78,7 @@ export default function LoginPage() {
               <input
                 type="password"
                 required
-                className="w-full px-4 py-3 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none transition-all"
+                className="w-full px-4 py-3 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none transition-all"
                 placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}

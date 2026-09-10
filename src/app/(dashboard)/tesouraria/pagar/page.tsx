@@ -236,7 +236,7 @@ export default function ContasPagarPage() {
 
   const getStatusBadge = (status: string) => {
     const badges: Record<string, JSX.Element> = {
-      pendente: <span className="px-2.5 py-1 bg-amber-50 text-amber-700 text-xs font-medium rounded-md">Pendente</span>,
+      pendente: <span className="px-2.5 py-1 bg-stone-200 text-stone-700 text-xs font-medium rounded-md">Pendente</span>,
       pago: <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 text-xs font-medium rounded-md">Pago</span>,
       cancelado: <span className="px-2.5 py-1 bg-stone-100 text-stone-500 text-xs font-medium rounded-md">Cancelado</span>,
     };
@@ -778,7 +778,7 @@ export default function ContasPagarPage() {
           {despesa.comprovante_url && (
             <button
               onClick={() => verComprovante(despesa.comprovante_url!)}
-              className="text-xs font-medium px-3 py-1.5 rounded-lg transition-colors text-amber-600 hover:bg-amber-50"
+              className="text-xs font-medium px-3 py-1.5 rounded-lg transition-colors text-stone-600 hover:bg-stone-100"
             >
               Ver comprovante
             </button>
@@ -853,7 +853,7 @@ export default function ContasPagarPage() {
         </div>
         <div className="flex items-center gap-3">
           <select
-            className="px-3 py-2 border border-stone-300 rounded-lg text-sm bg-white text-stone-700 focus:ring-2 focus:ring-amber-400 outline-none"
+            className="px-3 py-2 border border-stone-300 rounded-lg text-sm bg-white text-stone-700 focus:ring-2 focus:ring-stone-400 outline-none"
             value={filtroStatus}
             onChange={(e) => setFiltroStatus(e.target.value as typeof filtroStatus)}
           >
@@ -925,7 +925,7 @@ export default function ContasPagarPage() {
                               <button
                                 type="button"
                                 onClick={() => toggleGrupoFolha(chaveGrupo, itensDoGrupo)}
-                                className="flex items-center gap-1 text-xs font-medium text-amber-600 hover:text-amber-700 mt-1"
+                                className="flex items-center gap-1 text-xs font-medium text-stone-600 hover:text-stone-800 mt-1"
                               >
                                 <span className={`inline-block transition-transform ${expandido ? 'rotate-90' : ''}`}>›</span>
                                 Ver funcionários ({itensDoGrupo.length})
@@ -1082,7 +1082,7 @@ export default function ContasPagarPage() {
                           <button
                             type="button"
                             onClick={() => toggleDetalheFuncionarios(despesa)}
-                            className="flex items-center gap-1 text-xs font-medium text-amber-600 hover:text-amber-700 mt-1"
+                            className="flex items-center gap-1 text-xs font-medium text-stone-600 hover:text-stone-800 mt-1"
                           >
                             <span className={`inline-block transition-transform ${expandida ? 'rotate-90' : ''}`}>›</span>
                             Ver funcionários
@@ -1151,7 +1151,7 @@ export default function ContasPagarPage() {
                   <label className="block text-sm font-medium text-stone-700 mb-1">Franquia</label>
                   <select
                     required
-                    className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none bg-white text-stone-700"
+                    className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none bg-white text-stone-700"
                     value={formData.franchiseId}
                     onChange={e => setFormData({ ...formData, franchiseId: e.target.value, fornecedorId: '' })}
                   >
@@ -1191,7 +1191,7 @@ export default function ContasPagarPage() {
                   <label className="block text-sm font-medium text-stone-700 mb-1">Documento de origem (opcional)</label>
                   <input
                     type="text"
-                    className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+                    className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none"
                     value={documentoOrigem}
                     onChange={(e) => setDocumentoOrigem(e.target.value)}
                     placeholder="Ex: NF 12345"
@@ -1208,7 +1208,7 @@ export default function ContasPagarPage() {
                       type="number"
                       step="0.01"
                       required
-                      className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+                      className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none"
                       value={formData.amount}
                       onChange={e => setFormData({...formData, amount: e.target.value})}
                       placeholder="0.00"
@@ -1219,7 +1219,7 @@ export default function ContasPagarPage() {
                     <input
                       type="date"
                       required
-                      className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none text-stone-700"
+                      className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none text-stone-700"
                       value={formData.due_date}
                       onChange={e => setFormData({...formData, due_date: e.target.value})}
                     />
@@ -1238,7 +1238,7 @@ export default function ContasPagarPage() {
                         type="number"
                         step="0.01"
                         required
-                        className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+                        className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none"
                         value={formData.amount}
                         onChange={e => setFormData({...formData, amount: e.target.value})}
                         placeholder="0.00"
@@ -1250,7 +1250,7 @@ export default function ContasPagarPage() {
                         <input
                           type="number"
                           min={1}
-                          className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+                          className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none"
                           value={parcelarEm}
                           onChange={(e) => handleParcelarEmChange(e.target.value)}
                         />
@@ -1264,7 +1264,7 @@ export default function ContasPagarPage() {
                       <input
                         type="date"
                         required
-                        className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none text-stone-700"
+                        className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none text-stone-700"
                         value={formData.due_date}
                         onChange={e => setFormData({...formData, due_date: e.target.value})}
                       />
@@ -1274,13 +1274,13 @@ export default function ContasPagarPage() {
                             type="checkbox"
                             checked={repetirDespesa}
                             onChange={(e) => setRepetirDespesa(e.target.checked)}
-                            className="rounded border-stone-300 text-amber-500 focus:ring-amber-400"
+                            className="rounded border-stone-300 text-stone-800 focus:ring-stone-400"
                           />
                           Repetir esta despesa
                         </label>
                         {repetirDespesa && (
                           <select
-                            className="mt-2 w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none bg-white text-stone-700 text-sm"
+                            className="mt-2 w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none bg-white text-stone-700 text-sm"
                             value={frequenciaRecorrencia}
                             onChange={(e) => setFrequenciaRecorrencia(e.target.value as Frequencia)}
                           >
@@ -1303,7 +1303,7 @@ export default function ContasPagarPage() {
                               <input
                                 type="date"
                                 required
-                                className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none text-stone-700 text-sm"
+                                className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none text-stone-700 text-sm"
                                 value={p.vencimento}
                                 onChange={(e) => atualizarParcela(i, 'vencimento', e.target.value)}
                               />
@@ -1314,7 +1314,7 @@ export default function ContasPagarPage() {
                                 type="number"
                                 step="0.01"
                                 required
-                                className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none text-sm"
+                                className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none text-sm"
                                 value={p.valor}
                                 onChange={(e) => atualizarParcela(i, 'valor', e.target.value)}
                               />
@@ -1331,7 +1331,7 @@ export default function ContasPagarPage() {
                 <label className="block text-sm font-medium text-stone-700 mb-1">Observação (opcional)</label>
                 <input
                   type="text"
-                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none"
                   value={formData.description}
                   onChange={e => setFormData({...formData, description: e.target.value})}
                   placeholder="Ex: Conta de Internet"
@@ -1345,12 +1345,12 @@ export default function ContasPagarPage() {
                       type="checkbox"
                       checked={jaPaga}
                       onChange={(e) => setJaPaga(e.target.checked)}
-                      className="rounded border-stone-300 text-amber-500 focus:ring-amber-400"
+                      className="rounded border-stone-300 text-stone-800 focus:ring-stone-400"
                     />
                     Esta despesa já foi paga
                   </label>
                   {!jaPaga && formData.due_date && formData.due_date < hojeBrasilia() && (
-                    <p className="text-xs text-amber-600 mt-1">
+                    <p className="text-xs text-stone-500 mt-1">
                       Esse vencimento já passou — se já foi paga, marque a opção acima.
                     </p>
                   )}
@@ -1441,7 +1441,7 @@ export default function ContasPagarPage() {
                 <label className="block text-sm font-medium text-stone-700 mb-1">Motivo (opcional)</label>
                 <input
                   type="text"
-                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none"
                   value={motivoCancelamento}
                   onChange={(e) => setMotivoCancelamento(e.target.value)}
                   placeholder="Ex: lançamento duplicado"
@@ -1483,7 +1483,7 @@ export default function ContasPagarPage() {
                 <input
                   type="number"
                   step="0.01"
-                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none"
                   value={recorrenteParaGerenciar.valor_referencia}
                   onChange={(e) => setRecorrenteParaGerenciar({ ...recorrenteParaGerenciar, valor_referencia: parseFloat(e.target.value) || 0 })}
                 />
@@ -1495,7 +1495,7 @@ export default function ContasPagarPage() {
                     type="number"
                     min={1}
                     max={31}
-                    className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+                    className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none"
                     value={recorrenteParaGerenciar.dia_vencimento}
                     onChange={(e) => setRecorrenteParaGerenciar({ ...recorrenteParaGerenciar, dia_vencimento: parseInt(e.target.value, 10) || 1 })}
                   />
@@ -1503,7 +1503,7 @@ export default function ContasPagarPage() {
                 <div>
                   <label className="block text-sm font-medium text-stone-700 mb-1">Frequência</label>
                   <select
-                    className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none bg-white text-stone-700"
+                    className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none bg-white text-stone-700"
                     value={recorrenteParaGerenciar.frequencia}
                     onChange={(e) => setRecorrenteParaGerenciar({ ...recorrenteParaGerenciar, frequencia: e.target.value as Frequencia })}
                   >
@@ -1519,7 +1519,7 @@ export default function ContasPagarPage() {
                   type="checkbox"
                   checked={recorrenteParaGerenciar.is_active}
                   onChange={(e) => setRecorrenteParaGerenciar({ ...recorrenteParaGerenciar, is_active: e.target.checked })}
-                  className="rounded border-stone-300 text-amber-500 focus:ring-amber-400"
+                  className="rounded border-stone-300 text-stone-800 focus:ring-stone-400"
                 />
                 Ativa (gera novas ocorrências automaticamente)
               </label>

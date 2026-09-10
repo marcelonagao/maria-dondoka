@@ -104,7 +104,7 @@ export default function FuncionariosDpPage() {
   return (
     <div className="space-y-6">
       <div>
-        <Link href="/dp" className="text-sm font-medium text-amber-600 hover:text-amber-700">
+        <Link href="/dp" className="text-sm font-medium text-stone-600 hover:text-stone-800">
           ← Voltar para DP
         </Link>
       </div>
@@ -141,7 +141,7 @@ export default function FuncionariosDpPage() {
                       <button onClick={() => abrirDetalhe(f)} className="text-xs font-medium px-3 py-1.5 rounded-lg transition-colors text-stone-500 hover:bg-stone-100">
                         Histórico
                       </button>
-                      <button onClick={() => abrirEdicao(f)} className="text-xs font-medium px-3 py-1.5 rounded-lg transition-colors text-amber-600 hover:bg-amber-50">
+                      <button onClick={() => abrirEdicao(f)} className="text-xs font-medium px-3 py-1.5 rounded-lg transition-colors text-stone-600 hover:bg-stone-100">
                         Editar
                       </button>
                     </td>
@@ -163,26 +163,26 @@ export default function FuncionariosDpPage() {
             <form onSubmit={salvarEdicao} className="p-6 space-y-4">
               <div>
                 <label className="block text-sm font-medium text-stone-700 mb-1">Nome</label>
-                <input required className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none" value={editando.nome} onChange={(e) => setEditando({ ...editando, nome: e.target.value })} />
+                <input required className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none" value={editando.nome} onChange={(e) => setEditando({ ...editando, nome: e.target.value })} />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-stone-700 mb-1">Cargo</label>
-                  <input className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none" value={editando.cargo || ''} onChange={(e) => setEditando({ ...editando, cargo: e.target.value })} />
+                  <input className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none" value={editando.cargo || ''} onChange={(e) => setEditando({ ...editando, cargo: e.target.value })} />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-stone-700 mb-1">CBO</label>
-                  <input className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none" value={editando.cbo || ''} onChange={(e) => setEditando({ ...editando, cbo: e.target.value })} />
+                  <input className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none" value={editando.cbo || ''} onChange={(e) => setEditando({ ...editando, cbo: e.target.value })} />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-stone-700 mb-1">Admissão</label>
-                  <input type="date" className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none" value={editando.admissao || ''} onChange={(e) => setEditando({ ...editando, admissao: e.target.value })} />
+                  <input type="date" className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none" value={editando.admissao || ''} onChange={(e) => setEditando({ ...editando, admissao: e.target.value })} />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-stone-700 mb-1">Salário Base (R$)</label>
-                  <input type="number" step="0.01" className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none" value={editando.salario_base ?? ''} onChange={(e) => setEditando({ ...editando, salario_base: parseFloat(e.target.value) || null })} />
+                  <input type="number" step="0.01" className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none" value={editando.salario_base ?? ''} onChange={(e) => setEditando({ ...editando, salario_base: parseFloat(e.target.value) || null })} />
                 </div>
               </div>
               <div className="pt-2 flex gap-3">

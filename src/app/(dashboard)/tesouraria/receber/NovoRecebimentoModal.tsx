@@ -43,7 +43,7 @@ export default function NovoRecebimentoModal({
             <input
               type="text"
               required
-              className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+              className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none"
               value={formData.descricao}
               onChange={e => onChange({ ...formData, descricao: e.target.value })}
               placeholder="Ex: Venda Corporativa"
@@ -57,7 +57,7 @@ export default function NovoRecebimentoModal({
                 type="number"
                 step="0.01"
                 required
-                className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+                className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none"
                 value={formData.valorBruto}
                 onChange={e => onChange({ ...formData, valorBruto: e.target.value })}
                 placeholder="0.00"
@@ -68,7 +68,7 @@ export default function NovoRecebimentoModal({
               <input
                 type="number"
                 step="0.01"
-                className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+                className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none"
                 value={formData.taxa}
                 onChange={e => onChange({ ...formData, taxa: e.target.value })}
                 placeholder="Ex: 2.5"
@@ -80,7 +80,7 @@ export default function NovoRecebimentoModal({
             <div>
               <label className="block text-sm font-medium text-stone-700 mb-1">Origem</label>
               <select
-                className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none bg-white text-stone-700"
+                className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none bg-white text-stone-700"
                 value={formData.origem}
                 onChange={e => onChange({ ...formData, origem: e.target.value })}
               >
@@ -96,7 +96,7 @@ export default function NovoRecebimentoModal({
               <input
                 type="date"
                 required
-                className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none text-stone-700"
+                className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none text-stone-700"
                 value={formData.previsao}
                 onChange={e => onChange({ ...formData, previsao: e.target.value })}
               />

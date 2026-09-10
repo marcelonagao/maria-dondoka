@@ -571,7 +571,7 @@ const carregarDispositivos = async () => {
                   type="text"
                   required
                   minLength={2}
-                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none"
                   placeholder="Ex: Maria da Silva"
                   value={novoNomeFuncionario}
                   onChange={(e) => setNovoNomeFuncionario(e.target.value)}
@@ -631,7 +631,7 @@ const carregarDispositivos = async () => {
                         {pai.franchise_id === null ? (
                           <span className="px-2.5 py-1 bg-stone-100 text-stone-500 text-xs font-medium rounded-md">Global</span>
                         ) : (
-                          <span className="px-2.5 py-1 bg-amber-50 text-amber-700 text-xs font-medium rounded-md">Própria</span>
+                          <span className="px-2.5 py-1 bg-stone-200 text-stone-700 text-xs font-medium rounded-md">Própria</span>
                         )}
                       </td>
                       <td className="px-6 py-4">
@@ -671,7 +671,7 @@ const carregarDispositivos = async () => {
                         {f.franchise_id === null ? (
                           <span className="px-2.5 py-1 bg-stone-100 text-stone-500 text-xs font-medium rounded-md">Global</span>
                         ) : (
-                          <span className="px-2.5 py-1 bg-amber-50 text-amber-700 text-xs font-medium rounded-md">Própria</span>
+                          <span className="px-2.5 py-1 bg-stone-200 text-stone-700 text-xs font-medium rounded-md">Própria</span>
                         )}
                       </td>
                       <td className="px-6 py-4">
@@ -725,7 +725,7 @@ const carregarDispositivos = async () => {
                   type="text"
                   required
                   minLength={2}
-                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none"
                   placeholder="Ex: Frete"
                   value={novaCategoria.nome}
                   onChange={(e) => setNovaCategoria({ ...novaCategoria, nome: e.target.value })}
@@ -734,7 +734,7 @@ const carregarDispositivos = async () => {
               <div>
                 <label className="block text-sm font-medium text-stone-700 mb-1">Tipo</label>
                 <select
-                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none bg-white text-stone-700"
+                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none bg-white text-stone-700"
                   value={novaCategoria.tipo}
                   onChange={(e) => setNovaCategoria({ ...novaCategoria, tipo: e.target.value as CategoriaContas['tipo'] })}
                 >
@@ -746,7 +746,7 @@ const carregarDispositivos = async () => {
               <div>
                 <label className="block text-sm font-medium text-stone-700 mb-1">Categoria-pai</label>
                 <select
-                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none bg-white text-stone-700"
+                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none bg-white text-stone-700"
                   value={novaCategoria.categoria_pai_id}
                   onChange={(e) => setNovaCategoria({ ...novaCategoria, categoria_pai_id: e.target.value })}
                 >
@@ -781,7 +781,7 @@ const carregarDispositivos = async () => {
           placeholder="https://sualoja.com.br/sync-pdv.php"
           value={syncUrl}
           onChange={(e) => { setSyncUrl(e.target.value); setSyncUrlSalva(false); }}
-          className="flex-1 px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+          className="flex-1 px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none"
         />
         <button
           type="submit"
@@ -809,7 +809,7 @@ const carregarDispositivos = async () => {
                       type="text"
                       required
                       minLength={2}
-                      className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+                      className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none"
                       placeholder="Ex: Caixa 1 - Matriz"
                       value={novoLabel}
                       onChange={(e) => setNovoLabel(e.target.value)}
@@ -829,7 +829,7 @@ const carregarDispositivos = async () => {
               <>
                 <div className="p-6 border-b border-stone-100">
                   <h2 className="text-lg font-semibold text-stone-800">Credenciais geradas</h2>
-                  <p className="text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mt-3">
+                  <p className="text-sm text-stone-600 bg-stone-100 border border-stone-200 rounded-lg px-3 py-2 mt-3">
                     Copie e guarde estes valores agora. Por segurança, eles não serão exibidos novamente nesta tela.
                   </p>
                 </div>
@@ -886,7 +886,7 @@ const carregarDispositivos = async () => {
                   type="text"
                   required
                   minLength={2}
-                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none"
                   value={novoNomeEdicao}
                   onChange={(e) => setNovoNomeEdicao(e.target.value)}
                 />

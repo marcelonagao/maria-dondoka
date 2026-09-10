@@ -75,10 +75,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       >
         <div className="p-6 flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-serif tracking-tight">
-              Maria<span className="text-amber-400">Dondoka</span>
-            </h1>
-            <p className="text-xs text-stone-400 mt-1">Painel da Franquia</p>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/logo-negativo.png" alt="Maria Dondoka" className="max-w-full h-auto w-40" />
+            <p className="text-xs text-stone-400 mt-2">Painel da Franquia</p>
           </div>
           <button onClick={fecharMenu} className="lg:hidden text-stone-400 hover:text-stone-100 text-xl">
             ✕
@@ -104,7 +103,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                           onClick={fecharMenu}
                           className={`block px-3 py-2 rounded-lg transition-colors text-sm ${
                             isSubActive
-                              ? 'bg-amber-500/10 text-amber-400 font-medium'
+                              ? 'bg-stone-800 text-stone-50 font-medium'
                               : 'text-stone-400 hover:bg-stone-800 hover:text-stone-100'
                           }`}
                         >
@@ -125,7 +124,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   onClick={fecharMenu}
                   className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
                     isActive
-                      ? 'bg-amber-500/10 text-amber-400 font-medium'
+                      ? 'bg-stone-800 text-stone-50 font-medium'
                       : 'text-stone-300 hover:bg-stone-800 hover:text-stone-100'
                   }`}
                 >
@@ -157,7 +156,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <h2 className="text-stone-800 font-medium tracking-tight">Gestão de Unidade</h2>
           </div>
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-amber-100 text-amber-700 rounded-full flex items-center justify-center font-bold text-sm">
+            <div className="w-8 h-8 bg-stone-200 text-stone-700 rounded-full flex items-center justify-center font-bold text-sm">
               MD
             </div>
             <span className="text-sm font-medium text-stone-600 hidden sm:inline">Admin</span>

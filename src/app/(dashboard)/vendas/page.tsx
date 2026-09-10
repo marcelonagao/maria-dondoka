@@ -406,7 +406,7 @@ export default function PrestacaoContasPage() {
             value={dataSelecionada}
             max={hoje}
             onChange={(e) => setDataSelecionada(e.target.value)}
-            className="px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none text-stone-700"
+            className="px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none text-stone-700"
           />
         </div>
       </div>
@@ -421,7 +421,7 @@ export default function PrestacaoContasPage() {
                 venda — é diferente da conferência de cada fechamento abaixo.
               </p>
             </div>
-            <span className="font-semibold text-stone-800 whitespace-nowrap">{formatCurrency(totalVendidoBruto)}</span>
+            <span className="font-semibold text-brand whitespace-nowrap">{formatCurrency(totalVendidoBruto)}</span>
           </div>
 
           <div className="overflow-x-auto">
@@ -629,13 +629,13 @@ export default function PrestacaoContasPage() {
                               placeholder="Valor contado"
                               value={valoresDigitados[u.usuario] || ''}
                               onChange={(e) => setValoresDigitados((prev) => ({ ...prev, [u.usuario]: e.target.value }))}
-                              className="w-32 px-3 py-1.5 border border-stone-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-400 outline-none"
+                              className="w-32 px-3 py-1.5 border border-stone-300 rounded-lg text-sm focus:ring-2 focus:ring-stone-400 outline-none"
                             />
                             {funcionarios.length > 0 && (
                               <select
                                 value={funcionarioSelecionado[u.usuario] || ''}
                                 onChange={(e) => setFuncionarioSelecionado((prev) => ({ ...prev, [u.usuario]: e.target.value }))}
-                                className="px-3 py-1.5 border border-stone-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-400 outline-none bg-white text-stone-700"
+                                className="px-3 py-1.5 border border-stone-300 rounded-lg text-sm focus:ring-2 focus:ring-stone-400 outline-none bg-white text-stone-700"
                               >
                                 <option value="">Quem está fechando?</option>
                                 {funcionarios.map((f) => (
@@ -850,7 +850,7 @@ export default function PrestacaoContasPage() {
               <div>
                 <label className="block text-sm font-medium text-stone-700 mb-1">Tipo</label>
                 <select
-                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none bg-white text-stone-700"
+                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none bg-white text-stone-700"
                   value={formMovimentacao.tipo}
                   onChange={(e) => setFormMovimentacao({ ...formMovimentacao, tipo: e.target.value as 'sangria' | 'suprimento' })}
                 >
@@ -865,7 +865,7 @@ export default function PrestacaoContasPage() {
                   type="number"
                   step="0.01"
                   required
-                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none"
                   value={formMovimentacao.valor}
                   onChange={(e) => setFormMovimentacao({ ...formMovimentacao, valor: e.target.value })}
                   placeholder="0.00"
@@ -877,7 +877,7 @@ export default function PrestacaoContasPage() {
                 <input
                   type="text"
                   required
-                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none"
                   value={formMovimentacao.motivo}
                   onChange={(e) => setFormMovimentacao({ ...formMovimentacao, motivo: e.target.value })}
                   placeholder="Ex: Compra de material de limpeza"

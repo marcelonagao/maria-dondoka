@@ -109,7 +109,7 @@ export default function Combobox({
         type="text"
         required={required}
         autoComplete="off"
-        className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none"
+        className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none"
         placeholder={placeholder}
         value={query}
         onChange={(e) => {
@@ -130,8 +130,8 @@ export default function Combobox({
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => (linha.tipo === 'opcao' ? selecionar(linha.opcao) : criarNovo())}
               className={`px-4 py-2 text-sm cursor-pointer ${
-                i === highlightedIndex ? 'bg-amber-50 text-amber-700' : 'text-stone-700 hover:bg-stone-50'
-              } ${linha.tipo === 'criar' ? 'font-medium text-amber-600' : ''}`}
+                i === highlightedIndex ? 'bg-stone-100 text-stone-900' : 'text-stone-700 hover:bg-stone-50'
+              } ${linha.tipo === 'criar' ? 'font-medium text-stone-700' : ''}`}
             >
               {linha.tipo === 'opcao'
                 ? linha.opcao.label
