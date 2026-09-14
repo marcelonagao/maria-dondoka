@@ -193,14 +193,30 @@ export async function POST(request: Request) {
       }
     }
 
-    // Itens de venda são eventos discretos (uma linha por produto vendido), não um
-    // acumulado — cada sincronização insere as linhas do período recebido. Sem
-    // constraint única (o mesmo evento não deve ser reenviado por dois ciclos
-    // diferentes, já que a query de origem filtra por dia); reenvio do mesmo dia
-    // duplica, por isso o backfill histórico roda uma vez por mês/dia, não solto.
-    if (vendas.itens.length > 0) {
+    // Itens de venda são eventos discretos (uma linha por produto vendido), dedupe por
+    // origem_id via constraint única (franchise_id, origem_id) — reenvio do mesmo dia
+    // é ignorado (ignoreDuplicates), não duplica.
+    //
+    // valor_total incompatível com quantidade × valor_unitario indica corrupção na
+    // origem (achado em produção: overflow de DECIMAL(10,2) no MySQL do PDV gravou
+    // valor_total como o piso do tipo, -99999999.99, inflando o Faturamento Bruto do
+    // DRE em ~R$200 milhões com um único item). Descarta só o item afetado — não
+    // derruba o resto do sync do dia por causa de uma linha ruim na origem.
+    const itensValidos = vendas.itens.filter((item) => {
+      const esperado = item.quantidade * item.valor_unitario;
+      const tolerancia = Math.max(Math.abs(esperado) * 0.5, 5);
+      const valido = Math.abs(item.valor_total - esperado) <= tolerancia;
+      if (!valido) {
+        console.error(
+          `[pdv-sync:${requestId}] item descartado por valor_total incompatível: origem_id=${item.origem_id} venda_referencia=${item.venda_referencia} esperado≈${esperado.toFixed(2)} recebido=${item.valor_total}`
+        );
+      }
+      return valido;
+    });
+
+    if (itensValidos.length > 0) {
       const { error: itensError } = await supabaseAdmin.from('vendas_itens').upsert(
-        vendas.itens.map((item) => ({
+        itensValidos.map((item) => ({
           franchise_id: device.franchise_id,
           pdv_device_id: device.id,
           data_venda: vendas.data,
