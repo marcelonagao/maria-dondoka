@@ -101,7 +101,20 @@ function VariacaoBadge({ pct }: { pct: number | null }) {
 const formatDataCurta = (isoDate: string) =>
   new Date(isoDate + 'T00:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
 
-export default function PainelVendas({ franchiseId }: { franchiseId?: string }) {
+interface Franquia {
+  id: string;
+  name: string;
+}
+
+export default function PainelVendas({
+  franchiseId,
+  franquias = [],
+  onSelecionarFranquia,
+}: {
+  franchiseId?: string;
+  franquias?: Franquia[];
+  onSelecionarFranquia?: (id: string) => void;
+}) {
   const [preset, setPreset] = useState<PeriodoPreset>('7d');
   const [customInicio, setCustomInicio] = useState(adicionarDias(hojeBrasilia(), -6));
   const [customFim, setCustomFim] = useState(hojeBrasilia());
@@ -112,6 +125,7 @@ export default function PainelVendas({ franchiseId }: { franchiseId?: string }) 
   const [totaisAtual, setTotaisAtual] = useState<Totais>(TOTAIS_VAZIOS);
   const [totaisAnterior, setTotaisAnterior] = useState<Totais>(TOTAIS_VAZIOS);
   const [pontosDiarios, setPontosDiarios] = useState<PontoDiario[]>([]);
+  const [totaisPorFranquia, setTotaisPorFranquia] = useState<Record<string, Totais>>({});
 
   const { inicio, fim } = useMemo(() => {
     const hoje = hojeBrasilia();
@@ -160,6 +174,16 @@ export default function PainelVendas({ franchiseId }: { franchiseId?: string }) 
           .map(([data, faturamento]) => ({ data, faturamento }))
           .sort((a, b) => a.data.localeCompare(b.data));
         setPontosDiarios(pontos);
+
+        // Comparativo entre lojas usa sempre TODAS as franquias visíveis (não o recorte do
+        // filtro) — o filtro serve pra olhar uma loja a fundo, a tabela pra comparar.
+        const porFranquia: Record<string, ItemVenda[]> = {};
+        for (const item of dadosAtual) {
+          (porFranquia[item.franchise_id] ||= []).push(item);
+        }
+        setTotaisPorFranquia(
+          Object.fromEntries(Object.entries(porFranquia).map(([id, itens]) => [id, calcularTotais(itens)]))
+        );
       } catch (err) {
         console.error('Erro ao carregar painel de vendas:', err);
         setErro('Não foi possível carregar os dados de vendas. Tente novamente.');
@@ -172,6 +196,14 @@ export default function PainelVendas({ franchiseId }: { franchiseId?: string }) 
   }, [inicio, fim, anterior.inicio, anterior.fim, comparar, franchiseId]);
 
   const mostrarGrafico = diffDias(inicio, fim) > 1;
+
+  const franquiasOrdenadas = useMemo(
+    () =>
+      franquias
+        .map((f) => ({ id: f.id, nome: f.name, totais: totaisPorFranquia[f.id] || TOTAIS_VAZIOS }))
+        .sort((a, b) => b.totais.vendasBrutas - a.totais.vendasBrutas),
+    [franquias, totaisPorFranquia]
+  );
 
   const presets: { valor: PeriodoPreset; rotulo: string }[] = [
     { valor: 'hoje', rotulo: 'Hoje' },
@@ -301,6 +333,42 @@ export default function PainelVendas({ franchiseId }: { franchiseId?: string }) 
               </ResponsiveContainer>
             )}
           </div>
+
+          {/* Comparativo por loja em linhas, não tabela de 4 colunas: no celular a tabela
+              antiga só cabia com scroll horizontal. */}
+          {franquiasOrdenadas.length > 0 && (
+            <div className="border-t border-stone-200">
+              <p className="px-4 sm:px-6 pt-4 pb-2 text-xs font-medium text-stone-500">
+                Vendas por franquia no período
+              </p>
+              <ul className="divide-y divide-stone-100">
+                {franquiasOrdenadas.map((f) => {
+                  const selecionada = f.id === franchiseId;
+                  return (
+                    <li key={f.id}>
+                      <button
+                        onClick={() => onSelecionarFranquia?.(selecionada ? '' : f.id)}
+                        className={`w-full text-left px-4 sm:px-6 py-2.5 transition-colors ${
+                          selecionada ? 'bg-stone-50 border-l-2 border-stone-800' : 'hover:bg-stone-50'
+                        }`}
+                      >
+                        <div className="flex items-baseline justify-between gap-3">
+                          <span className="text-sm text-stone-700 truncate">{f.nome}</span>
+                          <span className="text-sm font-semibold tabular-nums text-stone-800 shrink-0">
+                            {formatCurrency(f.totais.vendasBrutas)}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-stone-400 tabular-nums mt-0.5">
+                          {f.totais.quantidadeVendas.toLocaleString('pt-BR')} vendas · ticket{' '}
+                          {formatCurrency(f.totais.ticketMedio)}
+                        </p>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
         </>
       )}
     </div>
