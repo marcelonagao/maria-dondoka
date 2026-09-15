@@ -7,6 +7,8 @@ import Card from '../../../components/Card';
 import HeroCard from '../../../components/HeroCard';
 import FluxoCaixaChart from './FluxoCaixaChart';
 import IndexedMetricsChart from './IndexedMetricsChart';
+import PainelVendas from './PainelVendas';
+import TopProdutosChart from './TopProdutosChart';
 
 interface Franquia {
   id: string;
@@ -153,6 +155,10 @@ export default function DashboardPage() {
           ))}
         </div>
       )}
+
+      <PainelVendas franchiseId={isSocio ? (franquiaSelecionada || undefined) : undefined} />
+
+      <TopProdutosChart franchiseId={isSocio ? (franquiaSelecionada || undefined) : undefined} />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <Card className="flex flex-col justify-center">
