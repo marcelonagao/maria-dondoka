@@ -45,6 +45,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       subItems: [
         { name: 'Contas a Pagar', path: '/tesouraria/pagar' },
         { name: 'Contas a Receber', path: '/tesouraria/receber' },
+        { name: 'Fluxo de Caixa', path: '/tesouraria/fluxo-caixa' },
       ],
     },
     { name: 'Vendas (PDV)', path: '/vendas', icon: '🛍️', tela: 'vendas_pdv' },

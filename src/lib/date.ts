@@ -36,3 +36,26 @@ export function intervaloDoTrimestre(ano: number, trimestre: 1 | 2 | 3 | 4): { i
 export function intervaloDoAno(ano: number): { inicio: string; fim: string } {
   return { inicio: `${ano}-01-01`, fim: `${ano}-12-31` };
 }
+
+// Aritmética em 'YYYY-MM' (não em data cheia) de propósito: somar mês em cima de um dia 31
+// rola pro mês seguinte e estraga a sequência. Aqui só o par ano/mês importa.
+export function adicionarMeses(mesAno: string, meses: number): string {
+  const [ano, mes] = mesAno.split('-').map(Number);
+  const total = ano * 12 + (mes - 1) + meses;
+  const novoAno = Math.floor(total / 12);
+  const novoMes = (total % 12) + 1;
+  return `${novoAno}-${String(novoMes).padStart(2, '0')}`;
+}
+
+// Sequência de N meses a partir de mesAno, incluindo ele: ['2026-09', '2026-10', ...].
+export function proximosMeses(mesAno: string, quantidade: number): string[] {
+  const meses: string[] = [];
+  for (let i = 0; i < quantidade; i++) meses.push(adicionarMeses(mesAno, i));
+  return meses;
+}
+
+export function rotuloDoMes(mesAno: string): string {
+  const [ano, mes] = mesAno.split('-').map(Number);
+  const nomes = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+  return `${nomes[mes - 1]}/${String(ano).slice(2)}`;
+}

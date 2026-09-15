@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { timingSafeEqual } from 'crypto';
+import { calcularProximoVencimento } from '../../../../lib/recorrencia';
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -26,25 +27,6 @@ interface DespesaRecorrente {
   frequencia: 'mensal' | 'trimestral' | 'semestral' | 'anual';
   mes_referencia: number | null;
   ultima_geracao_periodo: string | null;
-}
-
-function mesesPorFrequencia(freq: string): number {
-  const mapa: Record<string, number> = { mensal: 1, trimestral: 3, semestral: 6, anual: 12 };
-  return mapa[freq] || 1;
-}
-
-// Pra mensal, o mês-base é o mês corrente; pra trimestral/semestral/anual, é o
-// mes_referencia cadastrado (ex: IPVA anual vencendo sempre em janeiro = mes_referencia 1).
-// Anda em blocos de N meses a partir daí até achar a primeira ocorrência >= hoje — funciona
-// igual pras 4 frequências, sem precisar de lógica separada por caso.
-function calcularProximoVencimento(r: DespesaRecorrente, hoje: Date): string {
-  const passo = mesesPorFrequencia(r.frequencia);
-  const mesBase = r.frequencia === 'mensal' ? hoje.getUTCMonth() + 1 : (r.mes_referencia || 1);
-  let candidato = new Date(Date.UTC(hoje.getUTCFullYear(), mesBase - 1, r.dia_vencimento));
-  while (candidato < hoje) {
-    candidato = new Date(Date.UTC(candidato.getUTCFullYear(), candidato.getUTCMonth() + passo, r.dia_vencimento));
-  }
-  return candidato.toISOString().slice(0, 10);
 }
 
 export async function GET(request: Request) {
