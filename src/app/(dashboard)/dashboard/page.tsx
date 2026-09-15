@@ -12,9 +12,19 @@ interface Franquia {
 
 interface Alerta {
   id: string;
+  tipo: string;
   franquia_nome: string | null;
   data_referencia: string | null;
   detalhe: string | null;
+}
+
+const MENSAGEM_POR_TIPO: Record<string, string> = {
+  duplicidade_vendas_itens: 'Possível duplicidade detectada',
+  item_valor_invalido: 'Item de venda descartado por valor inválido',
+};
+
+function formatarData(data: string | null) {
+  return data ? data.split('-').reverse().join('/') : null;
 }
 
 export default function DashboardPage() {
@@ -158,14 +168,17 @@ export default function DashboardPage() {
       )}
 
       {alertas.length > 0 && (
-        <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 sm:px-6 sm:py-4 text-red-700 text-sm space-y-1">
+        <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 sm:px-6 sm:py-4 text-red-700 text-sm space-y-2">
           {alertas.map((a) => (
-            <p key={a.id}>
-              ⚠️ Possível duplicidade detectada em{' '}
-              <strong>{a.franquia_nome || 'franquia não identificada'}</strong>
-              {a.data_referencia && `, ${a.data_referencia.split('-').reverse().join('/')}`} — verificar
-              antes de confiar no DRE desse período.
-            </p>
+            <div key={a.id}>
+              <p>
+                ⚠️ {MENSAGEM_POR_TIPO[a.tipo] || 'Alerta do sistema'} em{' '}
+                <strong>{a.franquia_nome || 'franquia não identificada'}</strong>
+                {a.data_referencia && `, ${formatarData(a.data_referencia)}`} — verificar antes de
+                confiar no DRE desse período.
+              </p>
+              {a.detalhe && <p className="text-xs text-red-600/80 mt-0.5">{a.detalhe}</p>}
+            </div>
           ))}
         </div>
       )}

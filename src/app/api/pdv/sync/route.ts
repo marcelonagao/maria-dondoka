@@ -203,11 +203,13 @@ export async function POST(request: Request) {
     // valor_total como o piso do tipo, -99999999.99, inflando o Faturamento Bruto do
     // DRE em ~R$200 milhões com um único item). Descarta só o item afetado — não
     // derruba o resto do sync do dia por causa de uma linha ruim na origem.
+    const itensDescartados: typeof vendas.itens = [];
     const itensValidos = vendas.itens.filter((item) => {
       const esperado = item.quantidade * item.valor_unitario;
       const tolerancia = Math.max(Math.abs(esperado) * 0.5, 5);
       const valido = Math.abs(item.valor_total - esperado) <= tolerancia;
       if (!valido) {
+        itensDescartados.push(item);
         console.error(
           `[pdv-sync:${requestId}] item descartado por valor_total incompatível: origem_id=${item.origem_id} venda_referencia=${item.venda_referencia} esperado≈${esperado.toFixed(2)} recebido=${item.valor_total}`
         );
@@ -250,6 +252,41 @@ export async function POST(request: Request) {
 
       if (itensError) {
         console.error(`[pdv-sync:${requestId}] erro ao gravar itens de venda:`, itensError.message);
+      }
+    }
+
+    // Item descartado some do faturamento em silêncio — no caso real que motivou a
+    // validação (Loja2, junho/26), dois itens corrompidos ficaram meses no DRE sem ninguém
+    // notar. Vira alerta na tela em vez de só um log de servidor que ninguém lê.
+    // Dedupe por franquia+dia: o PDV reenvia o mesmo dia a cada ciclo de sync, senão
+    // recriaria o alerta a cada 15 minutos.
+    if (itensDescartados.length > 0) {
+      try {
+        const { data: existente } = await supabaseAdmin
+          .from('alertas_sistema')
+          .select('id')
+          .eq('tipo', 'item_valor_invalido')
+          .eq('franchise_id', device.franchise_id)
+          .eq('data_referencia', vendas.data)
+          .maybeSingle();
+
+        if (!existente) {
+          const amostra = itensDescartados
+            .slice(0, 3)
+            .map((i) => `venda ${i.venda_referencia} (origem_id ${i.origem_id ?? '—'})`)
+            .join(', ');
+          const { error: alertaError } = await supabaseAdmin.from('alertas_sistema').insert({
+            tipo: 'item_valor_invalido',
+            franchise_id: device.franchise_id,
+            data_referencia: vendas.data,
+            detalhe: `${itensDescartados.length} item(ns) descartado(s) por valor_total incompatível com quantidade × valor_unitario: ${amostra}.`,
+          });
+          if (alertaError) throw new Error(alertaError.message);
+        }
+      } catch (err) {
+        // Falha ao alertar nunca pode derrubar o sync — o dado bom já foi gravado acima.
+        const mensagem = err instanceof Error ? err.message : String(err);
+        console.error(`[pdv-sync:${requestId}] erro ao registrar alerta de item inválido:`, mensagem);
       }
     }
 
