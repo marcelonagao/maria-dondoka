@@ -150,10 +150,16 @@ com rótulo comercial. `SHOW COLUMNS` rodado em **Loja1-Caraguatatuba e Loja4-Ja
 - `movprods` **não tem** coluna de descrição — o nome só vem pelo `LEFT JOIN produtos` que
   a query já fazia. (`movprods` também tem um `referencia` próprio, hoje não usado: a query
   pega o SKU de `p.referencia`.)
-- **O schema de `movprods` NÃO é idêntico entre as duas lojas**: Loja1 tem `devfor` que
-  Loja4 não tem, `chave` fica em posições diferentes, e tipos divergem (`qtd` é
-  `double(10,3)` na Loja1 e `double` na Loja4). Todas as colunas usadas pelo sync existem
-  nas duas, mas não assuma paridade de schema ao adicionar coluna nova — confirme por loja.
+- **O schema de `movprods` NÃO é idêntico entre lojas** — três formatos diferentes já
+  confirmados: Loja1 tem `devfor` e não tem `chave`; Loja4 tem `chave` e não tem `devfor`;
+  uma das 6 lojas via PHP tem **as duas**. Tipos também divergem (`qtd` é `double(10,3)`
+  na Loja1 e `double` na Loja4; `cclas` é `int(5)` numa e `varchar(5)` noutra). Todas as
+  colunas usadas pelo sync existem em todas, mas não assuma paridade ao adicionar coluna
+  nova — confirme na loja.
+- Uma das 6 lojas do grupo PHP foi verificada (2026-09-15) e tem `produtos.descrição`
+  preenchida igual às diretas — nela a `descricao` sem acento também está preenchida, mas
+  a acentuada é a única consistente nas três lojas conferidas, então é a que vale. As
+  outras 5 seguem sem verificação.
 
 Implementado: coluna `produto_nome text null` em `vendas_itens`, campo no `ItemVendaSchema`
 e na gravação de `/api/pdv/sync`, e `p.\`descrição\` AS produto_nome` na query de
