@@ -211,6 +211,17 @@ export default function ContasPagarPage() {
     return mapa;
   }, [despesasVisiveis]);
 
+  // O contador precisa descrever o que está na tela: um grupo de folha ocupa uma linha, mas
+  // são dezenas de registros no banco (um por funcionário). Sem isso, "111 lançamentos"
+  // aparecia sobre uma lista de 68 linhas.
+  const totaisExibidos = useMemo(() => {
+    const registrosEmGrupos = Array.from(gruposFolha.values()).reduce((acc, itens) => acc + itens.length, 0);
+    return {
+      ...totais,
+      quantidade: despesasVisiveis.length - registrosEmGrupos + gruposFolha.size,
+    };
+  }, [totais, despesasVisiveis, gruposFolha]);
+
   const toggleGrupoFolha = async (chave: string, itensDoGrupo: Despesa[]) => {
     const jaExpandido = expandedGruposFolha.has(chave);
     setExpandedGruposFolha((atual) => {
@@ -837,7 +848,7 @@ export default function ContasPagarPage() {
         fornecedorOptions={fornecedorOptions}
         franquias={franquias}
         mostrarFranquia={podeLancarParaOutras}
-        totais={totais}
+        totais={totaisExibidos}
         truncado={truncado}
       />
 
