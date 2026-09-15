@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { supabase } from '../../../lib/supabase';
 import { formatCurrency } from '../../../lib/format';
 import { mesAtualBrasilia, intervaloDoMes } from '../../../lib/date';
@@ -108,36 +107,47 @@ export default function TopProdutosChart({ franchiseId }: { franchiseId?: string
           type="month"
           value={mesSelecionado}
           onChange={(e) => setMesSelecionado(e.target.value)}
-          className="px-3 py-1.5 border border-stone-300 rounded-lg text-xs text-stone-700 outline-none focus:ring-2 focus:ring-stone-400"
+          className="w-full sm:w-auto px-3 py-2 border border-stone-300 rounded-lg text-xs text-stone-700 outline-none focus:ring-2 focus:ring-stone-400"
         />
       </div>
 
       {isLoading ? (
-        <div className="p-8 text-center text-stone-400 text-sm min-h-[300px] flex items-center justify-center">Carregando...</div>
+        <div className="p-8 text-center text-stone-400 text-sm min-h-[200px] flex items-center justify-center">Carregando...</div>
       ) : topProdutos.length === 0 ? (
         <div className="p-8 min-h-[200px] flex flex-col items-center justify-center gap-2">
           <p className="text-stone-400 text-sm">Nenhuma venda com produto identificado nesse período.</p>
           <p className="text-stone-300 text-xs">Os dados aparecem aqui assim que o PDV sincronizar vendas granulares.</p>
         </div>
       ) : (
-        <div className="p-6">
-          <ResponsiveContainer width="100%" height={Math.max(320, topProdutos.length * 32)}>
-            <BarChart data={topProdutos} layout="vertical" margin={{ left: 24 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" horizontal={false} />
-              <XAxis type="number" stroke="#a8a29e" fontSize={12} tickFormatter={(v) => formatCurrency(Number(v))} />
-              <YAxis type="category" dataKey="rotulo" stroke="#a8a29e" fontSize={11} width={140} />
-              <Tooltip
-                formatter={(value, name) => (name === 'unidades' ? `${value} un.` : formatCurrency(Number(value)))}
-                labelFormatter={(label) => label}
-              />
-              <Bar dataKey="receita" name="Faturamento" radius={[0, 4, 4, 0]}>
-                {topProdutos.map((entry) => (
-                  <Cell key={entry.chave} fill="#059669" />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+        // Lista em vez de gráfico de barras: o rótulo de produto é longo demais pra um eixo
+        // vertical em tela de celular (comia ~40% da largura e ainda truncava). Aqui o nome
+        // ocupa a linha inteira e a barra fica embaixo, proporcional ao 1º colocado.
+        <ol className="divide-y divide-stone-100">
+          {topProdutos.map((produto, i) => {
+            const pct = topProdutos[0].receita > 0 ? (produto.receita / topProdutos[0].receita) * 100 : 0;
+            return (
+              <li key={produto.chave} className="px-4 sm:px-6 py-3">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-xs text-stone-400 tabular-nums w-5 shrink-0">{i + 1}</span>
+                  <span className="text-sm text-stone-700 truncate flex-1" title={produto.rotulo}>
+                    {produto.rotulo}
+                  </span>
+                  <span className="text-sm font-semibold tabular-nums text-stone-800 shrink-0">
+                    {formatCurrency(produto.receita)}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 mt-1.5 pl-7">
+                  <div className="h-1.5 flex-1 bg-stone-100 rounded-full overflow-hidden">
+                    <div className="h-full bg-emerald-600 rounded-full" style={{ width: `${pct}%` }} />
+                  </div>
+                  <span className="text-[11px] text-stone-400 tabular-nums shrink-0">
+                    {produto.unidades.toLocaleString('pt-BR')} un.
+                  </span>
+                </div>
+              </li>
+            );
+          })}
+        </ol>
       )}
     </div>
   );

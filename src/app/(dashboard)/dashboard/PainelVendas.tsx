@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  AreaChart, Area, XAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
 import { supabase } from '../../../lib/supabase';
 import { formatCurrency } from '../../../lib/format';
@@ -17,6 +17,7 @@ interface Totais {
   quantidadeVendas: number;
   precoMedioUnidade: number;
   ticketMedio: number;
+  margemBrutaPct: number;
 }
 
 interface PontoDiario {
@@ -29,10 +30,14 @@ interface ItemVenda {
   venda_referencia: string;
   valor_total: number;
   quantidade: number;
+  custo_unitario: number;
+  aliquota_icm: number | null;
   franchise_id: string;
 }
 
-const TOTAIS_VAZIOS: Totais = { vendasBrutas: 0, unidades: 0, quantidadeVendas: 0, precoMedioUnidade: 0, ticketMedio: 0 };
+const TOTAIS_VAZIOS: Totais = {
+  vendasBrutas: 0, unidades: 0, quantidadeVendas: 0, precoMedioUnidade: 0, ticketMedio: 0, margemBrutaPct: 0,
+};
 
 function diffDias(inicio: string, fim: string): number {
   const a = new Date(inicio + 'T00:00:00Z').getTime();
@@ -52,10 +57,14 @@ function periodoAnterior(inicio: string, fim: string): { inicio: string; fim: st
 function calcularTotais(itens: ItemVenda[]): Totais {
   let vendasBrutas = 0;
   let unidades = 0;
+  let cmv = 0;
+  let impostos = 0;
   const vendasUnicas = new Set<string>();
   for (const item of itens) {
     vendasBrutas += Number(item.valor_total);
     unidades += Number(item.quantidade);
+    cmv += Number(item.quantidade) * Number(item.custo_unitario);
+    impostos += (Number(item.valor_total) * (Number(item.aliquota_icm) || 0)) / 100;
     vendasUnicas.add(item.venda_referencia);
   }
   const quantidadeVendas = vendasUnicas.size;
@@ -65,6 +74,9 @@ function calcularTotais(itens: ItemVenda[]): Totais {
     quantidadeVendas,
     precoMedioUnidade: unidades > 0 ? vendasBrutas / unidades : 0,
     ticketMedio: quantidadeVendas > 0 ? vendasBrutas / quantidadeVendas : 0,
+    // Margem em valor absoluto (%), nunca indexada — indexar percentual contra a base de
+    // outro período estoura quando a base fica perto de zero.
+    margemBrutaPct: vendasBrutas > 0 ? ((vendasBrutas - cmv - impostos) / vendasBrutas) * 100 : 0,
   };
 }
 
@@ -125,7 +137,7 @@ export default function PainelVendas({ franchiseId }: { franchiseId?: string }) 
         setIsLoading(true);
         setErro(null);
 
-        const campos = 'data_venda, venda_referencia, valor_total, quantidade, franchise_id';
+        const campos = 'data_venda, venda_referencia, valor_total, quantidade, custo_unitario, aliquota_icm, franchise_id';
         const [dadosAtual, dadosAnterior] = await Promise.all([
           buscarTodosVendasItens<ItemVenda>(supabase, campos, inicio, fim),
           comparar ? buscarTodosVendasItens<ItemVenda>(supabase, campos, anterior.inicio, anterior.fim) : Promise.resolve([]),
@@ -171,74 +183,77 @@ export default function PainelVendas({ franchiseId }: { franchiseId?: string }) 
 
   const kpis: { label: string; valor: string; variacao: number | null }[] = [
     { label: 'Vendas Brutas', valor: formatCurrency(totaisAtual.vendasBrutas), variacao: variacaoPct(totaisAtual.vendasBrutas, totaisAnterior.vendasBrutas) },
-    { label: 'Unidades Vendidas', valor: totaisAtual.unidades.toLocaleString('pt-BR'), variacao: variacaoPct(totaisAtual.unidades, totaisAnterior.unidades) },
-    { label: 'Preço Médio por Unidade', valor: formatCurrency(totaisAtual.precoMedioUnidade), variacao: variacaoPct(totaisAtual.precoMedioUnidade, totaisAnterior.precoMedioUnidade) },
-    { label: 'Quantidade de Vendas', valor: totaisAtual.quantidadeVendas.toLocaleString('pt-BR'), variacao: variacaoPct(totaisAtual.quantidadeVendas, totaisAnterior.quantidadeVendas) },
+    { label: 'Qtd. de Vendas', valor: totaisAtual.quantidadeVendas.toLocaleString('pt-BR'), variacao: variacaoPct(totaisAtual.quantidadeVendas, totaisAnterior.quantidadeVendas) },
     { label: 'Ticket Médio', valor: formatCurrency(totaisAtual.ticketMedio), variacao: variacaoPct(totaisAtual.ticketMedio, totaisAnterior.ticketMedio) },
+    { label: 'Unidades Vendidas', valor: totaisAtual.unidades.toLocaleString('pt-BR'), variacao: variacaoPct(totaisAtual.unidades, totaisAnterior.unidades) },
+    { label: 'Preço Médio/Un.', valor: formatCurrency(totaisAtual.precoMedioUnidade), variacao: variacaoPct(totaisAtual.precoMedioUnidade, totaisAnterior.precoMedioUnidade) },
+    { label: 'Margem Bruta', valor: `${totaisAtual.margemBrutaPct.toFixed(1)}%`, variacao: variacaoPct(totaisAtual.margemBrutaPct, totaisAnterior.margemBrutaPct) },
   ];
 
   return (
     <div className="bg-white border border-stone-200 rounded-xl shadow-sm overflow-hidden">
-      <div className="p-4 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-stone-200">
+      <div className="p-4 sm:p-6 space-y-3 border-b border-stone-200">
         <h3 className="text-base font-medium text-stone-700">Painel de Vendas</h3>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex rounded-lg border border-stone-300 overflow-hidden">
-            {presets.map((p) => (
-              <button
-                key={p.valor}
-                onClick={() => setPreset(p.valor)}
-                className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                  preset === p.valor ? 'bg-stone-800 text-white' : 'bg-white text-stone-600 hover:bg-stone-50'
-                }`}
-              >
-                {p.rotulo}
-              </button>
-            ))}
-          </div>
-          {preset === 'custom' && (
-            <div className="flex items-center gap-1.5">
-              <input
-                type="date"
-                value={customInicio}
-                max={customFim}
-                onChange={(e) => setCustomInicio(e.target.value)}
-                className="px-2 py-1.5 border border-stone-300 rounded-lg text-xs text-stone-700 outline-none focus:ring-2 focus:ring-stone-400"
-              />
-              <span className="text-stone-400 text-xs">até</span>
-              <input
-                type="date"
-                value={customFim}
-                min={customInicio}
-                max={hojeBrasilia()}
-                onChange={(e) => setCustomFim(e.target.value)}
-                className="px-2 py-1.5 border border-stone-300 rounded-lg text-xs text-stone-700 outline-none focus:ring-2 focus:ring-stone-400"
-              />
-            </div>
-          )}
-          <button
-            onClick={() => setComparar((v) => !v)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-              comparar ? 'bg-stone-100 border-stone-300 text-stone-700' : 'bg-white border-stone-200 text-stone-400'
-            }`}
-          >
-            {comparar ? '✓ ' : ''}Comparar com período anterior
-          </button>
+
+        {/* Chips ocupam a largura toda no celular (grid), viram inline no desktop. */}
+        <div className="grid grid-cols-5 sm:inline-grid sm:grid-flow-col rounded-lg border border-stone-300 overflow-hidden">
+          {presets.map((p) => (
+            <button
+              key={p.valor}
+              onClick={() => setPreset(p.valor)}
+              className={`px-2 sm:px-3 py-2 text-[11px] sm:text-xs font-medium leading-tight transition-colors border-r border-stone-200 last:border-r-0 ${
+                preset === p.valor ? 'bg-stone-800 text-white' : 'bg-white text-stone-600'
+              }`}
+            >
+              {p.rotulo}
+            </button>
+          ))}
         </div>
+
+        {preset === 'custom' && (
+          <div className="flex items-center gap-1.5">
+            <input
+              type="date"
+              value={customInicio}
+              max={customFim}
+              onChange={(e) => setCustomInicio(e.target.value)}
+              className="flex-1 min-w-0 px-2 py-1.5 border border-stone-300 rounded-lg text-xs text-stone-700 outline-none focus:ring-2 focus:ring-stone-400"
+            />
+            <span className="text-stone-400 text-xs shrink-0">até</span>
+            <input
+              type="date"
+              value={customFim}
+              min={customInicio}
+              max={hojeBrasilia()}
+              onChange={(e) => setCustomFim(e.target.value)}
+              className="flex-1 min-w-0 px-2 py-1.5 border border-stone-300 rounded-lg text-xs text-stone-700 outline-none focus:ring-2 focus:ring-stone-400"
+            />
+          </div>
+        )}
+
+        <button
+          onClick={() => setComparar((v) => !v)}
+          className={`w-full sm:w-auto px-3 py-2 rounded-lg text-xs font-medium border transition-colors ${
+            comparar ? 'bg-stone-100 border-stone-300 text-stone-700' : 'bg-white border-stone-200 text-stone-400'
+          }`}
+        >
+          {comparar ? '✓ ' : ''}Comparar com período anterior
+        </button>
       </div>
 
       {erro ? (
         <div className="p-6 text-center text-red-500 text-sm">{erro}</div>
       ) : (
         <>
-          <div className="grid grid-cols-2 sm:grid-cols-5 divide-x divide-y sm:divide-y-0 divide-stone-200">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 divide-x divide-y lg:divide-y-0 divide-stone-200">
             {kpis.map((kpi) => (
-              <div key={kpi.label} className="p-4">
-                <p className="text-xs font-medium text-stone-500">{kpi.label}</p>
+              <div key={kpi.label} className="p-3 sm:p-4">
+                <p className="text-[11px] sm:text-xs font-medium text-stone-500 leading-tight">{kpi.label}</p>
                 {isLoading ? (
                   <div className="h-6 bg-stone-100 animate-pulse rounded w-2/3 mt-1.5"></div>
                 ) : (
                   <>
-                    <p className="text-lg font-semibold tabular-nums text-stone-800 mt-1">{kpi.valor}</p>
+                    <p className="text-base sm:text-lg font-semibold tabular-nums text-stone-800 mt-1 truncate">{kpi.valor}</p>
                     {comparar && <VariacaoBadge pct={kpi.variacao} />}
                   </>
                 )}
@@ -246,19 +261,21 @@ export default function PainelVendas({ franchiseId }: { franchiseId?: string }) 
             ))}
           </div>
 
-          <div className="p-4 sm:p-6">
+          {/* Sem eixo Y: num card de ~340px no celular ele comia quase 1/3 da largura útil.
+              A escala vem do tooltip e do KPI "Vendas Brutas" logo acima. */}
+          <div className="py-4 pr-3 pl-0 sm:p-6 [&_.recharts-surface]:outline-none">
             {isLoading ? (
-              <div className="min-h-[240px] flex items-center justify-center text-stone-400 text-sm">Carregando...</div>
+              <div className="min-h-[220px] flex items-center justify-center text-stone-400 text-sm">Carregando...</div>
             ) : !mostrarGrafico ? (
-              <p className="text-stone-400 text-xs text-center py-8">
+              <p className="text-stone-400 text-xs text-center py-8 px-4">
                 Selecione um período com mais de 1 dia (7, 15, 30 dias ou personalizado) para ver a
                 tendência diária — o PDV não registra hora da venda, só o dia.
               </p>
             ) : pontosDiarios.length === 0 ? (
-              <p className="text-stone-400 text-xs text-center py-8">Nenhuma venda registrada nesse período.</p>
+              <p className="text-stone-400 text-xs text-center py-8 px-4">Nenhuma venda registrada nesse período.</p>
             ) : (
-              <ResponsiveContainer width="100%" height={240}>
-                <AreaChart data={pontosDiarios}>
+              <ResponsiveContainer width="100%" height={220}>
+                <AreaChart data={pontosDiarios} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
                   <defs>
                     <linearGradient id="corFaturamento" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#059669" stopOpacity={0.25} />
@@ -266,10 +283,20 @@ export default function PainelVendas({ franchiseId }: { franchiseId?: string }) 
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" vertical={false} />
-                  <XAxis dataKey="data" tickFormatter={formatDataCurta} stroke="#a8a29e" fontSize={12} />
-                  <YAxis stroke="#a8a29e" fontSize={12} tickFormatter={(v) => formatCurrency(Number(v))} width={90} />
-                  <Tooltip formatter={(value) => formatCurrency(Number(value))} labelFormatter={(label) => formatDataCurta(String(label))} />
-                  <Area type="monotone" dataKey="faturamento" name="Faturamento Bruto" stroke="#059669" strokeWidth={2} fill="url(#corFaturamento)" dot={{ r: 2 }} />
+                  <XAxis
+                    dataKey="data"
+                    tickFormatter={formatDataCurta}
+                    stroke="#a8a29e"
+                    fontSize={11}
+                    tickLine={false}
+                    minTickGap={24}
+                  />
+                  <Tooltip
+                    formatter={(value) => formatCurrency(Number(value))}
+                    labelFormatter={(label) => formatDataCurta(String(label))}
+                    contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e7e5e4' }}
+                  />
+                  <Area type="monotone" dataKey="faturamento" name="Faturamento" stroke="#059669" strokeWidth={2} fill="url(#corFaturamento)" dot={false} activeDot={{ r: 4 }} />
                 </AreaChart>
               </ResponsiveContainer>
             )}

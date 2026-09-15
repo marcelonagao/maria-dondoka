@@ -5,8 +5,6 @@ import { supabase } from '../../../lib/supabase';
 import { formatCurrency } from '../../../lib/format';
 import Card from '../../../components/Card';
 import HeroCard from '../../../components/HeroCard';
-import FluxoCaixaChart from './FluxoCaixaChart';
-import IndexedMetricsChart from './IndexedMetricsChart';
 import PainelVendas from './PainelVendas';
 import TopProdutosChart from './TopProdutosChart';
 
@@ -236,14 +234,6 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
-
-      <div className="mt-8">
-        {isSocio && !franquiaSelecionada ? (
-          <IndexedMetricsChart />
-        ) : (
-          <FluxoCaixaChart franchiseId={isSocio ? (franquiaSelecionada || undefined) : undefined} />
-        )}
-      </div>
     </div>
   );
 }
