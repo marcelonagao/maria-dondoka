@@ -7,78 +7,19 @@ import { formatCurrency } from '../../../../lib/format';
 import { opcoesDeCategoria } from '../../../../lib/planoContas';
 import Combobox, { ComboboxOption } from '../../../../components/Combobox';
 import PaymentSettlementFields, { DadosPagamento } from '../../../../components/PaymentSettlementFields';
-
-interface Despesa {
-  id: string;
-  description: string;
-  due_date: string;
-  amount: number;
-  status: string;
-  plano_conta_id: string | null;
-  fornecedor_id: string | null;
-  franchise_id: string;
-  paid_at: string | null;
-  valor_juros: number | null;
-  valor_multa: number | null;
-  comprovante_url: string | null;
-  despesa_recorrente_id: string | null;
-  motivo_cancelamento: string | null;
-  documento_origem: string | null;
-  parcela_numero: number | null;
-  parcela_total: number | null;
-  folha_pagamento_competencia_id: string | null;
-  folha_pagamento_item_id: string | null;
-  plano_contas: { nome: string } | null;
-  franchises: { name: string } | null;
-  fornecedores: { nome: string } | null;
-}
-
-interface ItemFuncionario {
-  id: string;
-  nome: string;
-  cargo: string | null;
-  valor_liquido: number;
-}
-
-interface DetalheFolha {
-  cargo: string | null;
-  total_vencimentos: number;
-  total_descontos: number;
-  observacao: string | null;
-}
-
-interface Parcela {
-  vencimento: string;
-  valor: string;
-}
-
-type Frequencia = 'mensal' | 'trimestral' | 'semestral' | 'anual';
-
-interface Recorrente {
-  id: string;
-  valor_referencia: number;
-  dia_vencimento: number;
-  frequencia: Frequencia;
-  mes_referencia: number | null;
-  is_active: boolean;
-}
-
-interface CategoriaContas {
-  id: string;
-  nome: string;
-  categoria_pai_id: string | null;
-}
-
-interface Franquia {
-  id: string;
-  name: string;
-}
-
-interface Fornecedor {
-  id: string;
-  nome: string;
-  franchise_id: string | null;
-}
+import FiltrosBar from './FiltrosBar';
+import { usePagar } from './usePagar';
+import type {
+  CategoriaContas,
+  DetalheFolha,
+  Despesa,
+  Fornecedor,
+  Franquia,
+  Frequencia,
+  ItemFuncionario,
+  Parcela,
+  Recorrente,
+} from './types';
 
 const PAGAMENTO_INICIAL: DadosPagamento = {
   paidAt: hojeBrasilia(),
@@ -121,11 +62,20 @@ function gerarParcelas(n: number, valorTotalStr: string, vencimentoSeed: string)
 }
 
 export default function ContasPagarPage() {
+  const {
+    despesas: despesasVisiveis,
+    isLoading,
+    truncado,
+    filtros,
+    atualizarFiltro,
+    limparFiltros,
+    totais,
+    recarregar: fetchDespesas,
+  } = usePagar();
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [erroFormulario, setErroFormulario] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [despesas, setDespesas] = useState<Despesa[]>([]);
   const [planoContas, setPlanoContas] = useState<CategoriaContas[]>([]);
   const [fornecedores, setFornecedores] = useState<Fornecedor[]>([]);
   const [podeLancarParaOutras, setPodeLancarParaOutras] = useState(false);
@@ -138,7 +88,6 @@ export default function ContasPagarPage() {
   const [despesaParaCancelar, setDespesaParaCancelar] = useState<Despesa | null>(null);
   const [motivoCancelamento, setMotivoCancelamento] = useState('');
   const [cancelandoId, setCancelandoId] = useState<string | null>(null);
-  const [filtroStatus, setFiltroStatus] = useState<'ativas' | 'canceladas' | 'todas'>('ativas');
   const [expandedDespesas, setExpandedDespesas] = useState<Set<string>>(new Set());
   const [itensPorChave, setItensPorChave] = useState<Map<string, ItemFuncionario[]>>(new Map());
   const [carregandoItens, setCarregandoItens] = useState<Set<string>>(new Set());
@@ -165,23 +114,6 @@ export default function ContasPagarPage() {
   const [recorrenteParaGerenciar, setRecorrenteParaGerenciar] = useState<Recorrente | null>(null);
   const [gerenciandoRecorrente, setGerenciandoRecorrente] = useState(false);
   const [parcelas, setParcelas] = useState<Parcela[]>([]);
-
-  const fetchDespesas = async () => {
-    try {
-      setIsLoading(true);
-      const { data, error } = await supabase
-        .from('accounts_payable')
-        .select('*, plano_contas(nome), franchises(name), fornecedores(nome)')
-        .order('due_date', { ascending: true });
-
-      if (error) throw error;
-      setDespesas((data as any) || []);
-    } catch (error) {
-      console.error('Erro ao buscar contas a pagar:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   const fetchPlanoContas = async () => {
     const { data, error } = await supabase
@@ -230,14 +162,19 @@ export default function ContasPagarPage() {
     }
   };
 
+  // As despesas são carregadas pelo usePagar, que refaz a busca quando um filtro muda.
   useEffect(() => {
     fetchPerfil();
     fetchPlanoContas();
     fetchFornecedores();
-    fetchDespesas();
   }, []);
 
-  const getStatusBadge = (status: string) => {
+  // "Vencida" é derivado na exibição (pendente + vencimento no passado), não um status novo
+  // no banco — accounts_payable só conhece pendente/pago/cancelado.
+  const getStatusBadge = (status: string, dueDate?: string) => {
+    if (status === 'pendente' && dueDate && dueDate < hojeBrasilia()) {
+      return <span className="px-2.5 py-1 bg-red-50 text-red-700 text-xs font-medium rounded-md">Vencida</span>;
+    }
     const badges: Record<string, JSX.Element> = {
       pendente: <span className="px-2.5 py-1 bg-stone-200 text-stone-700 text-xs font-medium rounded-md">Pendente</span>,
       pago: <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 text-xs font-medium rounded-md">Pago</span>,
@@ -258,12 +195,6 @@ export default function ContasPagarPage() {
   const fornecedorOptions: ComboboxOption[] = fornecedores
     .filter((f) => f.franchise_id === null || f.franchise_id === franquiaAtualId)
     .map((f) => ({ value: f.id, label: f.nome }));
-
-  const despesasVisiveis = despesas.filter((d) => {
-    if (filtroStatus === 'ativas') return d.status !== 'cancelado';
-    if (filtroStatus === 'canceladas') return d.status === 'cancelado';
-    return true;
-  });
 
   // Despesas de folha geradas por funcionário (folha_pagamento_item_id preenchido) se
   // agrupam por competência+franquia — aparecem como uma linha-resumo colapsada, não uma
@@ -789,6 +720,15 @@ export default function ContasPagarPage() {
           >
             {marcandoPagoId === despesa.id ? 'Salvando...' : 'Marcar como pago'}
           </button>
+          {/* Antes só despesa paga podia ser editada — uma conta pendente lançada errada só
+              tinha a saída de ser cancelada e relançada. A edição já grava trilha em
+              accounts_payable_historico, então não há perda de auditoria. */}
+          <button
+            onClick={() => abrirEdicao(despesa)}
+            className="text-xs font-medium px-3 py-1.5 rounded-lg transition-colors text-stone-500 hover:bg-stone-100"
+          >
+            Editar
+          </button>
           <button
             onClick={() => abrirCancelar(despesa)}
             className="text-xs font-medium px-3 py-1.5 rounded-lg transition-colors text-stone-400 hover:bg-red-50 hover:text-red-600"
@@ -881,24 +821,25 @@ export default function ContasPagarPage() {
             {podeLancarParaOutras ? 'Gerencie as despesas e obrigações de todas as franquias.' : 'Gerencie as despesas e obrigações da sua franquia.'}
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <select
-            className="px-3 py-2 border border-stone-300 rounded-lg text-sm bg-white text-stone-700 focus:ring-2 focus:ring-stone-400 outline-none"
-            value={filtroStatus}
-            onChange={(e) => setFiltroStatus(e.target.value as typeof filtroStatus)}
-          >
-            <option value="ativas">Ativas</option>
-            <option value="canceladas">Canceladas</option>
-            <option value="todas">Todas</option>
-          </select>
-          <button
-            onClick={abrirNovaDespesa}
-            className="bg-stone-900 hover:bg-stone-800 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
-          >
-            <span>+</span> Nova Despesa
-          </button>
-        </div>
+        <button
+          onClick={abrirNovaDespesa}
+          className="bg-stone-900 hover:bg-stone-800 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
+        >
+          <span>+</span> Nova Despesa
+        </button>
       </div>
+
+      <FiltrosBar
+        filtros={filtros}
+        atualizarFiltro={atualizarFiltro}
+        limparFiltros={limparFiltros}
+        categoriaOptions={categoriaOptions}
+        fornecedorOptions={fornecedorOptions}
+        franquias={franquias}
+        mostrarFranquia={podeLancarParaOutras}
+        totais={totais}
+        truncado={truncado}
+      />
 
       <div className="bg-white border border-stone-200 rounded-xl shadow-sm overflow-hidden min-h-[300px]">
         <div className="overflow-x-auto">
@@ -971,7 +912,7 @@ export default function ContasPagarPage() {
                               ) : cancelados === itensDoGrupo.length ? (
                                 getStatusBadge('cancelado')
                               ) : pagos === 0 ? (
-                                getStatusBadge('pendente')
+                                getStatusBadge('pendente', primeiro.due_date)
                               ) : (
                                 <span className="px-2.5 py-1 bg-blue-50 text-blue-700 text-xs font-medium rounded-md">
                                   {pagos} de {itensDoGrupo.length} pagos
@@ -1124,7 +1065,7 @@ export default function ContasPagarPage() {
                       <td className="px-6 py-4">{new Date(despesa.due_date + 'T00:00:00').toLocaleDateString('pt-BR')}</td>
                       <td className="px-6 py-4 font-medium text-red-600">{formatCurrency(despesa.amount)}</td>
                       <td className="px-6 py-4">
-                        {getStatusBadge(despesa.status)}
+                        {getStatusBadge(despesa.status, despesa.due_date)}
                         {despesa.status === 'cancelado' && despesa.motivo_cancelamento && (
                           <p className="text-xs text-stone-400 mt-1">{despesa.motivo_cancelamento}</p>
                         )}
