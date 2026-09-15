@@ -13,8 +13,18 @@ interface ComboboxProps {
   options: ComboboxOption[];
   placeholder?: string;
   required?: boolean;
-  onCreateNew?: (nomeDigitado: string) => void;
+  onCreateNew?: (nomeDigitado: string) => void | Promise<void>;
   createNewLabel?: (query: string) => string;
+}
+
+// Compara ignorando caixa, acento e espaço sobrando — sem isso "Ambev", "AMBEV" e "Ambev "
+// viram três cadastros diferentes, e o projeto não tem tela pra deduplicar depois.
+function normalizar(texto: string): string {
+  return texto
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '');
 }
 
 type Linha = { tipo: 'opcao'; opcao: ComboboxOption } | { tipo: 'criar' };
@@ -31,24 +41,27 @@ export default function Combobox({
   const [query, setQuery] = useState('');
   const [isOpen, setIsOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(0);
+  const [isCriando, setIsCriando] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Mantém o texto exibido em sincronia com o value controlado pelo formulário pai
-  // (ex: reset do form, ou troca de franquia limpando a seleção).
+  // (ex: reset do form, ou troca de franquia limpando a seleção). Enquanto o cadastro novo
+  // está em voo não sincroniza: o value ainda é '' e o texto digitado sumiria da tela.
   useEffect(() => {
+    if (isCriando) return;
     const selecionada = options.find((o) => o.value === value);
     setQuery(selecionada ? selecionada.label : '');
-  }, [value, options]);
+  }, [value, options, isCriando]);
 
-  const queryNormalizada = query.trim().toLowerCase();
+  const queryNormalizada = normalizar(query);
   const filtradas = queryNormalizada
-    ? options.filter((o) => o.label.toLowerCase().includes(queryNormalizada))
+    ? options.filter((o) => normalizar(o.label).includes(queryNormalizada))
     : options;
 
   const mostrarCriarNovo =
     !!onCreateNew &&
     query.trim().length > 0 &&
-    !options.some((o) => o.label.toLowerCase() === queryNormalizada);
+    !options.some((o) => normalizar(o.label) === queryNormalizada);
 
   const linhas: Linha[] = [
     ...filtradas.map((opcao): Linha => ({ tipo: 'opcao', opcao })),
@@ -61,10 +74,15 @@ export default function Combobox({
     setIsOpen(false);
   };
 
-  const criarNovo = () => {
-    if (!onCreateNew) return;
-    onCreateNew(query.trim());
+  const criarNovo = async () => {
+    if (!onCreateNew || isCriando) return;
+    setIsCriando(true);
     setIsOpen(false);
+    try {
+      await onCreateNew(query.trim());
+    } finally {
+      setIsCriando(false);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -98,6 +116,7 @@ export default function Combobox({
       ref={containerRef}
       className="relative"
       onBlur={(e) => {
+        if (isCriando) return;
         if (!containerRef.current?.contains(e.relatedTarget as Node)) {
           setIsOpen(false);
           const selecionada = options.find((o) => o.value === value);
@@ -109,8 +128,9 @@ export default function Combobox({
         type="text"
         required={required}
         autoComplete="off"
-        className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none"
-        placeholder={placeholder}
+        disabled={isCriando}
+        className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none disabled:bg-stone-50 disabled:text-stone-400"
+        placeholder={isCriando ? 'Cadastrando...' : placeholder}
         value={query}
         onChange={(e) => {
           setQuery(e.target.value);

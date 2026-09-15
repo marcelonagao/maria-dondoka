@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import { supabase } from '../../../lib/supabase';
 import { mesAtualBrasilia, intervaloDoMes, intervaloDoTrimestre, intervaloDoAno } from '../../../lib/date';
+import { resolverRaiz } from '../../../lib/planoContas';
 
 // Paleta exclusiva desta tela (não usa amber/emerald/rose do resto do app) — via classes
 // Tailwind arbitrárias, sem mexer em tailwind.config.ts. Ajustável se o hex final mudar.
@@ -207,11 +208,11 @@ export default function DrePage() {
       setCategoriaAberta(categoria);
       setCarregandoDrillDown(true);
       try {
-        // Mesma lógica de categoria_raiz() do SQL, refeita aqui em JS — sobe a árvore de
-        // plano_contas até achar a raiz (categoria_pai_id null), pra cada conta usada nos
-        // lançamentos. Evita criar mais uma função no banco só pra filtrar no client.
+        // Mesma lógica de categoria_raiz() do SQL, em JS (`src/lib/planoContas.ts`, também
+        // usada no lançamento de despesa) — sobe a árvore até a raiz para cada conta usada
+        // nos lançamentos. Evita criar mais uma função no banco só pra filtrar no client.
         const [planoContasRes, itensRes] = await Promise.all([
-          supabase.from('plano_contas').select('id, categoria_pai_id'),
+          supabase.from('plano_contas').select('id, nome, categoria_pai_id'),
           (() => {
             let query = supabase
               .from('accounts_payable')
@@ -227,23 +228,9 @@ export default function DrePage() {
         if (planoContasRes.error) throw planoContasRes.error;
         if (itensRes.error) throw itensRes.error;
 
-        const paiPorConta = new Map<string, string | null>(
-          (planoContasRes.data || []).map((c) => [c.id, c.categoria_pai_id])
-        );
-        const resolverRaiz = (contaId: string | null): string | null => {
-          let atual = contaId;
-          const visitados = new Set<string>();
-          while (atual && !visitados.has(atual)) {
-            visitados.add(atual);
-            const pai = paiPorConta.get(atual);
-            if (!pai) return atual;
-            atual = pai;
-          }
-          return atual;
-        };
-
+        const categorias = planoContasRes.data || [];
         const itensFiltrados = (itensRes.data || []).filter(
-          (item: any) => resolverRaiz(item.plano_conta_id) === categoria.id
+          (item: any) => resolverRaiz(categorias, item.plano_conta_id) === categoria.id
         );
         setItensDrillDown(itensFiltrados as unknown as ItemDrillDown[]);
       } catch (error) {

@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../../../lib/supabase';
 import { hojeBrasilia, dataParaTimestampBrasilia, adicionarDias } from '../../../../lib/date';
 import { formatCurrency } from '../../../../lib/format';
+import { opcoesDeCategoria } from '../../../../lib/planoContas';
 import Combobox, { ComboboxOption } from '../../../../components/Combobox';
 import PaymentSettlementFields, { DadosPagamento } from '../../../../components/PaymentSettlementFields';
 
@@ -122,6 +123,7 @@ function gerarParcelas(n: number, valorTotalStr: string, vencimentoSeed: string)
 export default function ContasPagarPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [erroFormulario, setErroFormulario] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [despesas, setDespesas] = useState<Despesa[]>([]);
   const [planoContas, setPlanoContas] = useState<CategoriaContas[]>([]);
@@ -244,16 +246,13 @@ export default function ContasPagarPage() {
     return badges[status] || <span className="px-2.5 py-1 bg-stone-100 text-stone-600 text-xs font-medium rounded-md">{status}</span>;
   };
 
-  // Achata a hierarquia pai/filho de plano_contas numa lista única pro combobox de
-  // Categoria: filho vira "Pai › Filho"; pai sem filhos vira uma opção direta.
-  const categoriaOptions: ComboboxOption[] = planoContas
-    .filter((c) => !c.categoria_pai_id)
-    .flatMap((pai) => {
-      const filhos = planoContas.filter((c) => c.categoria_pai_id === pai.id);
-      return filhos.length > 0
-        ? filhos.map((filho) => ({ value: filho.id, label: `${pai.nome} › ${filho.nome}` }))
-        : [{ value: pai.id, label: pai.nome }];
-    });
+  // Hierarquia resolvida em `src/lib/planoContas.ts`, compartilhada com o DRE. A versão
+  // anterior achatava só 2 níveis: categoria de 3º nível nunca aparecia aqui, e categoria
+  // intermediária virava selecionável, o que quebra a consolidação do DRE.
+  const categoriaOptions: ComboboxOption[] = useMemo(
+    () => opcoesDeCategoria(planoContas),
+    [planoContas]
+  );
 
   const franquiaAtualId = formData.franchiseId || despesaEditando?.franchise_id || minhaFranchiseId;
   const fornecedorOptions: ComboboxOption[] = fornecedores
@@ -387,15 +386,37 @@ export default function ContasPagarPage() {
     try {
       const { data, error } = await supabase
         .from('fornecedores')
-        .insert({ nome, franchise_id: franquiaAtualId || null })
+        // `is_active` explícito: a leitura filtra por ele, e sem isso o fornecedor novo
+        // aparecia na sessão (append no estado) mas sumia no próximo carregamento.
+        .insert({ nome, franchise_id: franquiaAtualId || null, is_active: true })
         .select('id, nome, franchise_id')
         .single();
       if (error) throw error;
-      setFornecedores((atual) => [...atual, data]);
+      // Recarrega em vez de dar append: garante que o que está na tela é exatamente o que a
+      // query de leitura devolve. Se o banco tiver sobrescrito a franquia (trigger/RLS), o
+      // fornecedor some da lista aqui em vez de sumir depois, sem explicação.
+      await fetchFornecedores();
       setFormData((atual) => ({ ...atual, fornecedorId: data.id }));
     } catch (error) {
       console.error('Erro ao cadastrar fornecedor:', error);
-      alert('Erro ao cadastrar fornecedor. Verifique o console.');
+      setErroFormulario('Não foi possível cadastrar o fornecedor. Tente novamente.');
+    }
+  };
+
+  const criarCategoria = async (nome: string) => {
+    if (!nome) return;
+    try {
+      const { data, error } = await supabase
+        .from('plano_contas')
+        .insert({ nome, tipo: 'despesa', categoria_pai_id: null, is_active: true })
+        .select('id, nome, categoria_pai_id')
+        .single();
+      if (error) throw error;
+      await fetchPlanoContas();
+      setFormData((atual) => ({ ...atual, planoContaId: data.id }));
+    } catch (error) {
+      console.error('Erro ao cadastrar categoria:', error);
+      setErroFormulario('Não foi possível cadastrar a categoria. Tente novamente.');
     }
   };
 
@@ -414,6 +435,7 @@ export default function ContasPagarPage() {
 
   const fecharModal = () => {
     setIsModalOpen(false);
+    setErroFormulario(null);
     setDespesaEditando(null);
     setFormData({ description: '', planoContaId: '', fornecedorId: '', due_date: '', amount: '', franchiseId: '' });
     setJaPaga(false);
@@ -506,6 +528,7 @@ export default function ContasPagarPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
+    setErroFormulario(null);
 
     try {
       if (!formData.planoContaId) throw new Error('Selecione uma categoria.');
@@ -632,7 +655,13 @@ export default function ContasPagarPage() {
       fecharModal();
     } catch (error) {
       console.error('Erro ao salvar despesa:', error);
-      alert('Erro ao salvar no banco. Verifique o console.');
+      // Mostra o motivo real no modal. Antes, qualquer erro — inclusive as validações de
+      // "Selecione uma categoria" logo acima — virava a mesma mensagem genérica de banco.
+      const mensagem =
+        error instanceof Error && error.message
+          ? error.message
+          : 'Não foi possível salvar. Tente novamente.';
+      setErroFormulario(mensagem);
     } finally {
       setIsSubmitting(false);
     }
@@ -1168,10 +1197,12 @@ export default function ContasPagarPage() {
                 <label className="block text-sm font-medium text-stone-700 mb-1">Categoria</label>
                 <Combobox
                   required
-                  placeholder="Digite para buscar..."
+                  placeholder="Digite para buscar ou cadastrar..."
                   value={formData.planoContaId}
                   onChange={(v) => setFormData({ ...formData, planoContaId: v })}
                   options={categoriaOptions}
+                  onCreateNew={criarCategoria}
+                  createNewLabel={(q) => `+ Cadastrar nova categoria "${q}"`}
                 />
               </div>
 
@@ -1366,6 +1397,12 @@ export default function ContasPagarPage() {
                   comprovanteUrlExistente={despesaEditando?.comprovante_url}
                   onVerComprovanteExistente={() => despesaEditando?.comprovante_url && verComprovante(despesaEditando.comprovante_url)}
                 />
+              )}
+
+              {erroFormulario && (
+                <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                  {erroFormulario}
+                </p>
               )}
 
               <div className="pt-4 flex gap-3">

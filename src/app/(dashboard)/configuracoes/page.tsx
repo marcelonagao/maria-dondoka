@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../../lib/supabase';
+import { caminhoCompleto } from '../../../lib/planoContas';
 
 interface Dispositivo {
   id: string;
@@ -158,6 +159,16 @@ const carregarDispositivos = async () => {
   const [isModalCategoriaOpen, setIsModalCategoriaOpen] = useState(false);
   const [novaCategoria, setNovaCategoria] = useState({ nome: '', tipo: 'despesa' as CategoriaContas['tipo'], categoria_pai_id: '' });
   const [isSubmittingCategoria, setIsSubmittingCategoria] = useState(false);
+
+  // Qualquer categoria ativa pode ser pai, do mesmo tipo da que está sendo criada. O rótulo
+  // traz o caminho inteiro pra deixar claro em que nível da árvore a nova vai entrar.
+  const opcoesDeCategoriaPai = useMemo(() => {
+    const ativas = planoContas.filter((c) => c.is_active);
+    return ativas
+      .filter((c) => c.tipo === novaCategoria.tipo)
+      .map((c) => ({ value: c.id, label: caminhoCompleto(ativas, c.id) }))
+      .sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'));
+  }, [planoContas, novaCategoria.tipo]);
 
   const carregarPlanoContas = async () => {
     try {
@@ -751,8 +762,11 @@ const carregarDispositivos = async () => {
                   onChange={(e) => setNovaCategoria({ ...novaCategoria, categoria_pai_id: e.target.value })}
                 >
                   <option value="">Nenhuma (é uma categoria-pai)</option>
-                  {planoContas.filter((c) => !c.categoria_pai_id && c.is_active).map((pai) => (
-                    <option key={pai.id} value={pai.id}>{pai.nome}</option>
+                  {/* Lista todas as categorias ativas, não só as raízes: o plano de contas
+                      tem 3 níveis reais, e oferecer só raiz aqui tornava impossível criar o
+                      terceiro nível pela interface. */}
+                  {opcoesDeCategoriaPai.map((opcao) => (
+                    <option key={opcao.value} value={opcao.value}>{opcao.label}</option>
                   ))}
                 </select>
               </div>
