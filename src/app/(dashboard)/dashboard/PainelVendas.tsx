@@ -7,9 +7,28 @@ import {
 import { supabase } from '../../../lib/supabase';
 import { formatCurrency } from '../../../lib/format';
 import { hojeBrasilia, adicionarDias } from '../../../lib/date';
-import { buscarTodosVendasItens } from '../../../lib/vendasItens';
 
 type PeriodoPreset = 'hoje' | '7d' | '15d' | '30d' | 'custom';
+
+// Formato devolvido pela função SQL `resumo_vendas` (security invoker — a RLS continua
+// isolando as franquias). A agregação roda no Postgres justamente pra não trazer as
+// ~13 mil linhas/mês de vendas_itens pro navegador só pra somar no JS.
+interface ResumoVendas {
+  totais: {
+    vendas_brutas: number;
+    unidades: number;
+    quantidade_vendas: number;
+    cmv: number;
+    impostos: number;
+  };
+  serie_diaria: { data: string; faturamento: number }[];
+  por_franquia: {
+    franchise_id: string;
+    vendas_brutas: number;
+    quantidade_vendas: number;
+    ticket_medio: number;
+  }[];
+}
 
 interface Totais {
   vendasBrutas: number;
@@ -20,19 +39,9 @@ interface Totais {
   margemBrutaPct: number;
 }
 
-interface PontoDiario {
-  data: string;
-  faturamento: number;
-}
-
-interface ItemVenda {
-  data_venda: string;
-  venda_referencia: string;
-  valor_total: number;
-  quantidade: number;
-  custo_unitario: number;
-  aliquota_icm: number | null;
-  franchise_id: string;
+interface Franquia {
+  id: string;
+  name: string;
 }
 
 const TOTAIS_VAZIOS: Totais = {
@@ -46,7 +55,7 @@ function diffDias(inicio: string, fim: string): number {
 }
 
 // Período de comparação: mesma duração, imediatamente anterior ao selecionado (não a
-// "semana passada" do calendário) — regra 4 da persona financeiro_senior.
+// "semana passada" do calendário).
 function periodoAnterior(inicio: string, fim: string): { inicio: string; fim: string } {
   const dias = diffDias(inicio, fim);
   const anteriorFim = adicionarDias(inicio, -1);
@@ -54,20 +63,13 @@ function periodoAnterior(inicio: string, fim: string): { inicio: string; fim: st
   return { inicio: anteriorInicio, fim: anteriorFim };
 }
 
-function calcularTotais(itens: ItemVenda[]): Totais {
-  let vendasBrutas = 0;
-  let unidades = 0;
-  let cmv = 0;
-  let impostos = 0;
-  const vendasUnicas = new Set<string>();
-  for (const item of itens) {
-    vendasBrutas += Number(item.valor_total);
-    unidades += Number(item.quantidade);
-    cmv += Number(item.quantidade) * Number(item.custo_unitario);
-    impostos += (Number(item.valor_total) * (Number(item.aliquota_icm) || 0)) / 100;
-    vendasUnicas.add(item.venda_referencia);
-  }
-  const quantidadeVendas = vendasUnicas.size;
+function totaisDoResumo(totais: ResumoVendas['totais'] | undefined): Totais {
+  if (!totais) return TOTAIS_VAZIOS;
+  const vendasBrutas = Number(totais.vendas_brutas) || 0;
+  const unidades = Number(totais.unidades) || 0;
+  const quantidadeVendas = Number(totais.quantidade_vendas) || 0;
+  const cmv = Number(totais.cmv) || 0;
+  const impostos = Number(totais.impostos) || 0;
   return {
     vendasBrutas,
     unidades,
@@ -80,8 +82,7 @@ function calcularTotais(itens: ItemVenda[]): Totais {
   };
 }
 
-// null = sem base de comparação significativa (período anterior zerado, atual não-zero) —
-// mesmo critério de dre/page.tsx.
+// null = sem base de comparação significativa (período anterior zerado, atual não-zero).
 function variacaoPct(atual: number, anterior: number): number | null {
   if (anterior === 0) return atual === 0 ? 0 : null;
   return ((atual - anterior) / Math.abs(anterior)) * 100;
@@ -101,19 +102,16 @@ function VariacaoBadge({ pct }: { pct: number | null }) {
 const formatDataCurta = (isoDate: string) =>
   new Date(isoDate + 'T00:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
 
-interface Franquia {
-  id: string;
-  name: string;
-}
-
 export default function PainelVendas({
   franchiseId,
   franquias = [],
   onSelecionarFranquia,
+  refreshKey = 0,
 }: {
   franchiseId?: string;
   franquias?: Franquia[];
   onSelecionarFranquia?: (id: string) => void;
+  refreshKey?: number;
 }) {
   const [preset, setPreset] = useState<PeriodoPreset>('7d');
   const [customInicio, setCustomInicio] = useState(adicionarDias(hojeBrasilia(), -6));
@@ -122,10 +120,8 @@ export default function PainelVendas({
 
   const [isLoading, setIsLoading] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
-  const [totaisAtual, setTotaisAtual] = useState<Totais>(TOTAIS_VAZIOS);
+  const [resumoAtual, setResumoAtual] = useState<ResumoVendas | null>(null);
   const [totaisAnterior, setTotaisAnterior] = useState<Totais>(TOTAIS_VAZIOS);
-  const [pontosDiarios, setPontosDiarios] = useState<PontoDiario[]>([]);
-  const [totaisPorFranquia, setTotaisPorFranquia] = useState<Record<string, Totais>>({});
 
   const { inicio, fim } = useMemo(() => {
     const hoje = hojeBrasilia();
@@ -151,38 +147,27 @@ export default function PainelVendas({
         setIsLoading(true);
         setErro(null);
 
-        const campos = 'data_venda, venda_referencia, valor_total, quantidade, custo_unitario, aliquota_icm, franchise_id';
-        const [dadosAtual, dadosAnterior] = await Promise.all([
-          buscarTodosVendasItens<ItemVenda>(supabase, campos, inicio, fim),
-          comparar ? buscarTodosVendasItens<ItemVenda>(supabase, campos, anterior.inicio, anterior.fim) : Promise.resolve([]),
+        const [atualRes, anteriorRes] = await Promise.all([
+          supabase.rpc('resumo_vendas', {
+            p_franchise_id: franchiseId || null,
+            p_data_inicio: inicio,
+            p_data_fim: fim,
+          }),
+          comparar
+            ? supabase.rpc('resumo_vendas', {
+                p_franchise_id: franchiseId || null,
+                p_data_inicio: anterior.inicio,
+                p_data_fim: anterior.fim,
+              })
+            : Promise.resolve({ data: null, error: null }),
         ]);
 
-        const filtrarFranquia = (itens: ItemVenda[]) =>
-          franchiseId ? itens.filter((i) => i.franchise_id === franchiseId) : itens;
+        if (atualRes.error) throw atualRes.error;
+        if (anteriorRes.error) throw anteriorRes.error;
 
-        const itensAtual = filtrarFranquia(dadosAtual);
-        const itensAnterior = filtrarFranquia(dadosAnterior);
-
-        setTotaisAtual(calcularTotais(itensAtual));
-        setTotaisAnterior(comparar ? calcularTotais(itensAnterior) : TOTAIS_VAZIOS);
-
-        const porDia = new Map<string, number>();
-        for (const item of itensAtual) {
-          porDia.set(item.data_venda, (porDia.get(item.data_venda) || 0) + Number(item.valor_total));
-        }
-        const pontos = Array.from(porDia.entries())
-          .map(([data, faturamento]) => ({ data, faturamento }))
-          .sort((a, b) => a.data.localeCompare(b.data));
-        setPontosDiarios(pontos);
-
-        // Comparativo entre lojas usa sempre TODAS as franquias visíveis (não o recorte do
-        // filtro) — o filtro serve pra olhar uma loja a fundo, a tabela pra comparar.
-        const porFranquia: Record<string, ItemVenda[]> = {};
-        for (const item of dadosAtual) {
-          (porFranquia[item.franchise_id] ||= []).push(item);
-        }
-        setTotaisPorFranquia(
-          Object.fromEntries(Object.entries(porFranquia).map(([id, itens]) => [id, calcularTotais(itens)]))
+        setResumoAtual(atualRes.data as ResumoVendas);
+        setTotaisAnterior(
+          comparar ? totaisDoResumo((anteriorRes.data as ResumoVendas | null)?.totais) : TOTAIS_VAZIOS
         );
       } catch (err) {
         console.error('Erro ao carregar painel de vendas:', err);
@@ -193,17 +178,36 @@ export default function PainelVendas({
     }
 
     carregar();
-  }, [inicio, fim, anterior.inicio, anterior.fim, comparar, franchiseId]);
+  }, [inicio, fim, anterior.inicio, anterior.fim, comparar, franchiseId, refreshKey]);
+
+  const totaisAtual = useMemo(() => totaisDoResumo(resumoAtual?.totais), [resumoAtual]);
+
+  const pontosDiarios = useMemo(
+    () =>
+      (resumoAtual?.serie_diaria || []).map((p) => ({
+        data: p.data,
+        faturamento: Number(p.faturamento) || 0,
+      })),
+    [resumoAtual]
+  );
+
+  const franquiasOrdenadas = useMemo(() => {
+    const porId = new Map((resumoAtual?.por_franquia || []).map((f) => [f.franchise_id, f]));
+    return franquias
+      .map((f) => {
+        const r = porId.get(f.id);
+        return {
+          id: f.id,
+          nome: f.name,
+          vendasBrutas: Number(r?.vendas_brutas) || 0,
+          quantidadeVendas: Number(r?.quantidade_vendas) || 0,
+          ticketMedio: Number(r?.ticket_medio) || 0,
+        };
+      })
+      .sort((a, b) => b.vendasBrutas - a.vendasBrutas);
+  }, [franquias, resumoAtual]);
 
   const mostrarGrafico = diffDias(inicio, fim) > 1;
-
-  const franquiasOrdenadas = useMemo(
-    () =>
-      franquias
-        .map((f) => ({ id: f.id, nome: f.name, totais: totaisPorFranquia[f.id] || TOTAIS_VAZIOS }))
-        .sort((a, b) => b.totais.vendasBrutas - a.totais.vendasBrutas),
-    [franquias, totaisPorFranquia]
-  );
 
   const presets: { valor: PeriodoPreset; rotulo: string }[] = [
     { valor: 'hoje', rotulo: 'Hoje' },
@@ -271,6 +275,14 @@ export default function PainelVendas({
         >
           {comparar ? '✓ ' : ''}Comparar com período anterior
         </button>
+
+        {comparar && preset === 'hoje' && (
+          <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            O dia de hoje ainda está em curso e está sendo comparado com um dia inteiro — a queda
+            no percentual é esperada. O PDV não registra hora da venda, então não dá para comparar
+            o mesmo horário de ontem.
+          </p>
+        )}
       </div>
 
       {erro ? (
@@ -355,12 +367,12 @@ export default function PainelVendas({
                         <div className="flex items-baseline justify-between gap-3">
                           <span className="text-sm text-stone-700 truncate">{f.nome}</span>
                           <span className="text-sm font-semibold tabular-nums text-stone-800 shrink-0">
-                            {formatCurrency(f.totais.vendasBrutas)}
+                            {formatCurrency(f.vendasBrutas)}
                           </span>
                         </div>
                         <p className="text-[11px] text-stone-400 tabular-nums mt-0.5">
-                          {f.totais.quantidadeVendas.toLocaleString('pt-BR')} vendas · ticket{' '}
-                          {formatCurrency(f.totais.ticketMedio)}
+                          {f.quantidadeVendas.toLocaleString('pt-BR')} vendas · ticket{' '}
+                          {formatCurrency(f.ticketMedio)}
                         </p>
                       </button>
                     </li>

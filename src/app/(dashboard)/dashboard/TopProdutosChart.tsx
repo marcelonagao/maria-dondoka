@@ -4,50 +4,20 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../../lib/supabase';
 import { formatCurrency } from '../../../lib/format';
 import { mesAtualBrasilia, intervaloDoMes } from '../../../lib/date';
-import { buscarTodosVendasItens } from '../../../lib/vendasItens';
-
-interface ItemVenda {
-  produto_nome: string | null;
-  produto_sku: string | null;
-  produto_codigo_pdv: string;
-  quantidade: number;
-  valor_total: number;
-  franchise_id: string;
-}
 
 interface LinhaProduto {
-  chave: string;
   rotulo: string;
   receita: number;
   unidades: number;
 }
 
-// Normalização mínima pra agrupar produto pelo mesmo texto entre vendas (trim + uppercase +
-// colapsar espaços) — sem fuzzy matching, não existe lib pra isso no projeto ainda (regra da
-// persona financeiro_senior: não introduzir dependência nova sem necessidade comprovada).
-function normalizar(texto: string): string {
-  return texto.trim().toUpperCase().replace(/\s+/g, ' ');
-}
-
-// Cascata de identificação: nome do produto (`produtos.descrição` na origem, sincronizado a
-// partir de 2026-09-15 — histórico anterior não tem) → SKU → código interno do PDV. O código
-// interno leva o franchise_id na chave porque o mesmo código significa produtos diferentes
-// em lojas diferentes (cada franquia tem seu próprio MySQL, "schema idêntico, dados de
-// referência diferentes").
-function chaveEDoProduto(item: ItemVenda): { chave: string; rotulo: string } {
-  if (item.produto_nome) {
-    const norm = normalizar(item.produto_nome);
-    return { chave: `nome:${norm}`, rotulo: norm };
-  }
-  if (item.produto_sku) {
-    const norm = normalizar(item.produto_sku);
-    return { chave: `sku:${norm}`, rotulo: norm };
-  }
-  const norm = normalizar(item.produto_codigo_pdv);
-  return { chave: `cod:${item.franchise_id}:${norm}`, rotulo: `Código ${norm}` };
-}
-
-export default function TopProdutosChart({ franchiseId }: { franchiseId?: string }) {
+export default function TopProdutosChart({
+  franchiseId,
+  refreshKey = 0,
+}: {
+  franchiseId?: string;
+  refreshKey?: number;
+}) {
   const [isLoading, setIsLoading] = useState(true);
   const [mesSelecionado, setMesSelecionado] = useState(mesAtualBrasilia());
   const [topProdutos, setTopProdutos] = useState<LinhaProduto[]>([]);
@@ -58,30 +28,22 @@ export default function TopProdutosChart({ franchiseId }: { franchiseId?: string
         setIsLoading(true);
         const { inicio, fim } = intervaloDoMes(mesSelecionado);
 
-        const dados = await buscarTodosVendasItens<ItemVenda>(
-          supabase,
-          'produto_nome, produto_sku, produto_codigo_pdv, quantidade, valor_total, franchise_id',
-          inicio,
-          fim
-        );
+        // O ranking (agrupamento por nome/SKU/código, soma e corte no top 15) roda dentro
+        // de `resumo_vendas` no Postgres — o navegador recebe 15 linhas, não o mês inteiro
+        // de vendas_itens.
+        const { data, error } = await supabase.rpc('resumo_vendas', {
+          p_franchise_id: franchiseId || null,
+          p_data_inicio: inicio,
+          p_data_fim: fim,
+        });
+        if (error) throw error;
 
-        const data = franchiseId ? dados.filter((d) => d.franchise_id === franchiseId) : dados;
-
-        const porProduto = new Map<string, { rotulo: string; receita: number; unidades: number }>();
-        for (const item of data) {
-          const { chave, rotulo } = chaveEDoProduto(item);
-          const atual = porProduto.get(chave) || { rotulo, receita: 0, unidades: 0 };
-          atual.receita += Number(item.valor_total);
-          atual.unidades += Number(item.quantidade);
-          porProduto.set(chave, atual);
-        }
-
-        const ranking = Array.from(porProduto.entries())
-          .map(([chave, v]) => ({ chave, rotulo: v.rotulo, receita: v.receita, unidades: v.unidades }))
-          .sort((a, b) => b.receita - a.receita)
-          .slice(0, 15);
-
-        setTopProdutos(ranking);
+        const produtos = ((data as { top_produtos?: LinhaProduto[] } | null)?.top_produtos || []).map((p) => ({
+          rotulo: p.rotulo,
+          receita: Number(p.receita) || 0,
+          unidades: Number(p.unidades) || 0,
+        }));
+        setTopProdutos(produtos);
       } catch (error) {
         console.error('Erro ao carregar top produtos:', error);
         setTopProdutos([]);
@@ -91,7 +53,7 @@ export default function TopProdutosChart({ franchiseId }: { franchiseId?: string
     }
 
     carregar();
-  }, [mesSelecionado, franchiseId]);
+  }, [mesSelecionado, franchiseId, refreshKey]);
 
   return (
     <div className="bg-white border border-stone-200 rounded-xl shadow-sm overflow-hidden">
@@ -126,7 +88,7 @@ export default function TopProdutosChart({ franchiseId }: { franchiseId?: string
           {topProdutos.map((produto, i) => {
             const pct = topProdutos[0].receita > 0 ? (produto.receita / topProdutos[0].receita) * 100 : 0;
             return (
-              <li key={produto.chave} className="px-4 sm:px-6 py-3">
+              <li key={produto.rotulo} className="px-4 sm:px-6 py-3">
                 <div className="flex items-baseline gap-2">
                   <span className="text-xs text-stone-400 tabular-nums w-5 shrink-0">{i + 1}</span>
                   <span className="text-sm text-stone-700 truncate flex-1" title={produto.rotulo}>

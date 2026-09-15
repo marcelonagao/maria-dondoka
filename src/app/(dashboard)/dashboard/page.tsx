@@ -22,6 +22,50 @@ export default function DashboardPage() {
   const [franquias, setFranquias] = useState<Franquia[]>([]);
   const [franquiaSelecionada, setFranquiaSelecionada] = useState<string>('');
   const [alertas, setAlertas] = useState<Alerta[]>([]);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [isSincronizando, setIsSincronizando] = useState(false);
+  const [statusSync, setStatusSync] = useState<string | null>(null);
+
+  // "Atualizar" só refaz a consulta do dashboard — o dado já está no Supabase, não precisa
+  // falar com o PDV. É instantâneo e é o que resolve 90% dos casos.
+  const atualizar = () => setRefreshKey((k) => k + 1);
+
+  // "Sincronizar PDV" vai buscar dado novo nas lojas. Loja1/Loja4 respondem na hora; as
+  // outras 6 rodam um script PHP que pode passar do orçamento de tempo da rota — nesse
+  // caso a resposta diz "em andamento" e o dado entra pelo webhook logo depois.
+  const sincronizarPdv = async () => {
+    setIsSincronizando(true);
+    setStatusSync(null);
+    try {
+      const rota = isSocio ? '/api/pdv/sync-todas' : '/api/pdv/trigger-sync';
+      const res = await fetch(rota, { method: 'POST' });
+      const json = await res.json();
+
+      if (!res.ok) {
+        setStatusSync(json.detalhe || 'Não foi possível sincronizar agora.');
+        return;
+      }
+
+      if (Array.isArray(json.resultados)) {
+        const ok = json.resultados.filter((r: { status: string }) => r.status === 'sincronizada').length;
+        const andamento = json.resultados.filter((r: { status: string }) => r.status === 'em_andamento').length;
+        const falhas = json.resultados.filter((r: { status: string }) => r.status === 'falhou').length;
+        const partes = [`${ok} loja(s) sincronizada(s)`];
+        if (andamento > 0) partes.push(`${andamento} ainda processando`);
+        if (falhas > 0) partes.push(`${falhas} com falha`);
+        setStatusSync(partes.join(' · '));
+      } else {
+        setStatusSync(json.resposta || 'Sincronização concluída.');
+      }
+
+      atualizar();
+    } catch (err) {
+      console.error('Erro ao sincronizar PDV:', err);
+      setStatusSync('Erro ao sincronizar. Verifique o console.');
+    } finally {
+      setIsSincronizando(false);
+    }
+  };
 
   useEffect(() => {
     async function carregarEscopo() {
@@ -75,19 +119,42 @@ export default function DashboardPage() {
             {isSocio ? 'Acompanhe as vendas de todas as franquias.' : 'Acompanhe as vendas da sua franquia.'}
           </p>
         </div>
-        {isSocio && (
-          <select
-            className="w-full sm:w-auto px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none bg-white text-stone-700 text-sm"
-            value={franquiaSelecionada}
-            onChange={(e) => setFranquiaSelecionada(e.target.value)}
-          >
-            <option value="">Todas as franquias</option>
-            {franquias.map((f) => (
-              <option key={f.id} value={f.id}>{f.name}</option>
-            ))}
-          </select>
-        )}
+        <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+          {isSocio && (
+            <select
+              className="w-full sm:w-auto px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none bg-white text-stone-700 text-sm"
+              value={franquiaSelecionada}
+              onChange={(e) => setFranquiaSelecionada(e.target.value)}
+            >
+              <option value="">Todas as franquias</option>
+              {franquias.map((f) => (
+                <option key={f.id} value={f.id}>{f.name}</option>
+              ))}
+            </select>
+          )}
+          <div className="flex gap-2">
+            <button
+              onClick={atualizar}
+              className="flex-1 sm:flex-none px-3 py-2 border border-stone-300 rounded-lg text-sm font-medium text-stone-700 hover:bg-stone-50"
+            >
+              Atualizar
+            </button>
+            <button
+              onClick={sincronizarPdv}
+              disabled={isSincronizando}
+              className="flex-1 sm:flex-none px-3 py-2 rounded-lg text-sm font-medium bg-stone-800 text-white hover:bg-stone-700 disabled:opacity-50"
+            >
+              {isSincronizando ? 'Sincronizando...' : 'Sincronizar PDV'}
+            </button>
+          </div>
+        </div>
       </div>
+
+      {statusSync && (
+        <p className="text-xs text-stone-500 bg-stone-50 border border-stone-200 rounded-lg px-3 py-2">
+          {statusSync}
+        </p>
+      )}
 
       {alertas.length > 0 && (
         <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 sm:px-6 sm:py-4 text-red-700 text-sm space-y-1">
@@ -106,9 +173,13 @@ export default function DashboardPage() {
         franchiseId={isSocio ? (franquiaSelecionada || undefined) : undefined}
         franquias={franquias}
         onSelecionarFranquia={setFranquiaSelecionada}
+        refreshKey={refreshKey}
       />
 
-      <TopProdutosChart franchiseId={isSocio ? (franquiaSelecionada || undefined) : undefined} />
+      <TopProdutosChart
+        franchiseId={isSocio ? (franquiaSelecionada || undefined) : undefined}
+        refreshKey={refreshKey}
+      />
     </div>
   );
 }
