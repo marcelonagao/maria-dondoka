@@ -53,7 +53,11 @@ export function useFluxoCaixa(franchiseId?: string) {
       const inicioHistorico = adicionarDias(hoje, -DIAS_HISTORICO_VENDAS);
 
       const [vendasRes, pagarRes, recorrentesRes] = await Promise.all([
-        supabase.rpc('resumo_vendas', {
+        // `serie_vendas_diaria`, não `resumo_vendas`: aqui só interessa faturamento por dia.
+        // O resumo completo calcula ainda CMV, impostos, quebra por franquia e o Top 15 com
+        // normalização por regex — pedir tudo isso para 90 dias de todas as lojas estourava
+        // o statement timeout do Postgres (57014).
+        supabase.rpc('serie_vendas_diaria', {
           p_franchise_id: franchiseId || null,
           p_data_inicio: inicioHistorico,
           p_data_fim: hoje,
@@ -83,7 +87,7 @@ export function useFluxoCaixa(franchiseId?: string) {
       if (recorrentesRes.error) throw recorrentesRes.error;
 
       // --- Entradas: média por dia da semana dos últimos 90 dias ---
-      const serie = ((vendasRes.data as any)?.serie_diaria || []) as { data: string; faturamento: number }[];
+      const serie = ((vendasRes.data as any) || []) as { data: string; faturamento: number }[];
       const somaPorDiaSemana = [0, 0, 0, 0, 0, 0, 0];
       const contagemPorDiaSemana = [0, 0, 0, 0, 0, 0, 0];
       for (const ponto of serie) {
