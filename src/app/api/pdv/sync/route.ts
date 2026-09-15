@@ -31,6 +31,7 @@ const ItemVendaSchema = z.object({
   // não está cadastrado em `produtos` (LEFT JOIN) ou não tem ICM — omitir a distinção
   // faz o zod rejeitar o payload inteiro (400) só por causa de um item sem esses dados.
   produto_sku: z.string().nullable().optional(),
+  produto_nome: z.string().nullable().optional(),
   marca: z.string().nullable().optional(),
   quantidade: z.number(),
   valor_unitario: z.number(),
@@ -223,6 +224,11 @@ export async function POST(request: Request) {
           venda_referencia: item.venda_referencia,
           produto_codigo_pdv: item.produto_codigo_pdv,
           produto_sku: item.produto_sku,
+          // O A7 Pharma usa '*' como placeholder de campo vazio em várias colunas varchar
+          // (fabrica, modelo, nomelinha, descricao...) — vira null aqui pra não virar um
+          // "produto" chamado '*' no ranking. Normalizado no webhook, não na origem, porque
+          // cobre os dois caminhos de sync (TS de Loja1/Loja4 e PHP das outras 6).
+          produto_nome: item.produto_nome && item.produto_nome.trim() !== '*' ? item.produto_nome.trim() : null,
           marca: item.marca,
           quantidade: item.quantidade,
           valor_unitario: item.valor_unitario,

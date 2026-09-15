@@ -128,6 +128,40 @@ lojas corrigido separadamente, fora deste repositório. Constraint única
 truncate manual (dado histórico anterior não tem `origem_id` preenchido) — até lá, upserts
 de itens falham silenciosamente no log (não derrubam o resto do sync) em vez de duplicar.
 
+### Nome do produto em `vendas_itens` — pesquisa e implementação (2026-09-15)
+
+Até aqui `vendas_itens` só tinha `produto_codigo_pdv` (`mp.produto`) e `produto_sku`
+(`p.referencia`) — nenhum nome legível, o que impedia um ranking de produtos mais vendidos
+com rótulo comercial. `SHOW COLUMNS` rodado em **Loja1-Caraguatatuba e Loja4-Jacareí**
+(schema de `produtos` **idêntico entre as duas**, 55 colunas) resolveu a dúvida:
+
+- **`produtos.descrição`** (`varchar(60)`, **com acento e cedilha no nome da coluna**) é o
+  nome real do produto, preenchido em todas as linhas da amostra: `'Lip Oil BTWOB BTB05'`,
+  `'Batom Vegano Max Love 425'`, `'Esfoliante FB Kiwi 200g'`. **Exige crase no SQL**
+  (`` p.`descrição` ``) — e, dentro de template literal em TS, crase escapada (`` \` ``).
+- **`produtos.descricao`** (sem acento, mesma tabela, mesmo `varchar(60)`) é uma segunda
+  coluna com o mesmo texto em Title Case, mas **fica como `'*'` em parte das linhas**
+  (visto nos produtos cadastrados com `usuario = 'APP'`). Não usar — é a armadilha óbvia
+  aqui, por ser o nome "limpo" de coluna.
+- `'*'` é o placeholder de campo vazio do A7 Pharma em várias colunas varchar (`fabrica`,
+  `modelo`, `nomelinha`, `letras`, `clas_fiscal`...). `/api/pdv/sync` converte `'*'` para
+  `null` ao gravar `produto_nome`, pra não criar um "produto" chamado `*` no ranking —
+  normalizado no webhook, não na origem, porque cobre os dois caminhos de sync.
+- `movprods` **não tem** coluna de descrição — o nome só vem pelo `LEFT JOIN produtos` que
+  a query já fazia. (`movprods` também tem um `referencia` próprio, hoje não usado: a query
+  pega o SKU de `p.referencia`.)
+- **O schema de `movprods` NÃO é idêntico entre as duas lojas**: Loja1 tem `devfor` que
+  Loja4 não tem, `chave` fica em posições diferentes, e tipos divergem (`qtd` é
+  `double(10,3)` na Loja1 e `double` na Loja4). Todas as colunas usadas pelo sync existem
+  nas duas, mas não assuma paridade de schema ao adicionar coluna nova — confirme por loja.
+
+Implementado: coluna `produto_nome text null` em `vendas_itens`, campo no `ItemVendaSchema`
+e na gravação de `/api/pdv/sync`, e `p.\`descrição\` AS produto_nome` na query de
+`src/lib/lojasDiretas.ts` (Loja1/Loja4). **Pendente**: replicar a coluna na query do script
+PHP das outras 6 lojas (fora deste repositório) — até lá só Loja1/Loja4 gravam nome, e o
+Top 15 do dashboard cai no SKU/código pras demais. Dado histórico anterior a 2026-09-15
+também fica sem nome (não há backfill retroativo desse campo até hoje).
+
 ## Conciliação linha a linha de formas não-dinheiro — implementado (2026-09-08)
 
 `vendas_diarias_formas_pagamento` guarda só o total agregado por forma/usuário/dia — não dá

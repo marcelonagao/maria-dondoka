@@ -8,6 +8,7 @@ import { mesAtualBrasilia, intervaloDoMes } from '../../../lib/date';
 import { buscarTodosVendasItens } from '../../../lib/vendasItens';
 
 interface ItemVenda {
+  produto_nome: string | null;
   produto_sku: string | null;
   produto_codigo_pdv: string;
   quantidade: number;
@@ -29,12 +30,16 @@ function normalizar(texto: string): string {
   return texto.trim().toUpperCase().replace(/\s+/g, ' ');
 }
 
-// Enquanto não há nome amigável de produto (vendas_itens não traz descrição — só código
-// interno do PDV e SKU, que pode ser nulo), agrupamos por SKU e caímos pro código interno
-// prefixado pela franquia, já que o mesmo código pode significar produtos diferentes em
-// lojas diferentes (cada franquia tem seu próprio MySQL, "schema idêntico, dados de
+// Cascata de identificação: nome do produto (`produtos.descrição` na origem, sincronizado a
+// partir de 2026-09-15 — histórico anterior não tem) → SKU → código interno do PDV. O código
+// interno leva o franchise_id na chave porque o mesmo código significa produtos diferentes
+// em lojas diferentes (cada franquia tem seu próprio MySQL, "schema idêntico, dados de
 // referência diferentes").
 function chaveEDoProduto(item: ItemVenda): { chave: string; rotulo: string } {
+  if (item.produto_nome) {
+    const norm = normalizar(item.produto_nome);
+    return { chave: `nome:${norm}`, rotulo: norm };
+  }
   if (item.produto_sku) {
     const norm = normalizar(item.produto_sku);
     return { chave: `sku:${norm}`, rotulo: norm };
@@ -56,7 +61,7 @@ export default function TopProdutosChart({ franchiseId }: { franchiseId?: string
 
         const dados = await buscarTodosVendasItens<ItemVenda>(
           supabase,
-          'produto_sku, produto_codigo_pdv, quantidade, valor_total, franchise_id',
+          'produto_nome, produto_sku, produto_codigo_pdv, quantidade, valor_total, franchise_id',
           inicio,
           fim
         );
@@ -95,8 +100,8 @@ export default function TopProdutosChart({ franchiseId }: { franchiseId?: string
         <div>
           <h3 className="text-base font-medium text-stone-700">Top 15 Produtos por Faturamento</h3>
           <p className="text-xs text-stone-400 mt-1">
-            Identificador técnico do PDV (SKU/código interno) — o nome comercial do produto ainda
-            não é sincronizado; pesquisa em andamento com o fornecedor.
+            Vendas anteriores a 15/09/2026 ainda não têm nome de produto sincronizado — aparecem
+            pelo SKU ou código interno do PDV.
           </p>
         </div>
         <input

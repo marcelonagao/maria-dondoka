@@ -86,6 +86,7 @@ interface ItemRow extends RowDataPacket {
   venda_referencia: string | null;
   produto_codigo_pdv: string;
   produto_sku: string | null;
+  produto_nome: string | null;
   marca: string | null;
   quantidade: string | number;
   valor_unitario: string | number;
@@ -173,12 +174,17 @@ export async function sincronizarLoja(loja: LojaDireta, origin: string) {
           t.forma_pagamento !== undefined
       );
 
+    // `produtos.descrição` (COM acento/cedilha no nome da coluna, por isso a crase escapada)
+    // é o nome real do produto. Existe também uma `descricao` sem acento na mesma tabela —
+    // essa fica como '*' em parte das linhas, não usar, apesar do nome mais "limpo"
+    // (confirmado com SHOW COLUMNS + amostra em Loja1 e Loja4, 2026-09-15).
     const [itensRows] = await conexao.query<ItemRow[]>(
       `SELECT
          mp.auto,
          SUBSTRING_INDEX(SUBSTRING_INDEX(mp.historico, 'vd:', -1), ' ', 1) AS venda_referencia,
          mp.produto AS produto_codigo_pdv,
          p.referencia AS produto_sku,
+         p.\`descrição\` AS produto_nome,
          mp.marca,
          mp.qtd AS quantidade,
          mp.unitario AS valor_unitario,
@@ -198,6 +204,7 @@ export async function sincronizarLoja(loja: LojaDireta, origin: string) {
       venda_referencia: String(item.venda_referencia ?? item.auto),
       produto_codigo_pdv: String(item.produto_codigo_pdv),
       produto_sku: item.produto_sku,
+      produto_nome: item.produto_nome,
       marca: item.marca,
       quantidade: Number(item.quantidade),
       valor_unitario: Number(item.valor_unitario),
