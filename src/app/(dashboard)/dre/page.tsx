@@ -147,7 +147,7 @@ export default function DrePage() {
 
         let franquiasAtivas: Franquia[] = [];
         if (podeVerVarias) {
-          const { data: franquiasData } = await supabase.from('franchises').select('id, name').order('name', { ascending: true });
+          const { data: franquiasData } = await supabase.from('franchises').select('id, name').eq('is_active', true).order('name', { ascending: true });
           franquiasAtivas = franquiasData || [];
           setFranquias(franquiasAtivas);
         }

@@ -221,6 +221,7 @@ export default function ContasPagarPage() {
       const { data: franquiasData, error: franquiasError } = await supabase
         .from('franchises')
         .select('id, name')
+        .eq('is_active', true)
         .order('name', { ascending: true });
       if (franquiasError) { console.error('Erro ao buscar franquias:', franquiasError); return; }
       setFranquias(franquiasData || []);

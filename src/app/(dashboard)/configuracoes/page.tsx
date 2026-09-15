@@ -103,7 +103,7 @@ const carregarEscopoEFranquias = async () => {
   setIsSocio(socio);
   if (!socio) return;
 
-  const { data: franquiasData, error } = await supabase.from('franchises').select('id, name').order('name', { ascending: true });
+  const { data: franquiasData, error } = await supabase.from('franchises').select('id, name').eq('is_active', true).order('name', { ascending: true });
   if (error) { console.error('Erro ao carregar franquias:', error); return; }
   setFranquias(franquiasData || []);
   if (data?.franchise_id) setFranquiaSelecionada(data.franchise_id);

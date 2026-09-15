@@ -88,6 +88,7 @@ export default function DashboardPage() {
           const { data: franquiasData, error } = await supabase
             .from('franchises')
             .select('id, name')
+            .eq('is_active', true)
             .order('name', { ascending: true });
           if (error) throw error;
           setFranquias(franquiasData || []);

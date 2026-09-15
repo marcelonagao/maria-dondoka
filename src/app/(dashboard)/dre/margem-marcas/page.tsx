@@ -50,7 +50,7 @@ export default function MargemMarcasPage() {
         setPodeVerVariasFranquias(podeVerVarias);
 
         if (podeVerVarias) {
-          const { data: franquiasData } = await supabase.from('franchises').select('id, name').order('name', { ascending: true });
+          const { data: franquiasData } = await supabase.from('franchises').select('id, name').eq('is_active', true).order('name', { ascending: true });
           setFranquias(franquiasData || []);
         }
 

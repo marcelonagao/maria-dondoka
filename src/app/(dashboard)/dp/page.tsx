@@ -62,7 +62,7 @@ export default function DpPage() {
       const [competenciasRes, itensRes, franquiasRes] = await Promise.all([
         supabase.from('folha_pagamento_competencias').select('id, competencia, status, criado_em').order('competencia', { ascending: false }),
         supabase.from('folha_pagamento_itens').select('competencia_id, franchise_id, valor_liquido'),
-        supabase.from('franchises').select('id, name'),
+        supabase.from('franchises').select('id, name').eq('is_active', true),
       ]);
       if (competenciasRes.error) throw competenciasRes.error;
       setCompetencias(competenciasRes.data || []);

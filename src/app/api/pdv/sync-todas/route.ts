@@ -26,7 +26,8 @@ export async function POST(request: Request) {
 
   const { data: franquias, error } = await supabaseAdmin
     .from('franchises')
-    .select('id, name, sync_url');
+    .select('id, name, sync_url')
+    .eq('is_active', true);
   if (error) {
     console.error('Erro ao listar franquias para sincronizar:', error);
     return NextResponse.json({ error: 'ERRO_INTERNO' }, { status: 500 });

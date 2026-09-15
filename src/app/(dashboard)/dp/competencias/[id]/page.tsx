@@ -81,7 +81,7 @@ export default function RevisaoCompetenciaPage() {
       const [compRes, itensRes, franquiasRes, planoContasRes] = await Promise.all([
         supabase.from('folha_pagamento_competencias').select('competencia, status, motivo_cancelamento').eq('id', competenciaId).single(),
         supabase.from('folha_pagamento_itens').select('*').eq('competencia_id', competenciaId).order('nome'),
-        supabase.from('franchises').select('id, name').order('name'),
+        supabase.from('franchises').select('id, name').eq('is_active', true).order('name'),
         supabase.from('plano_contas').select('id, nome, categoria_pai_id').eq('is_active', true).in('tipo', ['despesa', 'custo']).order('ordem'),
       ]);
       if (compRes.error) throw compRes.error;
