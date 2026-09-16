@@ -579,6 +579,11 @@ export default function ContasPagarPage() {
             dia_vencimento: dataVenc.getDate(),
             frequencia: frequenciaRecorrencia,
             mes_referencia: frequenciaRecorrencia !== 'mensal' ? dataVenc.getMonth() + 1 : null,
+            // A despesa desta primeira ocorrência já está sendo criada logo abaixo, então a
+            // recorrência nasce com o período marcado como gerado. Sem isso o cron via o
+            // campo nulo, concluía que ainda não tinha gerado nada e criava uma SEGUNDA
+            // conta pro mesmo vencimento — foi o que duplicou FGTS e INSS de 18/09.
+            ultima_geracao_periodo: formData.due_date,
           })
           .select('id')
           .single();
