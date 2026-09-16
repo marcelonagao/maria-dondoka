@@ -38,8 +38,16 @@ export async function GET(request: Request) {
 
   const hoje = new Date();
   hoje.setUTCHours(0, 0, 0, 0);
-  const daquiA2Dias = new Date(hoje);
-  daquiA2Dias.setUTCDate(daquiA2Dias.getUTCDate() + 2);
+  // Antecedência da geração. Com 2 dias, o aluguel de outubro só virava conta a pagar no fim
+  // de setembro: quem paga não enxergava o compromisso, ele existia apenas na projeção do
+  // fluxo de caixa. Com 30, a recorrência fica materializada com cerca de um mês de folga.
+  //
+  // Não gera duas ocorrências de enfiada: ultima_geracao_periodo guarda o vencimento gerado e
+  // calcularProximoVencimento devolve esse mesmo vencimento enquanto ele não passar, então o
+  // teto continua sendo uma ocorrência à frente por recorrência.
+  const DIAS_ANTECEDENCIA = 30;
+  const limiteGeracao = new Date(hoje);
+  limiteGeracao.setUTCDate(limiteGeracao.getUTCDate() + DIAS_ANTECEDENCIA);
 
   const { data: recorrentes, error } = await supabaseAdmin
     .from('despesas_recorrentes')
@@ -57,11 +65,11 @@ export async function GET(request: Request) {
     try {
       const proximoVencimento = calcularProximoVencimento(r, hoje);
 
-      // Idempotência: se a última geração já cobriu esse vencimento, ou ainda não entrou
-      // na janela de 2 dias antes, não faz nada — permite rodar o cron mais de uma vez no
+      // Idempotência: se a última geração já cobriu esse vencimento, ou ele ainda está além
+      // da janela de antecedência, não faz nada — permite rodar o cron mais de uma vez no
       // mesmo dia sem duplicar lançamento.
       if (proximoVencimento === r.ultima_geracao_periodo) continue;
-      if (new Date(`${proximoVencimento}T00:00:00Z`) > daquiA2Dias) continue;
+      if (new Date(`${proximoVencimento}T00:00:00Z`) > limiteGeracao) continue;
 
       // Herda o valor do último lançamento gerado por essa recorrência; fallback pro valor
       // de referência cadastrado só na primeira geração (ainda não existe lançamento anterior).
