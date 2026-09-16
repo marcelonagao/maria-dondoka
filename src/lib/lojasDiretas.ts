@@ -87,6 +87,7 @@ interface ItemRow extends RowDataPacket {
   produto_codigo_pdv: string;
   produto_sku: string | null;
   produto_nome: string | null;
+  produto_linha: string | null;
   marca: string | null;
   quantidade: string | number;
   valor_unitario: string | number;
@@ -178,6 +179,14 @@ export async function sincronizarLoja(loja: LojaDireta, origin: string) {
     // é o nome real do produto. Existe também uma `descricao` sem acento na mesma tabela —
     // essa fica como '*' em parte das linhas, não usar, apesar do nome mais "limpo"
     // (confirmado com SHOW COLUMNS + amostra em Loja1 e Loja4, 2026-09-15).
+    //
+    // A categoria vem de `linhas` (36 registros: MAQUIAGEM, PERFUMES, ESMALTES...), via
+    // `produtos.linha`, que está preenchido em 100% do catálogo. Existe um `produtos.nomelinha`
+    // já desnormalizado, mas ele só tem valor em 85% das linhas — por isso o join.
+    //
+    // Guardamos o NOME, não o id: cada franquia tem seu MySQL com auto_increment próprio, e
+    // o id 156 que é MAQUIAGEM aqui não é garantia de ser MAQUIAGEM em outra loja. Consolidar
+    // as 8 por id misturaria categoria silenciosamente (SHOW COLUMNS em Loja4, 2026-09-16).
     const [itensRows] = await conexao.query<ItemRow[]>(
       `SELECT
          mp.auto,
@@ -185,6 +194,7 @@ export async function sincronizarLoja(loja: LojaDireta, origin: string) {
          mp.produto AS produto_codigo_pdv,
          p.referencia AS produto_sku,
          p.\`descrição\` AS produto_nome,
+         l.\`descrição\` AS produto_linha,
          mp.marca,
          mp.qtd AS quantidade,
          mp.unitario AS valor_unitario,
@@ -195,6 +205,7 @@ export async function sincronizarLoja(loja: LojaDireta, origin: string) {
          mp.vendedor
        FROM movprods mp
        LEFT JOIN produtos p ON p.codigo = mp.produto
+       LEFT JOIN linhas l ON l.linha = p.linha
        WHERE mp.es = 'S'
          AND mp.historico LIKE 'Saida vd:%'
          AND (mp.cancelado IS NULL OR mp.cancelado = 0)
@@ -205,6 +216,7 @@ export async function sincronizarLoja(loja: LojaDireta, origin: string) {
       produto_codigo_pdv: String(item.produto_codigo_pdv),
       produto_sku: item.produto_sku,
       produto_nome: item.produto_nome,
+      produto_linha: item.produto_linha,
       marca: item.marca,
       quantidade: Number(item.quantidade),
       valor_unitario: Number(item.valor_unitario),

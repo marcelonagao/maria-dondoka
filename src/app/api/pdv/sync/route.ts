@@ -32,6 +32,7 @@ const ItemVendaSchema = z.object({
   // faz o zod rejeitar o payload inteiro (400) só por causa de um item sem esses dados.
   produto_sku: z.string().nullable().optional(),
   produto_nome: z.string().nullable().optional(),
+  produto_linha: z.string().nullable().optional(),
   marca: z.string().nullable().optional(),
   quantidade: z.number(),
   valor_unitario: z.number(),
@@ -231,6 +232,13 @@ export async function POST(request: Request) {
           // "produto" chamado '*' no ranking. Normalizado no webhook, não na origem, porque
           // cobre os dois caminhos de sync (TS de Loja1/Loja4 e PHP das outras 6).
           produto_nome: item.produto_nome && item.produto_nome.trim() !== '*' ? item.produto_nome.trim() : null,
+          // Categoria vinda de `linhas`. Em caixa alta porque é chave de agrupamento entre as
+          // 8 lojas, cada uma com seu cadastro: "Perfumes" e "PERFUMES" viram dois grupos no
+          // ranking consolidado se a normalização ficar por conta de quem digitou.
+          produto_linha:
+            item.produto_linha && item.produto_linha.trim() !== '*'
+              ? item.produto_linha.trim().toUpperCase()
+              : null,
           marca: item.marca,
           quantidade: item.quantidade,
           valor_unitario: item.valor_unitario,
