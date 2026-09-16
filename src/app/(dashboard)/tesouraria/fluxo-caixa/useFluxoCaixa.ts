@@ -63,6 +63,7 @@ interface DadosBrutos {
   pagar: LinhaPagar[];
   recorrentes: RecorrenteRow[];
   folhaEstimada: number;
+  raizPessoal: string | null;
   // Faturamento que já entrou nos dias decorridos do mês corrente. Sem isso, o mês atual
   // comparava meia receita contra um mês inteiro de contas — inclusive boletos já vencidos
   // — e sempre parecia deficitário.
@@ -140,40 +141,57 @@ export function useFluxoCaixa(franchiseId?: string) {
       );
       const percentualCmvApurado = totalFaturamento > 0 ? (totalCmv / totalFaturamento) * 100 : 0;
 
-      // --- Folha: o último mês que teve folha lançada, somando TODAS as lojas ---
-      // Não dá pra usar "a última competência validada": existe uma competência por loja
-      // (as 6 linhas de "Folha de Pagamento · Agosto/26" na tela de Contas a Pagar são 6
-      // registros distintos), então pegar uma só somava a folha de uma franquia apenas.
-      // Somar pelo mês de vencimento resolve independentemente de quantas competências
-      // existirem. Só linhas com folha_pagamento_item_id: as guias (FGTS, INSS, sindicato)
-      // estão cadastradas como recorrência e já entram por aquela via.
-      const linhasFolhaRes = await (() => {
+      // --- Custo de pessoal do último mês fechado, para repetir nos meses futuros ---
+      // Base = TUDO que foi lançado em Pessoal fora de recorrência naquele mês, não só as
+      // linhas vindas da folha. Duas razões: (1) `valor_liquido` da folha já vem líquido do
+      // adiantamento, então o vale sai do caixa por fora e nunca apareceria; (2) há
+      // lançamentos manuais de Ordenado e FGTS por funcionário que não passam pelo fluxo da
+      // folha. Somando só a folha, setembro (R$ 115 mil lançados) ficava maior que a
+      // estimativa de outubro (R$ 77 mil), o que não faz sentido.
+      // Recorrências (FGTS/INSS/Sindicato cadastrados com 🔁) ficam de fora porque já entram
+      // pela projeção de recorrência — seriam contadas duas vezes.
+      const linhasPessoalRes = await (() => {
         let q = supabase
           .from('accounts_payable')
-          .select('due_date, amount')
-          .not('folha_pagamento_item_id', 'is', null)
+          .select('due_date, amount, plano_conta_id, despesa_recorrente_id, folha_pagamento_item_id')
           .neq('status', 'cancelado')
+          .is('despesa_recorrente_id', null)
           .gte('due_date', adicionarDias(hoje, -150));
         if (franchiseId) q = q.eq('franchise_id', franchiseId);
         return q;
       })();
-      if (linhasFolhaRes.error) throw linhasFolhaRes.error;
+      if (linhasPessoalRes.error) throw linhasPessoalRes.error;
 
+      const categorias = (categoriasRes.data || []) as CategoriaNo[];
+      // A raiz de Pessoal é descoberta pelo dado: é a raiz das despesas geradas pela folha.
+      const linhaDeFolha = (linhasPessoalRes.data || []).find((l: any) => l.folha_pagamento_item_id);
+      const raizPessoal = linhaDeFolha
+        ? resolverRaiz(categorias, (linhaDeFolha as any).plano_conta_id)
+        : null;
+
+      // Base = só as linhas vindas do fluxo da folha. Lançamento manual de Pessoal não entra:
+      // os "Ordenado"/"FGTS" por funcionário que aparecem soltos são rescisão, evento único —
+      // repeti-los em todo mês futuro inflaria a projeção permanentemente.
+      // Limitação conhecida: `valor_liquido` da folha já vem líquido do adiantamento, então o
+      // vale pago por fora não entra nesta base e a estimativa fica subdimensionada nesse
+      // valor. Precisa de uma forma de identificar vale (categoria própria) pra corrigir.
       const folhaPorMes = new Map<string, number>();
-      for (const linha of linhasFolhaRes.data || []) {
+      for (const linha of (linhasPessoalRes.data || []) as any[]) {
+        if (!linha.folha_pagamento_item_id) continue;
         const mes = linha.due_date.slice(0, 7);
         folhaPorMes.set(mes, (folhaPorMes.get(mes) || 0) + (Number(linha.amount) || 0));
       }
-      const ultimoMesComFolha = Array.from(folhaPorMes.keys()).sort().pop();
-      const folhaEstimada = ultimoMesComFolha ? folhaPorMes.get(ultimoMesComFolha)! : 0;
+      const mesReferencia = Array.from(folhaPorMes.keys()).sort().pop();
+      const folhaEstimada = mesReferencia ? folhaPorMes.get(mesReferencia) || 0 : 0;
 
       setDados({
         medias,
         percentualCmvApurado,
-        categorias: (categoriasRes.data || []) as CategoriaNo[],
+        categorias,
         pagar: ((pagarRes.data as any) || []) as LinhaPagar[],
         recorrentes: ((recorrentesRes.data as any) || []) as RecorrenteRow[],
         folhaEstimada,
+        raizPessoal,
         realizadoMesCorrente,
       });
     } catch (err) {
@@ -260,11 +278,7 @@ export function useProjecao(dados: DadosBrutos | null, percentualCmv: number): M
       }
     }
 
-    // A raiz de "Despesas com Pessoal" é descoberta pelo dado, não fixada: é a raiz das
-    // despesas que vieram da folha.
-    const raizPessoal = dados.pagar.find((l) => l.folha_pagamento_item_id)?.plano_conta_id
-      ? raizDaConta(dados.pagar.find((l) => l.folha_pagamento_item_id)!.plano_conta_id)
-      : null;
+    const raizPessoal = dados.raizPessoal;
 
     return listaMeses.map((mes) => {
       const { inicio, fim } = intervaloDoMes(mes);

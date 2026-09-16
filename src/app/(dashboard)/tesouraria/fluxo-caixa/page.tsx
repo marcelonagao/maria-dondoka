@@ -1,30 +1,82 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
-  BarChart, Bar, Cell, XAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine,
+  BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, LabelList, ResponsiveContainer,
 } from 'recharts';
 import { supabase } from '../../../../lib/supabase';
 import { formatCurrency } from '../../../../lib/format';
 import { rotuloDoMes } from '../../../../lib/date';
-import { useFluxoCaixa, useProjecao, DIAS_HISTORICO_VENDAS } from './useFluxoCaixa';
+import { useFluxoCaixa, useProjecao, DIAS_HISTORICO_VENDAS, type MesFluxo } from './useFluxoCaixa';
 
 interface Franquia {
   id: string;
   name: string;
 }
 
-// Paleta do DRE (petróleo), não a cor da marca: o #EC008C é reservado à logo e ao
+// Paleta do DRE (petróleo em tons), não a cor da marca: o #EC008C é reservado à logo e ao
 // número-herói de cada tela por decisão registrada no CLAUDE.md do projeto.
-const COR_CUSTO = '#1B4B54';
+const TONS_CUSTO = ['#1B4B54', '#33707B', '#5A99A3', '#9CC3C9'];
 const COR_SOBRA = '#059669';
 const COR_DEFICIT = '#B04A3E';
+const CHAVE_SOBRA = 'Sobra';
+const CHAVE_OUTROS = 'Outros custos';
+
+// "Custo da Mercadoria Vendida (CMV)" não cabe numa legenda; "Despesas com Pessoal" vira
+// "Pessoal" sem perder sentido.
+function rotuloCurto(nome: string): string {
+  if (/mercadoria/i.test(nome)) return 'CMV';
+  return nome.replace(/^Despesas\s+(com\s+)?/i, '');
+}
+
+function formatCompacto(valor: number): string {
+  const abs = Math.abs(valor);
+  if (abs >= 1_000_000) return `R$ ${(valor / 1_000_000).toFixed(1).replace('.', ',')} mi`;
+  if (abs >= 1_000) return `R$ ${Math.round(valor / 1_000)} mil`;
+  return formatCurrency(valor);
+}
+
+interface LinhaGrafico {
+  rotulo: string;
+  entradas: number;
+  [chave: string]: string | number;
+}
+
+function TooltipFluxo({ active, payload }: any) {
+  if (!active || !payload?.length) return null;
+  const dado = payload[0].payload as LinhaGrafico;
+  const entradas = Number(dado.entradas) || 0;
+  const sobra = Number(dado[CHAVE_SOBRA]) || 0;
+  const margem = entradas > 0 ? (sobra / entradas) * 100 : 0;
+
+  return (
+    <div className="bg-white border border-stone-200 rounded-lg shadow-lg px-3 py-2 text-xs">
+      <p className="font-medium text-stone-800 mb-1.5">{dado.rotulo}</p>
+      <p className="text-stone-500 mb-1.5 tabular-nums">Entradas {formatCurrency(entradas)}</p>
+      {payload.map((p: any) => (
+        <p key={p.dataKey} className="flex justify-between gap-4 tabular-nums">
+          <span style={{ color: p.dataKey === CHAVE_SOBRA ? (sobra >= 0 ? COR_SOBRA : COR_DEFICIT) : p.color }}>
+            {p.dataKey}
+          </span>
+          <span className="text-stone-700">{formatCurrency(Number(p.value) || 0)}</span>
+        </p>
+      ))}
+      <p className="mt-1.5 pt-1.5 border-t border-stone-100 flex justify-between gap-4 tabular-nums">
+        <span className="text-stone-500">Margem</span>
+        <span className={sobra >= 0 ? 'text-emerald-700 font-medium' : 'text-red-600 font-medium'}>
+          {margem.toFixed(1)}%
+        </span>
+      </p>
+    </div>
+  );
+}
 
 export default function FluxoCaixaPage() {
   const [isSocio, setIsSocio] = useState(false);
   const [franquias, setFranquias] = useState<Franquia[]>([]);
   const [franquiaSelecionada, setFranquiaSelecionada] = useState('');
   const [mesAberto, setMesAberto] = useState<string | null>(null);
+  const [detalheAberto, setDetalheAberto] = useState<string | null>(null);
   const [percentualCmvTexto, setPercentualCmvTexto] = useState<string | null>(null);
 
   const { dados, isLoading, erro, percentualCmvApurado } = useFluxoCaixa(franquiaSelecionada || undefined);
@@ -62,14 +114,41 @@ export default function FluxoCaixaPage() {
     carregarEscopo();
   }, []);
 
-  // Barra empilhada: a altura total é a entrada do mês, dividida entre o que vai para
-  // custo e o que sobra. Resultado negativo desce abaixo do zero, que é a leitura certa —
-  // a conta não fecha dentro da receita do mês.
-  const dadosGrafico = meses.map((m) => ({
-    rotulo: rotuloDoMes(m.mes),
-    Custo: m.saidas,
-    Sobra: m.resultado,
-  }));
+  // Empilha o custo pelos grupos que mais pesam, em vez de um bloco único: a pergunta que o
+  // gráfico precisa responder é "com o que estou gastando?".
+  const { dadosGrafico, chavesCusto } = useMemo(() => {
+    const totalPorGrupo = new Map<string, number>();
+    for (const m of meses) {
+      for (const g of m.grupos) {
+        const curto = rotuloCurto(g.nome);
+        totalPorGrupo.set(curto, (totalPorGrupo.get(curto) || 0) + g.total);
+      }
+    }
+    const principais = Array.from(totalPorGrupo.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([nome]) => nome);
+
+    const temOutros = totalPorGrupo.size > principais.length;
+    const chaves = temOutros ? [...principais, CHAVE_OUTROS] : principais;
+
+    const linhas: LinhaGrafico[] = meses.map((m) => {
+      const linha: LinhaGrafico = {
+        rotulo: rotuloDoMes(m.mes),
+        entradas: m.entradas,
+        [CHAVE_SOBRA]: m.resultado,
+      };
+      for (const chave of chaves) linha[chave] = 0;
+      for (const g of m.grupos) {
+        const curto = rotuloCurto(g.nome);
+        const destino = principais.includes(curto) ? curto : CHAVE_OUTROS;
+        linha[destino] = (Number(linha[destino]) || 0) + g.total;
+      }
+      return linha;
+    });
+
+    return { dadosGrafico: linhas, chavesCusto: chaves };
+  }, [meses]);
 
   return (
     <div className="space-y-4 sm:space-y-6">
@@ -127,8 +206,8 @@ export default function FluxoCaixaPage() {
         <p>
           <strong>Isto é uma projeção, não um extrato.</strong> São estimados: a compra de
           mercadoria à vista (percentual acima sobre a venda projetada, descontando os boletos já
-          lançados), a folha dos meses que ainda não a têm lançada, e as recorrências que o
-          sistema ainda não gerou. O resto vem de contas já lançadas.
+          lançados), o custo de pessoal dos meses que ainda não o têm lançado, e as recorrências
+          que o sistema ainda não gerou. O resto vem de contas já lançadas.
         </p>
         <p>
           Não estão modelados: sazonalidade (Natal, Dia das Mães), prazo e taxa de recebimento de
@@ -149,23 +228,35 @@ export default function FluxoCaixaPage() {
           <div className="bg-white border border-stone-200 rounded-xl shadow-sm p-4 sm:p-6 [&_.recharts-surface]:outline-none">
             <h3 className="text-base font-medium text-stone-700">Para onde vai a receita</h3>
             <p className="text-xs text-stone-400 mb-4">
-              Cada barra é a entrada projetada do mês, dividida entre custo e sobra.
+              Cada barra é a entrada projetada do mês, dividida entre os grupos de custo e a sobra.
             </p>
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={dadosGrafico} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={dadosGrafico} margin={{ top: 24, right: 8, bottom: 0, left: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" vertical={false} />
-                <XAxis dataKey="rotulo" stroke="#a8a29e" fontSize={11} tickLine={false} />
-                <Tooltip
-                  formatter={(value) => formatCurrency(Number(value))}
-                  contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e7e5e4' }}
+                <XAxis dataKey="rotulo" stroke="#a8a29e" fontSize={11} tickLine={false} axisLine={false} />
+                <YAxis
+                  stroke="#a8a29e"
+                  fontSize={11}
+                  tickLine={false}
+                  axisLine={false}
+                  width={64}
+                  tickFormatter={(v) => formatCompacto(Number(v))}
                 />
+                <Tooltip content={<TooltipFluxo />} cursor={{ fill: '#f5f5f4' }} />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
-                <ReferenceLine y={0} stroke="#a8a29e" />
-                <Bar dataKey="Custo" stackId="mes" fill={COR_CUSTO} />
-                <Bar dataKey="Sobra" stackId="mes" radius={[4, 4, 0, 0]}>
+                {chavesCusto.map((chave, i) => (
+                  <Bar key={chave} dataKey={chave} stackId="mes" fill={TONS_CUSTO[i % TONS_CUSTO.length]} />
+                ))}
+                <Bar dataKey={CHAVE_SOBRA} stackId="mes" fill={COR_SOBRA} radius={[4, 4, 0, 0]}>
                   {dadosGrafico.map((d) => (
-                    <Cell key={d.rotulo} fill={d.Sobra >= 0 ? COR_SOBRA : COR_DEFICIT} />
+                    <Cell key={d.rotulo} fill={Number(d[CHAVE_SOBRA]) >= 0 ? COR_SOBRA : COR_DEFICIT} />
                   ))}
+                  <LabelList
+                    dataKey="entradas"
+                    position="top"
+                    formatter={(v: unknown) => formatCompacto(Number(v) || 0)}
+                    style={{ fill: '#57534e', fontSize: 11 }}
+                  />
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
@@ -173,7 +264,7 @@ export default function FluxoCaixaPage() {
 
           <div className="bg-white border border-stone-200 rounded-xl shadow-sm overflow-hidden">
             <ul className="divide-y divide-stone-100">
-              {meses.map((m) => {
+              {meses.map((m: MesFluxo) => {
                 const aberto = mesAberto === m.mes;
                 return (
                   <li key={m.mes}>
@@ -186,8 +277,8 @@ export default function FluxoCaixaPage() {
                           <span className="text-stone-400 mr-1.5">{aberto ? '▾' : '▸'}</span>
                           {rotuloDoMes(m.mes)}
                           {m.ehMesCorrente && (
-                            <span className="ml-2 text-[11px] font-normal text-stone-400">
-                              (realizado no mês + projeção dos dias que faltam)
+                            <span className="ml-2 text-[10px] font-normal text-stone-300">
+                              realizado + projeção
                             </span>
                           )}
                         </span>
@@ -205,11 +296,17 @@ export default function FluxoCaixaPage() {
                     </button>
 
                     {aberto && (
-                      <div className="bg-stone-50 border-t border-stone-100 px-4 sm:px-6 py-3">
+                      <div className="bg-stone-50 border-t border-stone-100 px-4 sm:px-6 py-3 overflow-x-auto">
                         {m.grupos.length === 0 ? (
                           <p className="text-xs text-stone-400">Nenhuma saída prevista neste mês.</p>
                         ) : (
-                          <table className="w-full text-xs">
+                          <table className="w-full text-xs min-w-[480px]">
+                            <colgroup>
+                              <col />
+                              <col className="w-28" />
+                              <col className="w-28" />
+                              <col className="w-28" />
+                            </colgroup>
                             <thead>
                               <tr className="text-stone-500">
                                 <th className="text-left font-medium pb-2">Grupo de contas</th>
@@ -219,27 +316,47 @@ export default function FluxoCaixaPage() {
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-stone-200">
-                              {m.grupos.map((g) => (
-                                <tr key={g.raizId}>
-                                  <td className="py-2 pr-2 text-stone-700">
-                                    {g.nome}
-                                    {g.origemEstimativa && (
-                                      <span className="block text-[10px] text-stone-400">
-                                        estimado: {g.origemEstimativa}
-                                      </span>
+                              {m.grupos.map((g) => {
+                                const chaveDetalhe = `${m.mes}|${g.raizId}`;
+                                const detalheVisivel = detalheAberto === chaveDetalhe;
+                                return (
+                                  <React.Fragment key={g.raizId}>
+                                    <tr>
+                                      <td className="py-2 pr-3 text-stone-700">
+                                        {g.nome}
+                                        {g.origemEstimativa && (
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              setDetalheAberto(detalheVisivel ? null : chaveDetalhe)
+                                            }
+                                            aria-label="De onde vem a estimativa"
+                                            className="ml-1.5 w-4 h-4 rounded-full border border-stone-300 text-[9px] text-stone-500 hover:bg-stone-200 align-middle"
+                                          >
+                                            i
+                                          </button>
+                                        )}
+                                      </td>
+                                      <td className="py-2 text-right tabular-nums text-stone-700 whitespace-nowrap">
+                                        {g.lancado > 0 ? formatCurrency(g.lancado) : '—'}
+                                      </td>
+                                      <td className="py-2 text-right tabular-nums text-amber-700 whitespace-nowrap">
+                                        {g.estimado > 0 ? formatCurrency(g.estimado) : '—'}
+                                      </td>
+                                      <td className="py-2 text-right tabular-nums font-semibold text-stone-800 whitespace-nowrap">
+                                        {formatCurrency(g.total)}
+                                      </td>
+                                    </tr>
+                                    {detalheVisivel && g.origemEstimativa && (
+                                      <tr>
+                                        <td colSpan={4} className="pb-2 text-[11px] text-stone-500">
+                                          Estimado a partir de: {g.origemEstimativa}.
+                                        </td>
+                                      </tr>
                                     )}
-                                  </td>
-                                  <td className="py-2 text-right tabular-nums text-stone-700">
-                                    {formatCurrency(g.lancado)}
-                                  </td>
-                                  <td className="py-2 text-right tabular-nums text-amber-700">
-                                    {g.estimado > 0 ? formatCurrency(g.estimado) : '—'}
-                                  </td>
-                                  <td className="py-2 text-right tabular-nums font-semibold text-stone-800">
-                                    {formatCurrency(g.total)}
-                                  </td>
-                                </tr>
-                              ))}
+                                  </React.Fragment>
+                                );
+                              })}
                             </tbody>
                           </table>
                         )}
