@@ -63,6 +63,10 @@ interface DadosBrutos {
   pagar: LinhaPagar[];
   recorrentes: RecorrenteRow[];
   folhaEstimada: number;
+  // Faturamento que já entrou nos dias decorridos do mês corrente. Sem isso, o mês atual
+  // comparava meia receita contra um mês inteiro de contas — inclusive boletos já vencidos
+  // — e sempre parecia deficitário.
+  realizadoMesCorrente: number;
 }
 
 const SEM_CATEGORIA = '__sem_categoria__';
@@ -83,7 +87,7 @@ export function useFluxoCaixa(franchiseId?: string) {
       const fimHorizonte = intervaloDoMes(listaMeses[listaMeses.length - 1]).fim;
       const inicioHistorico = adicionarDias(hoje, -DIAS_HISTORICO_VENDAS);
 
-      const [vendasRes, pagarRes, recorrentesRes, categoriasRes, competenciaRes] = await Promise.all([
+      const [vendasRes, pagarRes, recorrentesRes, categoriasRes] = await Promise.all([
         supabase.rpc('serie_vendas_diaria', {
           p_franchise_id: franchiseId || null,
           p_data_inicio: inicioHistorico,
@@ -108,13 +112,6 @@ export function useFluxoCaixa(franchiseId?: string) {
           return q;
         })(),
         supabase.from('plano_contas').select('id, nome, categoria_pai_id'),
-        supabase
-          .from('folha_pagamento_competencias')
-          .select('id')
-          .eq('status', 'validado')
-          .order('competencia', { ascending: false })
-          .limit(1)
-          .maybeSingle(),
       ]);
 
       if (vendasRes.error) throw vendasRes.error;
@@ -128,6 +125,7 @@ export function useFluxoCaixa(franchiseId?: string) {
       const contagemPorDiaSemana = [0, 0, 0, 0, 0, 0, 0];
       let totalFaturamento = 0;
       let totalCmv = 0;
+      let realizadoMesCorrente = 0;
       for (const ponto of serie) {
         const diaSemana = new Date(`${ponto.data}T00:00:00Z`).getUTCDay();
         const faturamento = Number(ponto.faturamento) || 0;
@@ -135,29 +133,39 @@ export function useFluxoCaixa(franchiseId?: string) {
         contagemPorDiaSemana[diaSemana] += 1;
         totalFaturamento += faturamento;
         totalCmv += Number(ponto.cmv) || 0;
+        if (ponto.data.slice(0, 7) === mesInicial) realizadoMesCorrente += faturamento;
       }
       const medias = somaPorDiaSemana.map((soma, i) =>
         contagemPorDiaSemana[i] > 0 ? soma / contagemPorDiaSemana[i] : 0
       );
       const percentualCmvApurado = totalFaturamento > 0 ? (totalCmv / totalFaturamento) * 100 : 0;
 
-      // --- Folha: última competência validada, só os salários por funcionário ---
-      // As guias (FGTS, INSS, sindicato) ficam de fora de propósito: elas estão cadastradas
-      // como despesas_recorrentes e já entram pela projeção de recorrência. Somar as duas
-      // contaria o mesmo encargo duas vezes.
-      let folhaEstimada = 0;
-      if (competenciaRes.data?.id) {
+      // --- Folha: o último mês que teve folha lançada, somando TODAS as lojas ---
+      // Não dá pra usar "a última competência validada": existe uma competência por loja
+      // (as 6 linhas de "Folha de Pagamento · Agosto/26" na tela de Contas a Pagar são 6
+      // registros distintos), então pegar uma só somava a folha de uma franquia apenas.
+      // Somar pelo mês de vencimento resolve independentemente de quantas competências
+      // existirem. Só linhas com folha_pagamento_item_id: as guias (FGTS, INSS, sindicato)
+      // estão cadastradas como recorrência e já entram por aquela via.
+      const linhasFolhaRes = await (() => {
         let q = supabase
           .from('accounts_payable')
-          .select('amount')
-          .eq('folha_pagamento_competencia_id', competenciaRes.data.id)
+          .select('due_date, amount')
           .not('folha_pagamento_item_id', 'is', null)
-          .neq('status', 'cancelado');
+          .neq('status', 'cancelado')
+          .gte('due_date', adicionarDias(hoje, -150));
         if (franchiseId) q = q.eq('franchise_id', franchiseId);
-        const { data: linhasFolha, error: folhaError } = await q;
-        if (folhaError) throw folhaError;
-        folhaEstimada = (linhasFolha || []).reduce((acc, l) => acc + (Number(l.amount) || 0), 0);
+        return q;
+      })();
+      if (linhasFolhaRes.error) throw linhasFolhaRes.error;
+
+      const folhaPorMes = new Map<string, number>();
+      for (const linha of linhasFolhaRes.data || []) {
+        const mes = linha.due_date.slice(0, 7);
+        folhaPorMes.set(mes, (folhaPorMes.get(mes) || 0) + (Number(linha.amount) || 0));
       }
+      const ultimoMesComFolha = Array.from(folhaPorMes.keys()).sort().pop();
+      const folhaEstimada = ultimoMesComFolha ? folhaPorMes.get(ultimoMesComFolha)! : 0;
 
       setDados({
         medias,
@@ -166,6 +174,7 @@ export function useFluxoCaixa(franchiseId?: string) {
         pagar: ((pagarRes.data as any) || []) as LinhaPagar[],
         recorrentes: ((recorrentesRes.data as any) || []) as RecorrenteRow[],
         folhaEstimada,
+        realizadoMesCorrente,
       });
     } catch (err) {
       console.error('Erro ao montar o fluxo de caixa:', err);
@@ -251,10 +260,13 @@ export function useProjecao(dados: DadosBrutos | null, percentualCmv: number): M
 
     return listaMeses.map((mes) => {
       const { inicio, fim } = intervaloDoMes(mes);
-      // No mês corrente só os dias que faltam: os que já passaram são faturamento realizado.
-      const primeiroDiaAProjetar = mes === mesInicial ? adicionarDias(hoje, 1) : inicio;
+      const ehMesCorrente = mes === mesInicial;
+      // No mês corrente, os dias decorridos entram pelo faturamento REAL e só os que faltam
+      // são projetados. As saídas do mês são sempre o mês inteiro (inclusive boletos já
+      // vencidos), então contar só a receita restante comparava meio mês com um mês cheio.
+      const primeiroDiaAProjetar = ehMesCorrente ? adicionarDias(hoje, 1) : inicio;
 
-      let entradas = 0;
+      let entradas = ehMesCorrente ? dados.realizadoMesCorrente : 0;
       let cursor = primeiroDiaAProjetar;
       while (cursor <= fim) {
         entradas += dados.medias[new Date(`${cursor}T00:00:00Z`).getUTCDay()];
@@ -314,7 +326,7 @@ export function useProjecao(dados: DadosBrutos | null, percentualCmv: number): M
         saidas,
         resultado: entradas - saidas,
         grupos,
-        ehMesCorrente: mes === mesInicial,
+        ehMesCorrente,
       };
     });
   }, [dados, percentualCmv]);

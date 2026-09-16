@@ -173,7 +173,7 @@ export default function FluxoCaixaPage() {
                           {rotuloDoMes(m.mes)}
                           {m.ehMesCorrente && (
                             <span className="ml-2 text-[11px] font-normal text-stone-400">
-                              (só os dias que faltam)
+                              (realizado no mês + projeção dos dias que faltam)
                             </span>
                           )}
                         </span>
