@@ -11,8 +11,9 @@ import { resolverRaiz } from '../../../lib/planoContas';
 const ACCENT = '#1B4B54';
 const NEGATIVO = '#B04A3E';
 
-// 6 categorias-pai reais de despesa, reorganizadas no plano_contas pra consolidar tudo
-// nessas raízes (confirmado por query direta — não são um subconjunto arbitrário).
+// Esqueleto fixo do bloco de despesas: estas 6 raízes aparecem sempre, mesmo zeradas, pra
+// tabela não mudar de forma de um mês pro outro. NÃO é mais a lista do que pode aparecer —
+// ver categoriasDespesa, que acrescenta qualquer outra raiz devolvida pela RPC.
 const CATEGORIAS_DESPESA = [
   { id: '4a87fce5-cc45-4890-9891-d2dceee1b6ee', nome: 'Despesas com Pessoal' },
   { id: 'ca2797d7-73af-4b76-962d-c9b1ad0524aa', nome: 'Despesas Administrativas' },
@@ -277,6 +278,40 @@ export default function DrePage() {
   const variacaoResultado = variacaoPct(resultadoLiquido, resultadoAnterior?.resultado_liquido ?? 0);
   const impostosAtual = valorCategoria(resultadoAtual, CATEGORIA_IMPOSTOS_ID);
 
+  // despesas_total soma TODAS as raízes de despesa que a RPC encontrou, mas a tabela
+  // renderizava só as 6 fixas. Uma raiz criada depois — foi o caso de "Despesas
+  // Operacionais", com 3 lançamentos — entrava no total sem aparecer em linha nenhuma: o
+  // subtotal não fechava com as linhas e não havia como descobrir de onde vinha a diferença.
+  // Aqui as 6 fixas mantêm a ordem de sempre e o que vier a mais entra depois, por valor.
+  const categoriasDespesa = useMemo(() => {
+    const fixas = CATEGORIAS_DESPESA.map((c) => ({ id: c.id, nome: c.nome }));
+    // Set<string> explícito: o `as const` da lista fixa estreita o tipo pros 6 literais e
+    // o has() passaria a rejeitar qualquer id vindo da RPC.
+    const idsFixos = new Set<string>(fixas.map((c) => c.id));
+
+    // Os dois períodos, senão uma raiz que só teve movimento no período anterior sumiria e
+    // levaria junto a variação que justifica a queda.
+    const extrasPorId = new Map<string, string>();
+    for (const resultado of [resultadoAtual, resultadoAnterior]) {
+      for (const d of resultado?.despesas_por_categoria || []) {
+        if (!idsFixos.has(d.categoria_id)) extrasPorId.set(d.categoria_id, d.categoria);
+      }
+    }
+
+    const extras = Array.from(extrasPorId, ([id, nome]) => ({ id, nome })).sort(
+      (a, b) => valorCategoria(resultadoAtual, b.id) - valorCategoria(resultadoAtual, a.id)
+    );
+
+    return [...fixas, ...extras];
+  }, [resultadoAtual, resultadoAnterior]);
+
+  // Rede de segurança: despesa sem plano_conta_id não tem raiz pra cair, então entra no
+  // total e em nenhuma linha. Em vez de deixar o subtotal "errado" sem explicação, a
+  // diferença vira uma linha visível.
+  const naoClassificado =
+    (resultadoAtual?.despesas_total ?? 0) -
+    categoriasDespesa.reduce((acc, c) => acc + valorCategoria(resultadoAtual, c.id), 0);
+
   const franquiasOrdenadas = useMemo(() => {
     return Array.from(resultadosPorFranquia.entries())
       .map(([id, r]) => ({
@@ -460,7 +495,7 @@ export default function DrePage() {
                   anterior={resultadoAnterior?.despesas_total ?? 0}
                   negativo
                 />
-                {CATEGORIAS_DESPESA.map((cat) => (
+                {categoriasDespesa.map((cat) => (
                   <tr
                     key={cat.id}
                     className="hover:bg-stone-50 cursor-pointer transition-colors"
@@ -480,6 +515,20 @@ export default function DrePage() {
                     </td>
                   </tr>
                 ))}
+                {Math.abs(naoClassificado) >= 0.01 && (
+                  <tr>
+                    <td className="pl-10 pr-6 py-1.5 text-stone-500">
+                      Não classificado
+                      <span className="block text-xs text-stone-400">
+                        Lançamentos sem categoria no plano de contas — entram no subtotal acima
+                      </span>
+                    </td>
+                    <td className="px-6 py-1.5 text-right text-stone-500 tabular-nums">
+                      {formatNumero(naoClassificado)}
+                    </td>
+                    <td className="px-6 py-1.5" />
+                  </tr>
+                )}
                 <tr style={{ borderTop: `2px solid ${ACCENT}` }}>
                   <td className="px-6 py-3 font-semibold text-lg text-stone-900">= Resultado Líquido</td>
                   <td className="px-6 py-3 text-right font-semibold text-lg tabular-nums" style={{ color: resultadoLiquido >= 0 ? '#1c1917' : NEGATIVO }}>
