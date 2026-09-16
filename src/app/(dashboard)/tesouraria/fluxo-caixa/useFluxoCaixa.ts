@@ -238,10 +238,10 @@ export function useProjecao(dados: DadosBrutos | null, percentualCmv: number): M
 
     // --- Lançado por mês/raiz ---
     const lancadoPorMes = new Map<string, Map<string, number>>();
-    // Separadamente, o que foi lançado SEM vir de recorrência. É isso que abate a folha
-    // estimada: folha do mês e vale entram aqui, enquanto FGTS/INSS — que são recorrências
-    // e já entram pela projeção — ficam de fora e não zeram a estimativa de salário.
-    const lancadoAvulsoPorMes = new Map<string, Map<string, number>>();
+    // A folha estimada é o LÍQUIDO da última competência, então só o líquido já lançado a
+    // abate. Vale e rescisão são desembolsos adicionais ao líquido — se abatessem, lançar o
+    // vale reduziria a previsão de salário, que é o oposto do certo.
+    const folhaLancadaPorMes = new Map<string, number>();
     const jaMaterializado = new Set<string>();
 
     for (const linha of dados.pagar) {
@@ -255,10 +255,9 @@ export function useProjecao(dados: DadosBrutos | null, percentualCmv: number): M
 
       if (linha.despesa_recorrente_id) {
         jaMaterializado.add(`${linha.despesa_recorrente_id}|${linha.due_date}`);
-      } else {
-        if (!lancadoAvulsoPorMes.has(mes)) lancadoAvulsoPorMes.set(mes, new Map());
-        const avulsoDoMes = lancadoAvulsoPorMes.get(mes)!;
-        avulsoDoMes.set(raiz, (avulsoDoMes.get(raiz) || 0) + valor);
+      }
+      if (linha.folha_pagamento_item_id) {
+        folhaLancadaPorMes.set(mes, (folhaLancadaPorMes.get(mes) || 0) + valor);
       }
     }
 
@@ -296,7 +295,6 @@ export function useProjecao(dados: DadosBrutos | null, percentualCmv: number): M
       }
 
       const lancado = lancadoPorMes.get(mes) || new Map<string, number>();
-      const lancadoAvulso = lancadoAvulsoPorMes.get(mes) || new Map<string, number>();
       const recorrente = recorrentePorMes.get(mes) || new Map<string, number>();
 
       const raizes = new Set<string>([
@@ -329,7 +327,7 @@ export function useProjecao(dados: DadosBrutos | null, percentualCmv: number): M
           // O que já foi lançado de Pessoal fora de recorrência (a própria folha, ou um
           // vale adiantado) é abatido, e só a diferença entra como estimativa — senão o
           // vale seria contado duas vezes.
-          const jaLancadoDeFolha = lancadoAvulso.get(raizId) || 0;
+          const jaLancadoDeFolha = folhaLancadaPorMes.get(mes) || 0;
           const faltaDaFolha = Math.max(0, dados.folhaEstimada - jaLancadoDeFolha);
           if (faltaDaFolha > 0) {
             estimado += faltaDaFolha;
