@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import {
-  ComposedChart, Bar, Line, XAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine,
+  BarChart, Bar, Cell, XAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine,
 } from 'recharts';
 import { supabase } from '../../../../lib/supabase';
 import { formatCurrency } from '../../../../lib/format';
@@ -13,6 +13,12 @@ interface Franquia {
   id: string;
   name: string;
 }
+
+// Paleta do DRE (petróleo), não a cor da marca: o #EC008C é reservado à logo e ao
+// número-herói de cada tela por decisão registrada no CLAUDE.md do projeto.
+const COR_CUSTO = '#1B4B54';
+const COR_SOBRA = '#059669';
+const COR_DEFICIT = '#B04A3E';
 
 export default function FluxoCaixaPage() {
   const [isSocio, setIsSocio] = useState(false);
@@ -56,11 +62,13 @@ export default function FluxoCaixaPage() {
     carregarEscopo();
   }, []);
 
+  // Barra empilhada: a altura total é a entrada do mês, dividida entre o que vai para
+  // custo e o que sobra. Resultado negativo desce abaixo do zero, que é a leitura certa —
+  // a conta não fecha dentro da receita do mês.
   const dadosGrafico = meses.map((m) => ({
     rotulo: rotuloDoMes(m.mes),
-    Entradas: m.entradas,
-    Saídas: m.saidas,
-    Resultado: m.resultado,
+    Custo: m.saidas,
+    Sobra: m.resultado,
   }));
 
   return (
@@ -139,9 +147,12 @@ export default function FluxoCaixaPage() {
       ) : (
         <>
           <div className="bg-white border border-stone-200 rounded-xl shadow-sm p-4 sm:p-6 [&_.recharts-surface]:outline-none">
-            <h3 className="text-base font-medium text-stone-700 mb-4">Entradas x Saídas</h3>
+            <h3 className="text-base font-medium text-stone-700">Para onde vai a receita</h3>
+            <p className="text-xs text-stone-400 mb-4">
+              Cada barra é a entrada projetada do mês, dividida entre custo e sobra.
+            </p>
             <ResponsiveContainer width="100%" height={260}>
-              <ComposedChart data={dadosGrafico} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
+              <BarChart data={dadosGrafico} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" vertical={false} />
                 <XAxis dataKey="rotulo" stroke="#a8a29e" fontSize={11} tickLine={false} />
                 <Tooltip
@@ -150,10 +161,13 @@ export default function FluxoCaixaPage() {
                 />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
                 <ReferenceLine y={0} stroke="#a8a29e" />
-                <Bar dataKey="Entradas" fill="#059669" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="Saídas" fill="#ef4444" radius={[4, 4, 0, 0]} />
-                <Line type="monotone" dataKey="Resultado" stroke="#1c1917" strokeWidth={2} dot={{ r: 3 }} />
-              </ComposedChart>
+                <Bar dataKey="Custo" stackId="mes" fill={COR_CUSTO} />
+                <Bar dataKey="Sobra" stackId="mes" radius={[4, 4, 0, 0]}>
+                  {dadosGrafico.map((d) => (
+                    <Cell key={d.rotulo} fill={d.Sobra >= 0 ? COR_SOBRA : COR_DEFICIT} />
+                  ))}
+                </Bar>
+              </BarChart>
             </ResponsiveContainer>
           </div>
 
