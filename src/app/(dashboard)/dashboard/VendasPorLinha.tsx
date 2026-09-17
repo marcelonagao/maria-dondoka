@@ -3,7 +3,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../../lib/supabase';
 import { formatCurrency } from '../../../lib/format';
-import { mesAtualBrasilia, intervaloDoMes } from '../../../lib/date';
+const formatDataCurta = (isoDate: string) =>
+  new Date(isoDate + 'T00:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
 
 interface LinhaResumo {
   linha: string;
@@ -28,13 +29,18 @@ const formatNumero = (valor: number) => valor.toLocaleString('pt-BR');
 
 export default function VendasPorLinha({
   franchiseId,
+  inicio,
+  fim,
   refreshKey = 0,
 }: {
   franchiseId?: string;
+  // Período vem do painel de vendas. Este card tinha o seu próprio seletor de mês, o que
+  // deixava os dois lados do dashboard mostrando recortes diferentes ao mesmo tempo.
+  inicio: string;
+  fim: string;
   refreshKey?: number;
 }) {
   const [isLoading, setIsLoading] = useState(true);
-  const [mesSelecionado, setMesSelecionado] = useState(mesAtualBrasilia());
   const [linhas, setLinhas] = useState<LinhaResumo[]>([]);
   const [totalReceita, setTotalReceita] = useState(0);
 
@@ -46,8 +52,6 @@ export default function VendasPorLinha({
     async function carregar() {
       try {
         setIsLoading(true);
-        const { inicio, fim } = intervaloDoMes(mesSelecionado);
-
         const { data, error } = await supabase.rpc('resumo_por_linha', {
           p_franchise_id: franchiseId || null,
           p_data_inicio: inicio,
@@ -78,7 +82,7 @@ export default function VendasPorLinha({
     setLinhaAberta(null);
     setDetalhePorLinha({});
     carregar();
-  }, [mesSelecionado, franchiseId, refreshKey]);
+  }, [inicio, fim, franchiseId, refreshKey]);
 
   const alternarLinha = useCallback(
     async (linha: string) => {
@@ -93,7 +97,6 @@ export default function VendasPorLinha({
 
       try {
         setCarregandoLinha(linha);
-        const { inicio, fim } = intervaloDoMes(mesSelecionado);
         const { data, error } = await supabase.rpc('top_produtos_da_linha', {
           p_linha: linha,
           p_franchise_id: franchiseId || null,
@@ -123,7 +126,7 @@ export default function VendasPorLinha({
         setCarregandoLinha(null);
       }
     },
-    [linhaAberta, detalhePorLinha, mesSelecionado, franchiseId]
+    [linhaAberta, detalhePorLinha, inicio, fim, franchiseId]
   );
 
   const maiorReceita = linhas[0]?.receita || 0;
@@ -137,12 +140,11 @@ export default function VendasPorLinha({
             Toque em uma categoria para ver os 10 produtos que mais faturaram nela.
           </p>
         </div>
-        <input
-          type="month"
-          value={mesSelecionado}
-          onChange={(e) => setMesSelecionado(e.target.value)}
-          className="w-full sm:w-auto px-3 py-2 border border-stone-300 rounded-lg text-xs text-stone-700 outline-none focus:ring-2 focus:ring-stone-400"
-        />
+        {/* Rótulo, não controle: o período é o mesmo escolhido nos chips acima. Sem ele o
+            usuário não teria como saber a que recorte estes números se referem. */}
+        <span className="text-xs text-stone-500 tabular-nums shrink-0">
+          {formatDataCurta(inicio)} a {formatDataCurta(fim)}
+        </span>
       </div>
 
       {isLoading ? (

@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../../lib/supabase';
+import { hojeBrasilia, adicionarDias } from '../../../lib/date';
 import PainelVendas from './PainelVendas';
 import VendasPorLinha from './VendasPorLinha';
 
@@ -33,6 +34,13 @@ export default function DashboardPage() {
   const [franquiaSelecionada, setFranquiaSelecionada] = useState<string>('');
   const [alertas, setAlertas] = useState<Alerta[]>([]);
   const [refreshKey, setRefreshKey] = useState(0);
+  // Período escolhido nos chips do painel de vendas, elevado para cá porque o card de
+  // categorias também o consome. Inicia nos mesmos 7 dias que o painel usa por padrão: com
+  // um valor diferente, o card faria uma consulta descartável antes do primeiro aviso.
+  const [periodo, setPeriodo] = useState({
+    inicio: adicionarDias(hojeBrasilia(), -6),
+    fim: hojeBrasilia(),
+  });
   const [isSincronizando, setIsSincronizando] = useState(false);
   const [statusSync, setStatusSync] = useState<string | null>(null);
 
@@ -187,11 +195,14 @@ export default function DashboardPage() {
         franchiseId={isSocio ? (franquiaSelecionada || undefined) : undefined}
         franquias={franquias}
         onSelecionarFranquia={setFranquiaSelecionada}
+        onPeriodoChange={setPeriodo}
         refreshKey={refreshKey}
       />
 
       <VendasPorLinha
         franchiseId={isSocio ? (franquiaSelecionada || undefined) : undefined}
+        inicio={periodo.inicio}
+        fim={periodo.fim}
         refreshKey={refreshKey}
       />
     </div>

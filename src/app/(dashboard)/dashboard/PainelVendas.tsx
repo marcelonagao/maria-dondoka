@@ -106,11 +106,16 @@ export default function PainelVendas({
   franchiseId,
   franquias = [],
   onSelecionarFranquia,
+  onPeriodoChange,
   refreshKey = 0,
 }: {
   franchiseId?: string;
   franquias?: Franquia[];
   onSelecionarFranquia?: (id: string) => void;
+  // Avisa o dashboard do período escolhido aqui, para que os outros cards sigam estes chips
+  // em vez de cada um ter o seu próprio seletor. O controle continua morando neste painel —
+  // é onde o usuário espera encontrá-lo.
+  onPeriodoChange?: (periodo: { inicio: string; fim: string }) => void;
   refreshKey?: number;
 }) {
   const [preset, setPreset] = useState<PeriodoPreset>('7d');
@@ -140,6 +145,12 @@ export default function PainelVendas({
   }, [preset, customInicio, customFim]);
 
   const anterior = useMemo(() => periodoAnterior(inicio, fim), [inicio, fim]);
+
+  // Só dispara quando as datas mudam de fato. O pai guarda isso em estado e repassa aos
+  // demais cards; como inicio/fim não mudam por causa dessa atualização, não há laço.
+  useEffect(() => {
+    onPeriodoChange?.({ inicio, fim });
+  }, [inicio, fim, onPeriodoChange]);
 
   useEffect(() => {
     async function carregar() {
