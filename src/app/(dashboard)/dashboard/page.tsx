@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../../lib/supabase';
 import PainelVendas from './PainelVendas';
-import TopProdutosChart from './TopProdutosChart';
+import VendasPorLinha from './VendasPorLinha';
 
 interface Franquia {
   id: string;
@@ -190,7 +190,7 @@ export default function DashboardPage() {
         refreshKey={refreshKey}
       />
 
-      <TopProdutosChart
+      <VendasPorLinha
         franchiseId={isSocio ? (franquiaSelecionada || undefined) : undefined}
         refreshKey={refreshKey}
       />
