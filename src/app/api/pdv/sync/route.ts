@@ -298,6 +298,24 @@ export async function POST(request: Request) {
       }
     }
 
+    // Recalcula o resumo por categoria desta franquia/dia. O dashboard lê de
+    // `vendas_por_linha_dia` em vez de varrer `vendas_itens`: agregar o mês direto na tabela
+    // de itens levava ~5s no cache frio e chegou a estourar o statement_timeout de 8s.
+    //
+    // Roda dentro do Postgres, não aqui: é um agregado sobre algumas centenas de linhas (um
+    // dia de uma loja), e trazê-las para a função serverless só para somar seria desperdício.
+    //
+    // Falha aqui não derruba o sync — a venda já está gravada, e o próximo ciclo reconstrói
+    // a fatia inteira do dia. Melhor um resumo velho por alguns minutos do que recusar o
+    // payload e perder o dado na origem.
+    const { error: resumoError } = await supabaseAdmin.rpc('atualizar_resumo_linha_dia', {
+      p_franchise_id: device.franchise_id,
+      p_data: vendas.data,
+    });
+    if (resumoError) {
+      console.error(`[pdv-sync:${requestId}] falha ao atualizar resumo por categoria:`, resumoError.message);
+    }
+
     await supabaseAdmin
       .from('pdv_devices')
       .update({ last_sync_at: new Date().toISOString() })

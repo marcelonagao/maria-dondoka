@@ -9,13 +9,19 @@ interface LinhaResumo {
   linha: string;
   receita: number;
   unidades: number;
-  produtos: number;
 }
 
 interface ProdutoResumo {
   rotulo: string;
   receita: number;
   unidades: number;
+}
+
+// A contagem de SKUs só aparece aqui, no detalhe. No resumo ela seria a soma de contagens
+// diárias, e um produto vendido em 10 dias contaria 10 vezes.
+interface DetalheLinha {
+  produtosDistintos: number;
+  itens: ProdutoResumo[];
 }
 
 const formatNumero = (valor: number) => valor.toLocaleString('pt-BR');
@@ -33,7 +39,7 @@ export default function VendasPorLinha({
   const [totalReceita, setTotalReceita] = useState(0);
 
   const [linhaAberta, setLinhaAberta] = useState<string | null>(null);
-  const [produtosPorLinha, setProdutosPorLinha] = useState<Record<string, ProdutoResumo[]>>({});
+  const [detalhePorLinha, setDetalhePorLinha] = useState<Record<string, DetalheLinha>>({});
   const [carregandoLinha, setCarregandoLinha] = useState<string | null>(null);
 
   useEffect(() => {
@@ -56,7 +62,6 @@ export default function VendasPorLinha({
             linha: l.linha,
             receita: Number(l.receita) || 0,
             unidades: Number(l.unidades) || 0,
-            produtos: Number(l.produtos) || 0,
           }))
         );
       } catch (error) {
@@ -71,7 +76,7 @@ export default function VendasPorLinha({
     // Trocar de mês ou de franquia invalida o que já foi aberto — o top de produtos daquela
     // categoria era de outro recorte.
     setLinhaAberta(null);
-    setProdutosPorLinha({});
+    setDetalhePorLinha({});
     carregar();
   }, [mesSelecionado, franchiseId, refreshKey]);
 
@@ -84,7 +89,7 @@ export default function VendasPorLinha({
       setLinhaAberta(linha);
 
       // Só busca uma vez por categoria: reabrir usa o que já está em memória.
-      if (produtosPorLinha[linha]) return;
+      if (detalhePorLinha[linha]) return;
 
       try {
         setCarregandoLinha(linha);
@@ -98,20 +103,27 @@ export default function VendasPorLinha({
         });
         if (error) throw error;
 
-        const produtos = ((data as ProdutoResumo[] | null) || []).map((p) => ({
-          rotulo: p.rotulo,
-          receita: Number(p.receita) || 0,
-          unidades: Number(p.unidades) || 0,
-        }));
-        setProdutosPorLinha((anterior) => ({ ...anterior, [linha]: produtos }));
+        const resultado = (data as { produtos_distintos?: number; itens?: ProdutoResumo[] } | null) || {};
+        const detalhe: DetalheLinha = {
+          produtosDistintos: Number(resultado.produtos_distintos) || 0,
+          itens: (resultado.itens || []).map((p) => ({
+            rotulo: p.rotulo,
+            receita: Number(p.receita) || 0,
+            unidades: Number(p.unidades) || 0,
+          })),
+        };
+        setDetalhePorLinha((anterior) => ({ ...anterior, [linha]: detalhe }));
       } catch (error) {
         console.error('Erro ao carregar produtos da categoria:', error);
-        setProdutosPorLinha((anterior) => ({ ...anterior, [linha]: [] }));
+        setDetalhePorLinha((anterior) => ({
+          ...anterior,
+          [linha]: { produtosDistintos: 0, itens: [] },
+        }));
       } finally {
         setCarregandoLinha(null);
       }
     },
-    [linhaAberta, produtosPorLinha, mesSelecionado, franchiseId]
+    [linhaAberta, detalhePorLinha, mesSelecionado, franchiseId]
   );
 
   const maiorReceita = linhas[0]?.receita || 0;
@@ -158,7 +170,7 @@ export default function VendasPorLinha({
               const pctDoTotal = totalReceita > 0 ? (item.receita / totalReceita) * 100 : 0;
               const pctDaBarra = maiorReceita > 0 ? (item.receita / maiorReceita) * 100 : 0;
               const aberta = linhaAberta === item.linha;
-              const produtos = produtosPorLinha[item.linha];
+              const detalhe = detalhePorLinha[item.linha];
 
               return (
                 <li key={item.linha}>
@@ -189,7 +201,7 @@ export default function VendasPorLinha({
                         />
                       </div>
                       <span className="text-[11px] text-stone-400 tabular-nums shrink-0">
-                        {formatNumero(item.unidades)} un. · {formatNumero(item.produtos)} SKUs
+                        {formatNumero(item.unidades)} un.
                       </span>
                     </div>
                   </button>
@@ -198,13 +210,18 @@ export default function VendasPorLinha({
                     <div className="bg-stone-50/70 border-t border-stone-100 px-4 sm:px-6 py-2">
                       {carregandoLinha === item.linha ? (
                         <p className="py-3 text-xs text-stone-400">Carregando produtos...</p>
-                      ) : !produtos || produtos.length === 0 ? (
+                      ) : !detalhe || detalhe.itens.length === 0 ? (
                         <p className="py-3 text-xs text-stone-400">
                           Nenhum produto identificado nesta categoria.
                         </p>
                       ) : (
-                        <ol className="divide-y divide-stone-200/60">
-                          {produtos.map((produto, j) => (
+                        <>
+                          <p className="pt-2 pb-1 pl-7 text-[11px] text-stone-400">
+                            {formatNumero(detalhe.produtosDistintos)} produto
+                            {detalhe.produtosDistintos > 1 ? 's' : ''} no período · 10 maiores abaixo
+                          </p>
+                          <ol className="divide-y divide-stone-200/60">
+                          {detalhe.itens.map((produto, j) => (
                             <li
                               key={produto.rotulo}
                               className="py-2 flex items-baseline gap-2 pl-7"
@@ -226,7 +243,8 @@ export default function VendasPorLinha({
                               </span>
                             </li>
                           ))}
-                        </ol>
+                          </ol>
+                        </>
                       )}
                     </div>
                   )}
