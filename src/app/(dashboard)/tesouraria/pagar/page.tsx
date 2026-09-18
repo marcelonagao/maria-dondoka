@@ -192,13 +192,30 @@ export default function ContasPagarPage() {
     [planoContas]
   );
 
-  // Lista do MODAL: restrita à franquia do lançamento, que é o comportamento correto ao
-  // cadastrar uma despesa. A barra de filtros usava esta mesma lista e, como nenhum dos 66
-  // fornecedores tem franchise_id nulo, sobrava só o único cadastro da franquia do usuário.
   const franquiaAtualId = formData.franchiseId || despesaEditando?.franchise_id || minhaFranchiseId;
-  const fornecedorOptions: ComboboxOption[] = fornecedores
-    .filter((f) => f.franchise_id === null || f.franchise_id === franquiaAtualId)
-    .map((f) => ({ value: f.id, label: f.nome }));
+
+  // Lista do MODAL: todos os fornecedores que a RLS deixa ver, agrupados por nome.
+  //
+  // Antes, filtrava por franquia. Como fornecedor é cadastrado loja a loja e a franquia do
+  // usuário tem 1 cadastro, digitar "SLR" não achava nada e a única saída oferecida era
+  // "+ Cadastrar novo" — foi assim que nasceram 4 grafias de "Gianina" e "SLR DISTRIBUIDA"
+  // ao lado de "SLR DISTRIBUIDORA". A tela empurrava para o duplicado.
+  //
+  // Entre cadastros de mesmo nome, prefere o da franquia do lançamento; o de outra loja
+  // serve como referência e vira o cadastro certo na gravação (resolverFornecedorDaFranquia).
+  const fornecedorOptions: ComboboxOption[] = useMemo(() => {
+    const porNome = new Map<string, Fornecedor>();
+    for (const f of fornecedores) {
+      const chave = f.nome.trim().toLowerCase();
+      const atual = porNome.get(chave);
+      if (!atual || (f.franchise_id === franquiaAtualId && atual.franchise_id !== franquiaAtualId)) {
+        porNome.set(chave, f);
+      }
+    }
+    return Array.from(porNome.values())
+      .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+      .map((f) => ({ value: f.id, label: f.nome }));
+  }, [fornecedores, franquiaAtualId]);
 
   // Listas dos FILTROS: sem escopo de franquia e cruzadas entre si em `usePagar` — cada uma
   // respeita o outro filtro e ignora o próprio.
@@ -489,6 +506,39 @@ export default function ContasPagarPage() {
     if (error) throw error;
   };
 
+  // O combo lista fornecedores de qualquer loja, mas o cadastro é por franquia. Aqui o id
+  // escolhido é traduzido para o cadastro correspondente na franquia do lançamento:
+  // reaproveita o de mesmo nome se existir, senão cria. Assim nunca se grava despesa de uma
+  // loja apontando para o fornecedor de outra, e o usuário deixa de precisar inventar um
+  // nome novo só porque o da sua loja não existia ainda.
+  //
+  // A comparação ignora caixa e espaço — é o que impede "Gianina São Paulo" e "Gianina são
+  // Paulo" de virarem dois cadastros na mesma franquia daqui pra frente.
+  const resolverFornecedorDaFranquia = async (id: string, franchiseId: string): Promise<string | null> => {
+    if (!id) return null;
+    // Perfil ainda carregando: melhor gravar o id escolhido do que criar cadastro com
+    // franquia vazia e sujar a tabela.
+    if (!franchiseId) return id;
+    const escolhido = fornecedores.find((f) => f.id === id);
+    if (!escolhido) return id;
+    if (escolhido.franchise_id === null || escolhido.franchise_id === franchiseId) return id;
+
+    const alvo = escolhido.nome.trim().toLowerCase();
+    const mesmoNome = fornecedores.find(
+      (f) => f.franchise_id === franchiseId && f.nome.trim().toLowerCase() === alvo
+    );
+    if (mesmoNome) return mesmoNome.id;
+
+    const { data, error } = await supabase
+      .from('fornecedores')
+      .insert({ nome: escolhido.nome, franchise_id: franchiseId, is_active: true })
+      .select('id, nome, franchise_id')
+      .single();
+    if (error) throw error;
+    setFornecedores((atual) => [...atual, data as Fornecedor]);
+    return data.id;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
@@ -497,6 +547,10 @@ export default function ContasPagarPage() {
     try {
       if (!formData.planoContaId) throw new Error('Selecione uma categoria.');
       if (podeLancarParaOutras && !formData.franchiseId) throw new Error('Selecione a franquia.');
+
+      const franquiaDoLancamento =
+        despesaEditando?.franchise_id || (podeLancarParaOutras ? formData.franchiseId : minhaFranchiseId);
+      const fornecedorIdFinal = await resolverFornecedorDaFranquia(formData.fornecedorId, franquiaDoLancamento);
 
       // Lançamento parcelado: N linhas numa chamada só, sem status pago/comprovante (isso
       // acontece depois, parcela por parcela, pela listagem normal).
@@ -514,7 +568,7 @@ export default function ContasPagarPage() {
         const linhas = parcelas.map((p, i) => ({
           description: formData.description,
           plano_conta_id: formData.planoContaId,
-          fornecedor_id: formData.fornecedorId || null,
+          fornecedor_id: fornecedorIdFinal,
           documento_origem: documentoOrigem || null,
           due_date: p.vencimento,
           amount: parseFloat(p.valor) || 0,
@@ -534,11 +588,11 @@ export default function ContasPagarPage() {
 
       // Alerta de duplicidade só faz sentido pra lançamento avulso, com fornecedor
       // selecionado (sem fornecedor, "mesmo fornecedor_id" não diz nada).
-      if (!despesaEditando && formData.fornecedorId) {
+      if (!despesaEditando && fornecedorIdFinal) {
         const { data: possiveisDuplicatas } = await supabase
           .from('accounts_payable')
           .select('id, due_date')
-          .eq('fornecedor_id', formData.fornecedorId)
+          .eq('fornecedor_id', fornecedorIdFinal)
           .eq('amount', parseFloat(formData.amount))
           .neq('status', 'cancelado')
           .gte('due_date', adicionarDias(formData.due_date, -3))
@@ -565,7 +619,7 @@ export default function ContasPagarPage() {
       const dados: Record<string, unknown> = {
         description: formData.description,
         plano_conta_id: formData.planoContaId,
-        fornecedor_id: formData.fornecedorId || null,
+        fornecedor_id: fornecedorIdFinal,
         documento_origem: documentoOrigem || null,
         due_date: formData.due_date,
         amount: parseFloat(formData.amount),
@@ -596,7 +650,7 @@ export default function ContasPagarPage() {
             franchise_id: podeLancarParaOutras ? formData.franchiseId : minhaFranchiseId,
             descricao: formData.description || nomeCategoria || 'Despesa recorrente',
             plano_conta_id: formData.planoContaId,
-            fornecedor_id: formData.fornecedorId || null,
+            fornecedor_id: fornecedorIdFinal,
             valor_referencia: parseFloat(formData.amount),
             dia_vencimento: dataVenc.getDate(),
             frequencia: frequenciaRecorrencia,
@@ -1192,9 +1246,17 @@ export default function ContasPagarPage() {
                   value={formData.fornecedorId}
                   onChange={(v) => setFormData({ ...formData, fornecedorId: v })}
                   options={fornecedorOptions}
-                  onCreateNew={criarFornecedor}
+                  // Sem franquia definida não dá pra cadastrar: o fornecedor nasceria na
+                  // franquia errada. É exatamente aqui que as grafias duplicadas surgiam —
+                  // a lista vinha vazia e "cadastrar novo" era a única saída oferecida.
+                  onCreateNew={franquiaAtualId ? criarFornecedor : undefined}
                   createNewLabel={(q) => `+ Cadastrar novo fornecedor "${q}"`}
                 />
+                {!franquiaAtualId && (
+                  <p className="text-xs text-stone-400 mt-1">
+                    Escolha a franquia para cadastrar um fornecedor novo.
+                  </p>
+                )}
               </div>
 
               {!despesaEditando && (
