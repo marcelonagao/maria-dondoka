@@ -61,6 +61,22 @@ function gerarParcelas(n: number, valorTotalStr: string, vencimentoSeed: string)
   return linhas;
 }
 
+// Chave de deduplicação de cadastro — mais estrita que o `normalizar` do Combobox, que só
+// ignora caixa e acento porque serve para busca enquanto se digita. Aqui a pontuação e os
+// espaços internos também saem, senão "Gianina São Paulo distribuidora LTDA.",
+// "Gianina São Paulo distribuidoraLTDA." e "GIANINA SAO PAULO DISTRIBUIDORA LTDA" continuam
+// sendo três fornecedores distintos na lista.
+//
+// Não resolve erro de digitação ("SLR DISTRIBUIDA" x "SLR DISTRIBUIDORA"): letras diferentes
+// são nomes diferentes, e unificar esses exige limpeza no cadastro.
+function chaveDoNome(nome: string): string {
+  return nome
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+}
+
 export default function ContasPagarPage() {
   const {
     despesas: despesasVisiveis,
@@ -206,7 +222,7 @@ export default function ContasPagarPage() {
   const fornecedorOptions: ComboboxOption[] = useMemo(() => {
     const porNome = new Map<string, Fornecedor>();
     for (const f of fornecedores) {
-      const chave = f.nome.trim().toLowerCase();
+      const chave = chaveDoNome(f.nome);
       const atual = porNome.get(chave);
       if (!atual || (f.franchise_id === franquiaAtualId && atual.franchise_id !== franquiaAtualId)) {
         porNome.set(chave, f);
@@ -523,9 +539,12 @@ export default function ContasPagarPage() {
     if (!escolhido) return id;
     if (escolhido.franchise_id === null || escolhido.franchise_id === franchiseId) return id;
 
-    const alvo = escolhido.nome.trim().toLowerCase();
+    // Mesma chave usada para montar a lista: se o combo mostra um item só, a gravação tem
+    // que enxergar esse mesmo item só — senão escolher "GIANINA SAO PAULO" criaria um
+    // cadastro novo ao lado do "Gianina São Paulo" que já existe na franquia.
+    const alvo = chaveDoNome(escolhido.nome);
     const mesmoNome = fornecedores.find(
-      (f) => f.franchise_id === franchiseId && f.nome.trim().toLowerCase() === alvo
+      (f) => f.franchise_id === franchiseId && chaveDoNome(f.nome) === alvo
     );
     if (mesmoNome) return mesmoNome.id;
 
