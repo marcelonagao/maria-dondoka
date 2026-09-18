@@ -204,11 +204,18 @@ export async function POST(request: Request) {
     // valor_total como o piso do tipo, -99999999.99, inflando o Faturamento Bruto do
     // DRE em ~R$200 milhões com um único item). Descarta só o item afetado — não
     // derruba o resto do sync do dia por causa de uma linha ruim na origem.
+    //
+    // Desconto, porém, é legítimo e não tem teto: item de R$ 9,99 sai por R$ 2,53 quando o
+    // desconto da venda é rateado entre os itens (Loja5, venda 43493 — achado no backfill
+    // de 18/09/2026, que descartou 38 itens assim, quase todos "sd ins:"). Por isso um
+    // valor_total entre zero e o esperado sempre passa; a tolerância simétrica continua
+    // valendo para o resto — negativo, ou acima do esperado.
     const itensDescartados: typeof vendas.itens = [];
     const itensValidos = vendas.itens.filter((item) => {
       const esperado = item.quantidade * item.valor_unitario;
       const tolerancia = Math.max(Math.abs(esperado) * 0.5, 5);
-      const valido = Math.abs(item.valor_total - esperado) <= tolerancia;
+      const comDesconto = esperado > 0 && item.valor_total >= 0 && item.valor_total <= esperado;
+      const valido = comDesconto || Math.abs(item.valor_total - esperado) <= tolerancia;
       if (!valido) {
         itensDescartados.push(item);
         console.error(
