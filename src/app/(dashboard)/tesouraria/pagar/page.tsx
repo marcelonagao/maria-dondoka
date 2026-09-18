@@ -95,6 +95,7 @@ export default function ContasPagarPage() {
   const [erroFormulario, setErroFormulario] = useState<string | null>(null);
   const [planoContas, setPlanoContas] = useState<CategoriaContas[]>([]);
   const [fornecedores, setFornecedores] = useState<Fornecedor[]>([]);
+  const [fornecedoresPorCategoria, setFornecedoresPorCategoria] = useState<Map<string, Set<string>>>(new Map());
   const [podeLancarParaOutras, setPodeLancarParaOutras] = useState(false);
   const [minhaFranchiseId, setMinhaFranchiseId] = useState('');
   const [franquias, setFranquias] = useState<Franquia[]>([]);
@@ -153,6 +154,27 @@ export default function ContasPagarPage() {
     setFornecedores(data || []);
   };
 
+  // Histórico de quais fornecedores já apareceram em cada categoria, sem recorte de período:
+  // serve para ordenar o combo do formulário, e um fornecedor usado em CMV há seis meses
+  // segue sendo o palpite certo hoje.
+  const fetchVinculoCategoriaFornecedor = async () => {
+    const { data, error } = await supabase
+      .from('accounts_payable')
+      .select('plano_conta_id, fornecedores(nome)')
+      .not('fornecedor_id', 'is', null)
+      .range(0, 9999);
+    if (error) { console.error('Erro ao buscar vínculo categoria/fornecedor:', error); return; }
+
+    const mapa = new Map<string, Set<string>>();
+    for (const linha of (data as any[]) || []) {
+      const nome = linha.fornecedores?.nome;
+      if (!linha.plano_conta_id || !nome) continue;
+      if (!mapa.has(linha.plano_conta_id)) mapa.set(linha.plano_conta_id, new Set());
+      mapa.get(linha.plano_conta_id)!.add(chaveDoNome(nome));
+    }
+    setFornecedoresPorCategoria(mapa);
+  };
+
   const fetchPerfil = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
@@ -184,6 +206,7 @@ export default function ContasPagarPage() {
     fetchPerfil();
     fetchPlanoContas();
     fetchFornecedores();
+    fetchVinculoCategoriaFornecedor();
   }, []);
 
   // "Vencida" é derivado na exibição (pendente + vencimento no passado), não um status novo
@@ -228,10 +251,24 @@ export default function ContasPagarPage() {
         porNome.set(chave, f);
       }
     }
+    // Com uma categoria escolhida, os fornecedores que já apareceram nela sobem para o topo,
+    // num grupo à parte. **Ordenar, não filtrar**: num formulário, esconder o resto
+    // impediria de lançar uma combinação nova e legítima — fornecedor que nunca teve
+    // despesa em CMV e vai ter agora. Restringir só é seguro em filtro, onde se estreita um
+    // conjunto que já existe.
+    const usados = formData.planoContaId ? fornecedoresPorCategoria.get(formData.planoContaId) : undefined;
+
     return Array.from(porNome.values())
-      .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
-      .map((f) => ({ value: f.id, label: f.nome }));
-  }, [fornecedores, franquiaAtualId]);
+      .map((f) => ({
+        value: f.id,
+        label: f.nome,
+        grupo: !usados ? undefined : usados.has(chaveDoNome(f.nome)) ? 'Já usados nesta categoria' : 'Demais fornecedores',
+      }))
+      .sort((a, b) => {
+        if (a.grupo !== b.grupo) return a.grupo === 'Já usados nesta categoria' ? -1 : 1;
+        return a.label.localeCompare(b.label, 'pt-BR');
+      });
+  }, [fornecedores, franquiaAtualId, formData.planoContaId, fornecedoresPorCategoria]);
 
   // Listas dos FILTROS: sem escopo de franquia e cruzadas entre si em `usePagar` — cada uma
   // respeita o outro filtro e ignora o próprio.

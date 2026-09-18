@@ -5,6 +5,10 @@ import React, { useState, useEffect, useRef } from 'react';
 export interface ComboboxOption {
   value: string;
   label: string;
+  // Cabeçalho opcional acima da opção, quando muda em relação à anterior. Serve para
+  // destacar as mais prováveis sem esconder o resto — num formulário, restringir a lista
+  // impediria uma combinação nova e legítima.
+  grupo?: string;
 }
 
 interface ComboboxProps {
@@ -143,23 +147,41 @@ export default function Combobox({
       />
       {isOpen && linhas.length > 0 && (
         <ul className="absolute z-10 mt-1 w-full max-h-56 overflow-auto bg-white border border-stone-200 rounded-lg shadow-lg py-1">
-          {linhas.map((linha, i) => (
-            <li
-              key={linha.tipo === 'opcao' ? linha.opcao.value : '__criar__'}
-              tabIndex={-1}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => (linha.tipo === 'opcao' ? selecionar(linha.opcao) : criarNovo())}
-              className={`px-4 py-2 text-sm cursor-pointer ${
-                i === highlightedIndex ? 'bg-stone-100 text-stone-900' : 'text-stone-700 hover:bg-stone-50'
-              } ${linha.tipo === 'criar' ? 'font-medium text-stone-700' : ''}`}
-            >
-              {linha.tipo === 'opcao'
-                ? linha.opcao.label
-                : createNewLabel
-                ? createNewLabel(query.trim())
-                : `+ Cadastrar novo "${query.trim()}"`}
-            </li>
-          ))}
+          {linhas.map((linha, i) => {
+            // Cabeçalho fica fora de `linhas` de propósito: entrar no array deslocaria os
+            // índices da navegação por teclado e a seta pularia para um item não clicável.
+            const anterior = i > 0 ? linhas[i - 1] : null;
+            const grupoAtual = linha.tipo === 'opcao' ? linha.opcao.grupo : undefined;
+            const grupoAnterior = anterior?.tipo === 'opcao' ? anterior.opcao.grupo : undefined;
+            const mostrarCabecalho = !!grupoAtual && grupoAtual !== grupoAnterior;
+
+            return (
+              <React.Fragment key={linha.tipo === 'opcao' ? linha.opcao.value : '__criar__'}>
+                {mostrarCabecalho && (
+                  <li
+                    aria-hidden
+                    className="px-4 pt-2 pb-1 text-[11px] font-medium uppercase tracking-wide text-stone-400"
+                  >
+                    {grupoAtual}
+                  </li>
+                )}
+                <li
+                  tabIndex={-1}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => (linha.tipo === 'opcao' ? selecionar(linha.opcao) : criarNovo())}
+                  className={`px-4 py-2 text-sm cursor-pointer ${
+                    i === highlightedIndex ? 'bg-stone-100 text-stone-900' : 'text-stone-700 hover:bg-stone-50'
+                  } ${linha.tipo === 'criar' ? 'font-medium text-stone-700' : ''}`}
+                >
+                  {linha.tipo === 'opcao'
+                    ? linha.opcao.label
+                    : createNewLabel
+                    ? createNewLabel(query.trim())
+                    : `+ Cadastrar novo "${query.trim()}"`}
+                </li>
+              </React.Fragment>
+            );
+          })}
         </ul>
       )}
     </div>
