@@ -46,8 +46,9 @@ relacionadas, mas não deve receber dado novo.
   15/09), recusados pela regra antiga — junto com a Loja8. Os 30 alertas `item_valor_invalido`
   já foram marcados como resolvidos em 18/09 para limpar o dashboard; a lista de vendas e
   origem_id a reenviar continua neles (`alertas_sistema`, `resolvido = true`).
-- Vigia de duplicidade lê `vendas_itens` sem paginar — só as primeiras 1000 linhas de ~45 mil
-  da janela de 7 dias. A constraint única já impede duplicata; o vigia é que está cego.
+- Vigia de duplicidade lia `vendas_itens` sem paginar (só 1000 de ~40 mil linhas da janela).
+  Corrigido no código (commit ffe9132, conta no banco) — falta rodar
+  `scratch/rpc-auditoria-duplicidade.sql` no Supabase ANTES de subir esse commit.
 - Rotação dos 6 `pdvSecret` das lojas do hosting (a senha do MySQL das lojas não se altera —
   o fornecedor do PDV depende dela).
 - CNPJ de 2 lojas (Taubaté mais nova, Lorena) ainda pendente — bloqueia só o matching automático
