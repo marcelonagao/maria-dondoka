@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { timingSafeEqual } from 'crypto';
+import { adicionarDias, hojeBrasilia } from '../../../../lib/date';
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -20,6 +21,121 @@ interface Grupo {
   origens: Set<string>;
 }
 
+// Faixa aceita para itens ÷ caixa por loja/dia. Medido depois da correção "sd ins:"
+// (18/09/2026): 93–105%. Abaixo de 100% é normal — o caixa inclui suprimento de troco, que
+// não é venda.
+const CONFERENCIA_MIN = 0.9;
+const CONFERENCIA_MAX = 1.1;
+// Dia de caixa pequeno (inauguração, domingo fraco) oscila demais em percentual para o
+// alerta dizer alguma coisa.
+const CONFERENCIA_CAIXA_MINIMO = 500;
+
+// Supabase devolve no máximo 1000 linhas por consulta, sem erro — ler tudo exige paginar.
+async function lerPaginado<T>(
+  consulta: (de: number, ate: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>
+): Promise<T[]> {
+  const todas: T[] = [];
+  for (let de = 0; ; de += 1000) {
+    const { data, error } = await consulta(de, de + 999);
+    if (error) throw new Error(error.message);
+    todas.push(...(data || []));
+    if (!data || data.length < 1000) return todas;
+  }
+}
+
+// Conferência diária: soma dos itens de venda contra a soma das formas de pagamento, por
+// loja e dia. Existe porque o sync identifica venda pelo TEXTO do histórico no PDV — e o PDV
+// grava a mesma venda com mais de um prefixo ("Saida vd:" e "sd ins:Saida vd:"). Um
+// prefixo não previsto deixou 16–72% dos itens de fora por meses sem ninguém notar. Se o
+// PDV passar a gravar um terceiro, é aqui que aparece: itens bem abaixo do caixa.
+//
+// Nunca lança: falha aqui não pode impedir a auditoria de duplicidade que roda em seguida.
+async function conferirItensContraCaixa(): Promise<{ alertas_criados: string[]; erros: string[] }> {
+  const alertasCriados: string[] = [];
+  const erros: string[] = [];
+  // Até ontem (horário de Brasília): o dia corrente ainda está recebendo sync.
+  const ate = adicionarDias(hojeBrasilia(), -1);
+  const desde = adicionarDias(ate, -6);
+
+  try {
+    const [itens, formas] = await Promise.all([
+      lerPaginado((de, fim) =>
+        supabaseAdmin
+          .from('vendas_por_linha_dia')
+          .select('franchise_id, data_venda, receita')
+          .gte('data_venda', desde)
+          .lte('data_venda', ate)
+          .order('franchise_id')
+          .order('data_venda')
+          .order('produto_linha')
+          .range(de, fim)
+      ),
+      lerPaginado((de, fim) =>
+        supabaseAdmin
+          .from('vendas_diarias_formas_pagamento')
+          .select('franchise_id, data_venda, valor')
+          .gte('data_venda', desde)
+          .lte('data_venda', ate)
+          .order('id')
+          .range(de, fim)
+      ),
+    ]);
+
+    const totais = new Map<string, { itens: number; caixa: number }>();
+    const somar = (chave: string, campo: 'itens' | 'caixa', valor: number) => {
+      const total = totais.get(chave) || { itens: 0, caixa: 0 };
+      total[campo] += valor;
+      totais.set(chave, total);
+    };
+    for (const linha of itens) somar(`${linha.franchise_id}::${linha.data_venda}`, 'itens', Number(linha.receita));
+    for (const linha of formas) somar(`${linha.franchise_id}::${linha.data_venda}`, 'caixa', Number(linha.valor));
+
+    for (const [chave, total] of Array.from(totais.entries())) {
+      if (total.caixa < CONFERENCIA_CAIXA_MINIMO) continue;
+      const razao = total.itens / total.caixa;
+      if (razao >= CONFERENCIA_MIN && razao <= CONFERENCIA_MAX) continue;
+
+      const [franchiseId, dataReferencia] = chave.split('::');
+      try {
+        // Mesmo dedupe da duplicidade: a janela de 7 dias reavalia o mesmo dia várias vezes.
+        const { data: existente, error: existenteError } = await supabaseAdmin
+          .from('alertas_sistema')
+          .select('id')
+          .eq('tipo', 'itens_divergem_caixa')
+          .eq('franchise_id', franchiseId)
+          .eq('data_referencia', dataReferencia)
+          .maybeSingle();
+        if (existenteError) throw new Error(existenteError.message);
+        if (existente) continue;
+
+        const percentual = Math.round(razao * 100);
+        const causaProvavel =
+          razao < CONFERENCIA_MIN
+            ? 'Há venda no caixa sem os itens correspondentes — possível formato novo de lançamento no PDV (prefixo no histórico) ou falha no sync de itens.'
+            : 'Há itens sem pagamento correspondente — possível falha no sync das formas de pagamento.';
+        const { error: insertError } = await supabaseAdmin.from('alertas_sistema').insert({
+          tipo: 'itens_divergem_caixa',
+          franchise_id: franchiseId,
+          data_referencia: dataReferencia,
+          detalhe: `Itens de venda somam ${percentual}% do caixa do dia (normal: entre 90% e 110%). ${causaProvavel}`,
+        });
+        if (insertError) throw new Error(insertError.message);
+        alertasCriados.push(`${franchiseId} — ${dataReferencia}`);
+      } catch (err) {
+        const mensagem = err instanceof Error ? err.message : String(err);
+        console.error(`Erro ao registrar alerta de conferência itens × caixa ${chave}:`, mensagem);
+        erros.push(`${chave}: ${mensagem}`);
+      }
+    }
+  } catch (err) {
+    const mensagem = err instanceof Error ? err.message : String(err);
+    console.error('Erro ao ler dados da conferência itens × caixa:', mensagem);
+    erros.push(`leitura: ${mensagem}`);
+  }
+
+  return { alertas_criados: alertasCriados, erros };
+}
+
 // Cinto e suspensório: a constraint única (franchise_id, origem_id) em vendas_itens já
 // bloqueia duplicação estruturalmente — isso aqui é só pra pegar se algo escapar dela no
 // futuro (schema novo sem grant, upsert virando insert por engano numa refatoração).
@@ -29,6 +145,10 @@ export async function GET(request: Request) {
   if (!secret || !safeCompare(auth, `Bearer ${secret}`)) {
     return NextResponse.json({ error: 'NAO_AUTORIZADO' }, { status: 401 });
   }
+
+  // Roda neste mesmo cron, não num próprio: o vercel.json já tem 2 crons, e o limite do
+  // plano Hobby para crons nativos derruba o deploy se for ultrapassado.
+  const conferencia = await conferirItensContraCaixa();
 
   const hoje = new Date();
   hoje.setUTCHours(0, 0, 0, 0);
@@ -95,5 +215,5 @@ export async function GET(request: Request) {
     }
   }
 
-  return NextResponse.json({ ok: true, alertas_criados: alertasCriados, erros });
+  return NextResponse.json({ ok: true, alertas_criados: alertasCriados, erros, conferencia_itens_caixa: conferencia });
 }

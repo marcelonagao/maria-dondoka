@@ -22,6 +22,7 @@ interface Alerta {
 const MENSAGEM_POR_TIPO: Record<string, string> = {
   duplicidade_vendas_itens: 'Possível duplicidade detectada',
   item_valor_invalido: 'Item de venda descartado por valor inválido',
+  itens_divergem_caixa: 'Itens de venda não batem com o caixa',
 };
 
 function formatarData(data: string | null) {
