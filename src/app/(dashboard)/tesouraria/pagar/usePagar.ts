@@ -41,6 +41,12 @@ export const FILTROS_INICIAIS: FiltrosPagar = {
 // meses": se bater no limite, a UI avisa em vez de mostrar número errado como se fosse certo.
 const TETO_LINHAS = 2000;
 
+// Linha enxuta usada só para montar as opções dos dropdowns.
+interface LinhaOpcao {
+  plano_conta_id: string | null;
+  fornecedores: { nome: string } | null;
+}
+
 function ehVencida(d: Despesa, hoje: string): boolean {
   return d.status === 'pendente' && d.due_date < hoje;
 }
@@ -106,40 +112,38 @@ export function usePagar() {
     carregar();
   }, [carregar]);
 
-  // Quais categorias e fornecedores têm ao menos um lançamento. Os dropdowns de filtro
-  // oferecem só isso: o plano de contas tem 40 folhas selecionáveis e apenas 12 aparecem em
-  // lançamento, então as outras 28 sempre devolviam lista vazia.
+  // Universo das opções de filtro: os lançamentos do recorte de contexto (mês, status,
+  // franquia), SEM aplicar categoria e fornecedor. Estes dois são cruzados em memória logo
+  // abaixo, cada um enxergando o outro mas não a si mesmo.
   //
-  // Consulta própria, independente dos filtros de categoria/fornecedor de propósito: se
-  // saísse do conjunto já filtrado, escolher uma categoria encolheria a lista para ela mesma
-  // e não haveria como trocar de opção sem limpar o filtro.
-  //
-  // Duas colunas da tabela inteira. São 309 linhas hoje; quando passar de alguns milhares,
-  // trocar por uma RPC com distinct.
-  const [idsComLancamento, setIdsComLancamento] = useState<{
-    categorias: Set<string>;
-    fornecedores: Set<string>;
-  }>({ categorias: new Set(), fornecedores: new Set() });
+  // O plano de contas tem 40 folhas selecionáveis e só 12 aparecem em lançamento, então
+  // oferecer as 40 dava 28 opções que nunca retornam nada.
+  const [linhasOpcoes, setLinhasOpcoes] = useState<LinhaOpcao[]>([]);
 
   useEffect(() => {
     let cancelado = false;
 
     async function carregarOpcoes() {
       try {
-        const { data, error } = await supabase
+        let query = supabase
           .from('accounts_payable')
-          .select('plano_conta_id, fornecedor_id')
+          .select('plano_conta_id, fornecedores(nome)')
           .range(0, 9999);
+
+        if (filtros.mes) {
+          const { inicio, fim } = intervaloDoMes(filtros.mes);
+          query = query.gte('due_date', inicio).lte('due_date', fim);
+        }
+        if (filtros.status === 'ativas') query = query.neq('status', 'cancelado');
+        if (filtros.status === 'pendentes') query = query.eq('status', 'pendente');
+        if (filtros.status === 'pagas') query = query.eq('status', 'pago');
+        if (filtros.status === 'canceladas') query = query.eq('status', 'cancelado');
+        if (filtros.franchiseId) query = query.eq('franchise_id', filtros.franchiseId);
+
+        const { data, error } = await query;
         if (error) throw error;
         if (cancelado) return;
-
-        const categorias = new Set<string>();
-        const fornecedores = new Set<string>();
-        for (const linha of (data || []) as { plano_conta_id: string | null; fornecedor_id: string | null }[]) {
-          if (linha.plano_conta_id) categorias.add(linha.plano_conta_id);
-          if (linha.fornecedor_id) fornecedores.add(linha.fornecedor_id);
-        }
-        setIdsComLancamento({ categorias, fornecedores });
+        setLinhasOpcoes(((data as any) || []) as LinhaOpcao[]);
       } catch (error) {
         // Sem isso os dropdowns ficam vazios, mas a lista principal continua funcionando —
         // não vale derrubar a tela por causa das opções de filtro.
@@ -149,7 +153,34 @@ export function usePagar() {
 
     carregarOpcoes();
     return () => { cancelado = true; };
-  }, []);
+  }, [filtros.mes, filtros.status, filtros.franchiseId]);
+
+  // Cada lista ignora o próprio filtro e respeita o outro. É o que faz os dois conversarem:
+  // escolher CMV reduz os fornecedores aos do CMV, mas a lista de categorias continua
+  // inteira — senão ela colapsaria em CMV e não haveria como trocar sem limpar o filtro.
+  //
+  // O valor selecionado entra na lista mesmo quando o cruzamento o excluiria (categoria
+  // trocada depois do fornecedor, por exemplo). Sem isso o <select> ficaria em branco
+  // mostrando um filtro que está aplicado.
+  const opcoesFiltro = useMemo(() => {
+    const categorias = new Set<string>();
+    const fornecedores = new Set<string>();
+
+    for (const linha of linhasOpcoes) {
+      const nome = linha.fornecedores?.nome;
+      if (linha.plano_conta_id && (!filtros.fornecedorNome || nome === filtros.fornecedorNome)) {
+        categorias.add(linha.plano_conta_id);
+      }
+      if (nome && (!filtros.categoriaId || linha.plano_conta_id === filtros.categoriaId)) {
+        fornecedores.add(nome);
+      }
+    }
+
+    if (filtros.categoriaId) categorias.add(filtros.categoriaId);
+    if (filtros.fornecedorNome) fornecedores.add(filtros.fornecedorNome);
+
+    return { categorias, fornecedores };
+  }, [linhasOpcoes, filtros.categoriaId, filtros.fornecedorNome]);
 
   const despesasVisiveis = useMemo(() => {
     const hoje = hojeBrasilia();
@@ -201,7 +232,7 @@ export function usePagar() {
     despesas: despesasVisiveis,
     isLoading,
     truncado,
-    idsComLancamento,
+    opcoesFiltro,
     filtros,
     atualizarFiltro,
     limparFiltros,

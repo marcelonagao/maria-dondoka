@@ -66,7 +66,7 @@ export default function ContasPagarPage() {
     despesas: despesasVisiveis,
     isLoading,
     truncado,
-    idsComLancamento,
+    opcoesFiltro,
     filtros,
     atualizarFiltro,
     limparFiltros,
@@ -200,24 +200,23 @@ export default function ContasPagarPage() {
     .filter((f) => f.franchise_id === null || f.franchise_id === franquiaAtualId)
     .map((f) => ({ value: f.id, label: f.nome }));
 
-  // Listas dos FILTROS: sem escopo de franquia e restritas ao que tem lançamento.
+  // Listas dos FILTROS: sem escopo de franquia e cruzadas entre si em `usePagar` — cada uma
+  // respeita o outro filtro e ignora o próprio.
   const categoriaOptionsFiltro: ComboboxOption[] = useMemo(
-    () => categoriaOptions.filter((o) => idsComLancamento.categorias.has(o.value)),
-    [categoriaOptions, idsComLancamento.categorias]
+    () => categoriaOptions.filter((o) => opcoesFiltro.categorias.has(o.value)),
+    [categoriaOptions, opcoesFiltro.categorias]
   );
 
   // Agrupado por nome: o mesmo fornecedor é cadastrado uma vez por franquia ("Aluguel"
   // aparece 5 vezes com ids diferentes), e no filtro isso é uma coisa só. O recorte por loja
   // continua no filtro de franquia. O valor é o nome, que é o que a consulta usa.
-  const fornecedorOptionsFiltro: ComboboxOption[] = useMemo(() => {
-    const nomes = new Set<string>();
-    for (const f of fornecedores) {
-      if (idsComLancamento.fornecedores.has(f.id)) nomes.add(f.nome);
-    }
-    return Array.from(nomes)
-      .sort((a, b) => a.localeCompare(b, 'pt-BR'))
-      .map((nome) => ({ value: nome, label: nome }));
-  }, [fornecedores, idsComLancamento.fornecedores]);
+  const fornecedorOptionsFiltro: ComboboxOption[] = useMemo(
+    () =>
+      Array.from(opcoesFiltro.fornecedores)
+        .sort((a, b) => a.localeCompare(b, 'pt-BR'))
+        .map((nome) => ({ value: nome, label: nome })),
+    [opcoesFiltro.fornecedores]
+  );
 
   // Despesas de folha geradas por funcionário (folha_pagamento_item_id preenchido) se
   // agrupam por competência+franquia — aparecem como uma linha-resumo colapsada, não uma
