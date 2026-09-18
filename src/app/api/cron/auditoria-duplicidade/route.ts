@@ -16,9 +16,13 @@ function safeCompare(a: string, b: string) {
   return timingSafeEqual(bufA, bufB);
 }
 
-interface Grupo {
-  total: number;
-  origens: Set<string>;
+// Linha devolvida por auditar_duplicidade_vendas_itens. count() do Postgres chega como
+// bigint — o PostgREST pode entregar como número ou string, daí o Number() no uso.
+interface DiaSuspeito {
+  franchise_id: string;
+  data_venda: string;
+  total: number | string;
+  distintos: number | string;
 }
 
 // Faixa aceita para itens ÷ caixa por loja/dia. Medido depois da correção "sd ins:"
@@ -156,35 +160,28 @@ export async function GET(request: Request) {
   seteDiasAtras.setUTCDate(seteDiasAtras.getUTCDate() - 7);
   const desde = seteDiasAtras.toISOString().slice(0, 10);
 
-  const { data: linhas, error } = await supabaseAdmin
-    .from('vendas_itens')
-    .select('franchise_id, data_venda, origem_id')
-    .gte('data_venda', desde);
+  // Contagem feita no banco (função auditar_duplicidade_vendas_itens), que devolve só os dias
+  // suspeitos. Ler as linhas para contar aqui esbarrava no limite de 1000 linhas por consulta
+  // do Supabase — o vigia via ~2% da janela — e paginar ~40 mil linhas levava ~24s.
+  // Dia sem nenhum origem_id (dado anterior à correção do upsert) já sai filtrado lá.
+  const { data: suspeitos, error } = await supabaseAdmin.rpc('auditar_duplicidade_vendas_itens', {
+    p_desde: desde,
+  });
   if (error) {
-    return NextResponse.json({ error: 'ERRO_INTERNO', detalhe: error.message }, { status: 500 });
-  }
-
-  const grupos = new Map<string, Grupo>();
-  for (const linha of linhas || []) {
-    const chave = `${linha.franchise_id}::${linha.data_venda}`;
-    const grupo = grupos.get(chave) || { total: 0, origens: new Set<string>() };
-    grupo.total += 1;
-    if (linha.origem_id) grupo.origens.add(linha.origem_id);
-    grupos.set(chave, grupo);
+    return NextResponse.json(
+      { error: 'ERRO_INTERNO', detalhe: error.message, conferencia_itens_caixa: conferencia },
+      { status: 500 }
+    );
   }
 
   const alertasCriados: string[] = [];
   const erros: string[] = [];
 
-  for (const [chave, grupo] of Array.from(grupos.entries())) {
-    // Sem nenhum origem_id no grupo inteiro — dado anterior à correção (ou loja PHP ainda
-    // sem origem_id), não dá pra avaliar duplicidade por esse método. Não é caso de alerta.
-    if (grupo.origens.size === 0) continue;
-
-    const fator = grupo.total / grupo.origens.size;
-    if (fator <= 1.0) continue;
-
-    const [franchiseId, dataReferencia] = chave.split('::');
+  for (const suspeito of (suspeitos || []) as DiaSuspeito[]) {
+    const franchiseId = suspeito.franchise_id;
+    const dataReferencia = suspeito.data_venda;
+    const chave = `${franchiseId}::${dataReferencia}`;
+    const fator = Number(suspeito.total) / Number(suspeito.distintos);
 
     try {
       // Dedupe: já existe QUALQUER alerta (resolvido ou não) pra essa franquia/dia? A
@@ -204,7 +201,7 @@ export async function GET(request: Request) {
         tipo: 'duplicidade_vendas_itens',
         franchise_id: franchiseId,
         data_referencia: dataReferencia,
-        detalhe: `${grupo.total} linha(s) em vendas_itens, ${grupo.origens.size} origem_id distinto(s) (fator ${fator.toFixed(2)}).`,
+        detalhe: `${suspeito.total} linha(s) em vendas_itens, ${suspeito.distintos} origem_id distinto(s) (fator ${fator.toFixed(2)}).`,
       });
       if (insertError) throw new Error(insertError.message);
       alertasCriados.push(`${franchiseId} — ${dataReferencia}`);
