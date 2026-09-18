@@ -66,6 +66,7 @@ export default function ContasPagarPage() {
     despesas: despesasVisiveis,
     isLoading,
     truncado,
+    idsComLancamento,
     filtros,
     atualizarFiltro,
     limparFiltros,
@@ -191,10 +192,32 @@ export default function ContasPagarPage() {
     [planoContas]
   );
 
+  // Lista do MODAL: restrita à franquia do lançamento, que é o comportamento correto ao
+  // cadastrar uma despesa. A barra de filtros usava esta mesma lista e, como nenhum dos 66
+  // fornecedores tem franchise_id nulo, sobrava só o único cadastro da franquia do usuário.
   const franquiaAtualId = formData.franchiseId || despesaEditando?.franchise_id || minhaFranchiseId;
   const fornecedorOptions: ComboboxOption[] = fornecedores
     .filter((f) => f.franchise_id === null || f.franchise_id === franquiaAtualId)
     .map((f) => ({ value: f.id, label: f.nome }));
+
+  // Listas dos FILTROS: sem escopo de franquia e restritas ao que tem lançamento.
+  const categoriaOptionsFiltro: ComboboxOption[] = useMemo(
+    () => categoriaOptions.filter((o) => idsComLancamento.categorias.has(o.value)),
+    [categoriaOptions, idsComLancamento.categorias]
+  );
+
+  // Agrupado por nome: o mesmo fornecedor é cadastrado uma vez por franquia ("Aluguel"
+  // aparece 5 vezes com ids diferentes), e no filtro isso é uma coisa só. O recorte por loja
+  // continua no filtro de franquia. O valor é o nome, que é o que a consulta usa.
+  const fornecedorOptionsFiltro: ComboboxOption[] = useMemo(() => {
+    const nomes = new Set<string>();
+    for (const f of fornecedores) {
+      if (idsComLancamento.fornecedores.has(f.id)) nomes.add(f.nome);
+    }
+    return Array.from(nomes)
+      .sort((a, b) => a.localeCompare(b, 'pt-BR'))
+      .map((nome) => ({ value: nome, label: nome }));
+  }, [fornecedores, idsComLancamento.fornecedores]);
 
   // Despesas de folha geradas por funcionário (folha_pagamento_item_id preenchido) se
   // agrupam por competência+franquia — aparecem como uma linha-resumo colapsada, não uma
@@ -849,8 +872,8 @@ export default function ContasPagarPage() {
         filtros={filtros}
         atualizarFiltro={atualizarFiltro}
         limparFiltros={limparFiltros}
-        categoriaOptions={categoriaOptions}
-        fornecedorOptions={fornecedorOptions}
+        categoriaOptions={categoriaOptionsFiltro}
+        fornecedorOptions={fornecedorOptionsFiltro}
         franquias={franquias}
         mostrarFranquia={podeLancarParaOutras}
         totais={totaisExibidos}

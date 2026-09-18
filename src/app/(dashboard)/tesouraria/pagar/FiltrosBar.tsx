@@ -18,7 +18,10 @@ interface FiltrosBarProps {
   truncado: boolean;
 }
 
-const CAMPO = 'px-3 py-2 border border-stone-300 rounded-lg text-sm bg-white text-stone-700 focus:ring-2 focus:ring-stone-400 outline-none';
+// `w-full sm:w-auto` centralizado aqui: no celular os controles viram duas colunas de mesma
+// largura, e no desktop voltam a se dimensionar pelo conteúdo. Sem isso, cada <select> saía
+// com a largura do seu maior texto e as bordas não formavam coluna nenhuma.
+const CAMPO = 'w-full sm:w-auto px-3 py-2 border border-stone-300 rounded-lg text-sm bg-white text-stone-700 focus:ring-2 focus:ring-stone-400 outline-none';
 
 export default function FiltrosBar({
   filtros,
@@ -77,7 +80,7 @@ export default function FiltrosBar({
           />
         </div>
 
-        <div className="flex flex-wrap gap-2">
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
           <select
             className={CAMPO}
             value={filtros.status}
@@ -103,8 +106,8 @@ export default function FiltrosBar({
 
           <select
             className={CAMPO}
-            value={filtros.fornecedorId}
-            onChange={(e) => atualizarFiltro('fornecedorId', e.target.value)}
+            value={filtros.fornecedorNome}
+            onChange={(e) => atualizarFiltro('fornecedorNome', e.target.value)}
           >
             <option value="">Todos os fornecedores</option>
             {fornecedorOptions.map((f) => (
@@ -144,7 +147,7 @@ export default function FiltrosBar({
           <button
             type="button"
             onClick={() => atualizarFiltro('apenasVencidas', !filtros.apenasVencidas)}
-            className={`px-3 py-2 rounded-lg text-sm font-medium border transition-colors ${
+            className={`w-full sm:w-auto px-3 py-2 rounded-lg text-sm font-medium border transition-colors ${
               filtros.apenasVencidas
                 ? 'bg-red-50 border-red-200 text-red-700'
                 : 'bg-white border-stone-300 text-stone-600 hover:bg-stone-50'
@@ -156,7 +159,7 @@ export default function FiltrosBar({
           <button
             type="button"
             onClick={limparFiltros}
-            className="px-3 py-2 rounded-lg text-sm font-medium text-stone-500 hover:bg-stone-100"
+            className="w-full sm:w-auto px-3 py-2 rounded-lg text-sm font-medium text-stone-500 border border-transparent hover:bg-stone-100"
           >
             Limpar
           </button>

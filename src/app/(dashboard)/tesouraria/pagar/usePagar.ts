@@ -14,7 +14,9 @@ export interface FiltrosPagar {
   // 'YYYY-MM' recorta o vencimento no servidor; '' traz tudo (sujeito ao teto abaixo).
   mes: string;
   categoriaId: string;
-  fornecedorId: string;
+  // Nome, não id: fornecedor é cadastrado por franquia, então "Aluguel" existe 5 vezes com
+  // ids diferentes. Filtrar por id traria só os lançamentos de uma loja.
+  fornecedorNome: string;
   franchiseId: string;
   apenasVencidas: boolean;
   ordenarPor: OrdenarPor;
@@ -26,7 +28,7 @@ export const FILTROS_INICIAIS: FiltrosPagar = {
   busca: '',
   mes: mesAtualBrasilia(),
   categoriaId: '',
-  fornecedorId: '',
+  fornecedorNome: '',
   franchiseId: '',
   apenasVencidas: false,
   ordenarPor: 'due_date',
@@ -63,9 +65,13 @@ export function usePagar() {
     try {
       setIsLoading(true);
 
+      // `!inner` só quando há filtro de fornecedor. Aplicado sempre, ele viraria INNER JOIN e
+      // sumiria com todo lançamento de fornecedor_id nulo — guia de imposto, folha, avulsos.
+      const embedFornecedor = filtros.fornecedorNome ? 'fornecedores!inner(nome)' : 'fornecedores(nome)';
+
       let query = supabase
         .from('accounts_payable')
-        .select('*, plano_contas(nome), franchises(name), fornecedores(nome)')
+        .select(`*, plano_contas(nome), franchises(name), ${embedFornecedor}`)
         .order('due_date', { ascending: true })
         .range(0, TETO_LINHAS - 1);
 
@@ -78,7 +84,9 @@ export function usePagar() {
       if (filtros.status === 'pagas') query = query.eq('status', 'pago');
       if (filtros.status === 'canceladas') query = query.eq('status', 'cancelado');
       if (filtros.categoriaId) query = query.eq('plano_conta_id', filtros.categoriaId);
-      if (filtros.fornecedorId) query = query.eq('fornecedor_id', filtros.fornecedorId);
+      // Filtro no recurso embutido: recorta as linhas-pai, e não o que vem embutido nelas,
+      // porque o embed está marcado com !inner acima.
+      if (filtros.fornecedorNome) query = query.eq('fornecedores.nome', filtros.fornecedorNome);
       if (filtros.franchiseId) query = query.eq('franchise_id', filtros.franchiseId);
 
       const { data, error } = await query;
@@ -92,11 +100,56 @@ export function usePagar() {
     } finally {
       setIsLoading(false);
     }
-  }, [filtros.mes, filtros.status, filtros.categoriaId, filtros.fornecedorId, filtros.franchiseId]);
+  }, [filtros.mes, filtros.status, filtros.categoriaId, filtros.fornecedorNome, filtros.franchiseId]);
 
   useEffect(() => {
     carregar();
   }, [carregar]);
+
+  // Quais categorias e fornecedores têm ao menos um lançamento. Os dropdowns de filtro
+  // oferecem só isso: o plano de contas tem 40 folhas selecionáveis e apenas 12 aparecem em
+  // lançamento, então as outras 28 sempre devolviam lista vazia.
+  //
+  // Consulta própria, independente dos filtros de categoria/fornecedor de propósito: se
+  // saísse do conjunto já filtrado, escolher uma categoria encolheria a lista para ela mesma
+  // e não haveria como trocar de opção sem limpar o filtro.
+  //
+  // Duas colunas da tabela inteira. São 309 linhas hoje; quando passar de alguns milhares,
+  // trocar por uma RPC com distinct.
+  const [idsComLancamento, setIdsComLancamento] = useState<{
+    categorias: Set<string>;
+    fornecedores: Set<string>;
+  }>({ categorias: new Set(), fornecedores: new Set() });
+
+  useEffect(() => {
+    let cancelado = false;
+
+    async function carregarOpcoes() {
+      try {
+        const { data, error } = await supabase
+          .from('accounts_payable')
+          .select('plano_conta_id, fornecedor_id')
+          .range(0, 9999);
+        if (error) throw error;
+        if (cancelado) return;
+
+        const categorias = new Set<string>();
+        const fornecedores = new Set<string>();
+        for (const linha of (data || []) as { plano_conta_id: string | null; fornecedor_id: string | null }[]) {
+          if (linha.plano_conta_id) categorias.add(linha.plano_conta_id);
+          if (linha.fornecedor_id) fornecedores.add(linha.fornecedor_id);
+        }
+        setIdsComLancamento({ categorias, fornecedores });
+      } catch (error) {
+        // Sem isso os dropdowns ficam vazios, mas a lista principal continua funcionando —
+        // não vale derrubar a tela por causa das opções de filtro.
+        console.error('Erro ao carregar opções de filtro:', error);
+      }
+    }
+
+    carregarOpcoes();
+    return () => { cancelado = true; };
+  }, []);
 
   const despesasVisiveis = useMemo(() => {
     const hoje = hojeBrasilia();
@@ -148,6 +201,7 @@ export function usePagar() {
     despesas: despesasVisiveis,
     isLoading,
     truncado,
+    idsComLancamento,
     filtros,
     atualizarFiltro,
     limparFiltros,
