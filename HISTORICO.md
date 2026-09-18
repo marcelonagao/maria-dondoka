@@ -42,8 +42,10 @@ relacionadas, mas não deve receber dado novo.
   (decisão deliberada: não usar data de hoje como base, esconderia férias já vencidas).
 - Loja8: vendas de teste antes da inauguração (15/09 e 17/09) — decidir se cancela no PDV.
   Depois disso, gravar ou não os 22 itens `sd ins:` de 17/09 que o backfill deixou de fora.
-- Reenviar os 38 itens descartados no backfill de 18/09 (desconto grande, recusado pela regra
-  antiga) — junto com a Loja8. Depois, marcar os 29 alertas `item_valor_invalido` como resolvidos.
+- Reenviar os 39 itens descartados por desconto grande (38 do backfill de 18/09 + 1 da Loja4 em
+  15/09), recusados pela regra antiga — junto com a Loja8. Os 30 alertas `item_valor_invalido`
+  já foram marcados como resolvidos em 18/09 para limpar o dashboard; a lista de vendas e
+  origem_id a reenviar continua neles (`alertas_sistema`, `resolvido = true`).
 - Vigia de duplicidade lê `vendas_itens` sem paginar — só as primeiras 1000 linhas de ~45 mil
   da janela de 7 dias. A constraint única já impede duplicata; o vigia é que está cego.
 - Rotação dos 6 `pdvSecret` das lojas do hosting (a senha do MySQL das lojas não se altera —
