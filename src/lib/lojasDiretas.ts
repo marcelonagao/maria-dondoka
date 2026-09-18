@@ -187,6 +187,13 @@ export async function sincronizarLoja(loja: LojaDireta, origin: string) {
     // Guardamos o NOME, não o id: cada franquia tem seu MySQL com auto_increment próprio, e
     // o id 156 que é MAQUIAGEM aqui não é garantia de ser MAQUIAGEM em outra loja. Consolidar
     // as 8 por id misturaria categoria silenciosamente (SHOW COLUMNS em Loja4, 2026-09-16).
+    //
+    // Dois prefixos de histórico são venda real: "Saida vd:9279 ..." e
+    // "sd ins:Saida vd:9279 ..." — a MESMA venda, com parte dos itens gravados com o prefixo
+    // extra. Filtrando só o primeiro, o sync perdia ~40% dos itens na Loja4 e 16–72% nas
+    // outras, e o faturamento do dashboard ficava abaixo do caixa. Confirmado venda a venda em
+    // 17/09/2026: com os dois prefixos, 230 de 230 vendas fecham com `movimento`.
+    // A extração de venda_referencia (depois do último 'vd:') já funciona para os dois.
     const [itensRows] = await conexao.query<ItemRow[]>(
       `SELECT
          mp.auto,
@@ -207,7 +214,7 @@ export async function sincronizarLoja(loja: LojaDireta, origin: string) {
        LEFT JOIN produtos p ON p.codigo = mp.produto
        LEFT JOIN linhas l ON l.linha = p.linha
        WHERE mp.es = 'S'
-         AND mp.historico LIKE 'Saida vd:%'
+         AND (mp.historico LIKE 'Saida vd:%' OR mp.historico LIKE 'sd ins:Saida vd:%')
          AND (mp.cancelado IS NULL OR mp.cancelado = 0)
          AND mp.data = CURDATE()`
     );

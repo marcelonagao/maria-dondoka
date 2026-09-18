@@ -80,10 +80,17 @@ SELECT
 FROM movprods mp
 LEFT JOIN produtos p ON p.codigo = mp.produto
 WHERE mp.es = 'S'
-  AND mp.historico LIKE 'Saida vd:%'
+  AND (mp.historico LIKE 'Saida vd:%' OR mp.historico LIKE 'sd ins:Saida vd:%')
   AND (mp.cancelado IS NULL OR mp.cancelado = 0)
   AND mp.data = ?; -- CURDATE() na sincronização diária; dia específico no backfill
 ```
+
+**Achado em produção (2026-09-18)**: venda real aparece com **dois** prefixos de histórico,
+`Saida vd:NNNN` e `sd ins:Saida vd:NNNN` — a mesma venda, com parte dos itens gravados com o
+prefixo extra (`movprods.tipo` 4 e 5 nesses, 13 nos outros; significado não confirmado com o
+fornecedor). Até esta data a query só aceitava o primeiro, e `vendas_itens` ficou 16–72% abaixo
+do caixa conforme a loja — ~40% na Loja4. Validado em Loja4, 17/09: com os dois prefixos, 230 de
+230 vendas batem com `movimento` pelo número da venda (`Venda Vista:NNNN` no caixa).
 
 Mapeamento pra `vendas_itens`: `mp.auto` → `origem_id`, `data` → `data_venda`,
 `produto_codigo_pdv` → `produto_codigo_pdv`, `p.referencia` → `produto_sku`, `mp.custo` →
