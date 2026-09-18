@@ -44,6 +44,14 @@ export default function VendasPorLinha({
   const [linhas, setLinhas] = useState<LinhaResumo[]>([]);
   const [totalReceita, setTotalReceita] = useState(0);
 
+  // O rótulo do período deriva de hojeBrasilia(), que é new Date() na hora da renderização.
+  // A página é pré-renderizada no build, então o HTML estático carrega a data DO BUILD; o
+  // cliente calcula a de hoje, os textos divergem e o React aborta a hidratação da árvore
+  // (erro #425, arrastando #418 e #423) — os chips de período paravam de responder.
+  // Renderizar só depois de montado mantém servidor e cliente idênticos no primeiro passe.
+  const [montado, setMontado] = useState(false);
+  useEffect(() => setMontado(true), []);
+
   const [linhaAberta, setLinhaAberta] = useState<string | null>(null);
   const [detalhePorLinha, setDetalhePorLinha] = useState<Record<string, DetalheLinha>>({});
   const [carregandoLinha, setCarregandoLinha] = useState<string | null>(null);
@@ -142,8 +150,8 @@ export default function VendasPorLinha({
         </div>
         {/* Rótulo, não controle: o período é o mesmo escolhido nos chips acima. Sem ele o
             usuário não teria como saber a que recorte estes números se referem. */}
-        <span className="text-xs text-stone-500 tabular-nums shrink-0">
-          {formatDataCurta(inicio)} a {formatDataCurta(fim)}
+        <span className="text-xs text-stone-500 tabular-nums shrink-0 min-h-4">
+          {montado ? `${formatDataCurta(inicio)} a ${formatDataCurta(fim)}` : ''}
         </span>
       </div>
 
