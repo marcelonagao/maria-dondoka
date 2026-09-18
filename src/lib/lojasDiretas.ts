@@ -190,7 +190,8 @@ export async function sincronizarLoja(loja: LojaDireta, origin: string) {
     //
     // Dois prefixos de histórico são venda real: "Saida vd:9279 ..." e
     // "sd ins:Saida vd:9279 ..." — a MESMA venda, com parte dos itens gravados com o prefixo
-    // extra. Filtrando só o primeiro, o sync perdia ~40% dos itens na Loja4 e 16–72% nas
+    // extra. "sd ins" = saldo insuficiente: o item foi vendido com estoque zerado no sistema.
+    // Continua sendo venda — o cliente pagou e o custo vem preenchido. Filtrando só o primeiro, o sync perdia ~40% dos itens na Loja4 e 16–72% nas
     // outras, e o faturamento do dashboard ficava abaixo do caixa. Confirmado venda a venda em
     // 17/09/2026: com os dois prefixos, 230 de 230 vendas fecham com `movimento`.
     // A extração de venda_referencia (depois do último 'vd:') já funciona para os dois.

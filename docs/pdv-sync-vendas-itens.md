@@ -87,8 +87,9 @@ WHERE mp.es = 'S'
 
 **Achado em produção (2026-09-18)**: venda real aparece com **dois** prefixos de histórico,
 `Saida vd:NNNN` e `sd ins:Saida vd:NNNN` — a mesma venda, com parte dos itens gravados com o
-prefixo extra (`movprods.tipo` 4 e 5 nesses, 13 nos outros; significado não confirmado com o
-fornecedor). Até esta data a query só aceitava o primeiro, e `vendas_itens` ficou 16–72% abaixo
+prefixo extra (`movprods.tipo` 4 e 5 nesses, 13 nos outros). `sd ins` = **saldo insuficiente**:
+item vendido com estoque zerado no sistema (significado informado em 18/09/2026); o custo vem
+preenchido normalmente. Até esta data a query só aceitava o primeiro, e `vendas_itens` ficou 16–72% abaixo
 do caixa conforme a loja — ~40% na Loja4. Validado em Loja4, 17/09: com os dois prefixos, 230 de
 230 vendas batem com `movimento` pelo número da venda (`Venda Vista:NNNN` no caixa).
 

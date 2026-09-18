@@ -68,7 +68,9 @@ checar.
   diferentes, mesma letra de coluna — não confundir entre as duas tabelas.
 - **Venda real tem dois prefixos em `movprods.historico`**: `Saida vd:9279 ...` e
   `sd ins:Saida vd:9279 ...` — a mesma venda, com parte dos itens gravados com o prefixo extra.
-  Filtrar só por `LIKE 'Saida vd:%'` perdeu 16–72% dos itens por loja até 18/09/2026 (~40% na
+  `sd ins` = **saldo insuficiente**: item vendido com estoque zerado no sistema (significado
+  informado em 18/09/2026). O custo vem preenchido igual, então CMV não é afetado. A proporção
+  por loja mede o quanto o estoque dela está desatualizado (1% na Loja2, 53% na Loja4). Filtrar só por `LIKE 'Saida vd:%'` perdeu 16–72% dos itens por loja até 18/09/2026 (~40% na
   Loja4), deixando o faturamento do dashboard abaixo do caixa. Para conferir itens contra
   caixa: `movimento.historico` traz `Venda Vista:NNNN`, e o número casa com o de `movprods`.
 - **`movimento` es=E sem número de venda no histórico não é venda** — é suprimento de troco
