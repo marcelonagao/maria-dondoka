@@ -37,6 +37,12 @@ relacionadas, mas não deve receber dado novo.
   `count(distinct venda_referencia)` misturando lojas e contava uma vez só o mesmo número de
   venda em lojas diferentes (30 dias: 38.387 → 44.898; ticket médio R$ 44,16 → R$ 37,75).
   Definições em `docs/sql/rollup-resumo-vendas.sql`.
+- Detalhe de produtos por categoria (19/09/2026): `top_produtos_da_linha` estourava 57014 na
+  MAQUIAGEM (maior categoria). Índice `idx_vendas_itens_linha_coalesce_data` sobre a mesma
+  expressão do filtro — 60 mil linhas lidas em vez de 197 mil; ~0,5–0,9s com cache, até ~6s
+  no primeiro clique frio. Corrigido também o agrupamento: juntava produtos de lojas
+  diferentes com o mesmo código interno (ex.: "Squishy Bum Grande" somado ao "Squishy Bum").
+  "N produtos no período" passou a contar por nome. `docs/sql/top-produtos-indice.sql`.
 - Vigia de duplicidade corrigido (19/09/2026): lia `vendas_itens` sem paginar e só via 1000 das
   ~47 mil linhas da janela. Agora conta no banco — função `auditar_duplicidade_vendas_itens`
   (~0,8s, índice `idx_vendas_itens_data_franquia`).

@@ -33,6 +33,14 @@ StackBlitz → GitHub → deploy automático. Multi-tenant via `franchise_id` + 
   sobe um nível.
 - Função `calcular_resultado_dre` roda `security invoker` — RLS já filtra, nunca usar
   `service_role` nessa função.
+- **Índice só é usado se a expressão do filtro bater EXATAMENTE com a do índice.** Filtro
+  `coalesce(produto_linha, 'SEM CATEGORIA') = x` ignora índice sobre `produto_linha` puro — já
+  foi criado, "ignorado" e apagado por isso (17/09/2026), com a lentidão atribuída por engano a
+  contenção de CPU. Antes de otimizar consulta lenta, pedir `explain (analyze, buffers)` da
+  consulta interna com valores fixos (explain de chamada de função não mostra o plano interno).
+- **Painel e dashboard leem resumos, não `vendas_itens`**: `vendas_resumo_dia` e
+  `vendas_por_linha_dia`, recalculados por `atualizar_resumo_linha_dia` a cada sync. Agregar
+  `vendas_itens` direto no navegador estoura o timeout de 8s (57014). Definições em `docs/sql/`.
 - **Supabase trunca em 1000 linhas por padrão, sem erro** — qualquer leitura de
   `vendas_itens` num intervalo de mês (~13 mil itens/mês em produção) precisa paginar com
   `.range()`. Use `buscarTodosVendasItens` (`src/lib/vendasItens.ts`), já pronto — nunca um
