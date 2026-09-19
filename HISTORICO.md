@@ -30,6 +30,13 @@ relacionadas, mas não deve receber dado novo.
 - Conferência diária itens × caixa (18/09/2026), no mesmo cron da duplicidade: alerta
   `itens_divergem_caixa` quando os itens de uma loja/dia ficam fora de 90–110% das formas de
   pagamento (dias com caixa ≥ R$ 500). É o que pega um prefixo novo de venda no histórico do PDV.
+- Painel de vendas (19/09/2026): `resumo_vendas` estourava o timeout de 8s depois do backfill
+  "sd ins:". Agora lê `vendas_resumo_dia` (uma linha por loja/dia), atualizada pelo mesmo
+  `atualizar_resumo_linha_dia` que o sync já chama — 7s → ~0,3s. Faturamento, CMV, impostos e
+  série idênticos. Corrigiu de quebra a quantidade de vendas consolidada: a versão antiga fazia
+  `count(distinct venda_referencia)` misturando lojas e contava uma vez só o mesmo número de
+  venda em lojas diferentes (30 dias: 38.387 → 44.898; ticket médio R$ 44,16 → R$ 37,75).
+  Definições em `docs/sql/rollup-resumo-vendas.sql`.
 - Vigia de duplicidade corrigido (19/09/2026): lia `vendas_itens` sem paginar e só via 1000 das
   ~47 mil linhas da janela. Agora conta no banco — função `auditar_duplicidade_vendas_itens`
   (~0,8s, índice `idx_vendas_itens_data_franquia`).
