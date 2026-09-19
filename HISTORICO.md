@@ -37,6 +37,11 @@ relacionadas, mas não deve receber dado novo.
   `count(distinct venda_referencia)` misturando lojas e contava uma vez só o mesmo número de
   venda em lojas diferentes (30 dias: 38.387 → 44.898; ticket médio R$ 44,16 → R$ 37,75).
   Definições em `docs/sql/rollup-resumo-vendas.sql`.
+- Fluxo de caixa e DRE (19/09/2026): `serie_vendas_diaria` e `calcular_resultado_dre`
+  também somavam `vendas_itens` e estouravam 57014 (DRE até para um mês). Agora leem
+  `vendas_resumo_dia` — fluxo 90 dias em 0,7s; DRE mês/trimestre/ano em 0,3–0,9s, página
+  inteira (10 chamadas) em 0,4s. Agosto conferido: receita, deduções e CMV idênticos à soma
+  direta dos itens. Nenhuma função lê mais `vendas_itens` em período largo a partir de tela.
 - Detalhe de produtos por categoria (19/09/2026): `top_produtos_da_linha` estourava 57014 na
   MAQUIAGEM (maior categoria). Índice `idx_vendas_itens_linha_coalesce_data` sobre a mesma
   expressão do filtro — 60 mil linhas lidas em vez de 197 mil; ~0,5–0,9s com cache, até ~6s
