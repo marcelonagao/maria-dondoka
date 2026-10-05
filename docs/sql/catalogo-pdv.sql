@@ -148,19 +148,11 @@ $$;
 
 grant execute on function atualizar_resumo_linha_dia(uuid, date) to service_role;
 
--- Backfill do CMV no histórico — uma passada só.
-update public.vendas_por_linha_dia r
-   set cmv = c.cmv
-  from (
-    select vi.franchise_id, vi.data_venda, coalesce(vi.produto_linha, 'SEM CATEGORIA') as linha,
-           coalesce(sum(vi.quantidade * vi.custo_unitario), 0) as cmv
-      from vendas_itens vi
-     group by 1, 2, 3
-  ) c
- where r.franchise_id = c.franchise_id
-   and r.data_venda = c.data_venda
-   and r.produto_linha = c.linha
-   and r.cmv is distinct from c.cmv;
+-- O backfill do CMV no histórico NÃO fica aqui. Numa tacada só, ele varre as ~1,3 milhão de
+-- linhas de vendas_itens e estoura o tempo limite do SQL Editor (medido em 05/10/2026).
+-- Ele é feito fora, chamando `atualizar_resumo_linha_dia` uma vez por loja e dia —
+-- `scratch/backfill-cmv-categoria.mjs`. Cada chamada mexe num dia de uma loja, e a função é
+-- a mesma que o sync usa, então não há segunda fórmula para divergir.
 
 -- ---------------------------------------------------------------------------
 -- 4. Margem por categoria
@@ -307,8 +299,9 @@ grant execute on function margem_produtos(uuid, text, date, date, int) to authen
 -- ---------------------------------------------------------------------------
 -- 6. Conferência
 -- ---------------------------------------------------------------------------
--- Esperado agora: cadastro ainda com 1 linha (a de teste) — a carga vem depois; o CMV
--- preenchido no histórico de categorias; e as duas funções no lugar.
+-- Esperado agora: cadastro ainda com 1 linha (a de teste) e CMV ainda zerado — a carga do
+-- catálogo e o backfill do CMV vêm depois, por script. O que tem de estar de pé aqui são as
+-- 2 policies de leitura e as duas funções.
 select
   (select count(*) from public.produtos)                                        as produtos_no_cadastro,
   (select count(*) from public.vendas_por_linha_dia where cmv > 0)              as dias_categoria_com_cmv,
