@@ -1,292 +1,388 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../../../lib/supabase';
+import { mesAtualBrasilia, intervaloDoMes } from '../../../lib/date';
 
-interface Produto {
+/**
+ * Catálogo do PDV com as duas margens lado a lado.
+ *
+ * Existe para corrigir o custo lançado no PDV, que está inflado: medido na Loja4 em
+ * 05/10/2026, 1.207 dos 19.617 produtos têm custo igual ou maior que o preço de venda.
+ *
+ * - Margem de cadastro: (preço − custo) ÷ preço. Vale para todo produto, inclusive o que
+ *   nunca vendeu — é nela que o erro de custo aparece.
+ * - Margem realizada: do que foi vendido no período, com o custo que veio na venda. Diz
+ *   quais categorias pesam no bolso, para a correção começar pelo que dá dinheiro.
+ *
+ * A tela antiga era um cadastro manual de produto, sem uso (uma linha de teste). Com o
+ * catálogo vindo do PDV, edição manual seria sobrescrita na carga seguinte — por isso saiu.
+ */
+
+interface Franquia {
   id: string;
-  sku: string;
-  nome: string;
-  descricao: string | null;
-  categoria: string | null;
-  preco_custo: number | null;
-  preco_venda: number | null;
-  estoque_atual: number;
-  imagem_url: string | null;
-  is_active: boolean;
+  name: string;
 }
 
-const formatCurrency = (value: number | null) =>
-  value === null ? '—' : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
+interface CategoriaLinha {
+  categoria: string;
+  produtos: number;
+  anomalias: number;
+  margem_cadastro_pct: number | null;
+  receita: number;
+  cmv: number;
+  margem_realizada_pct: number | null;
+}
 
-const initialFormData = {
-  sku: '',
-  nome: '',
-  descricao: '',
-  categoria: '',
-  preco_custo: '',
-  preco_venda: '',
-  estoque_atual: '0',
+interface ProdutoLinha {
+  sku: string;
+  nome: string;
+  codigo_barras: string | null;
+  preco_custo: number | null;
+  preco_venda: number | null;
+  margem_cadastro_pct: number | null;
+  estoque: number;
+  unidades: number;
+  receita: number;
+  margem_realizada_pct: number | null;
+  alerta: string | null;
+}
+
+const formatCurrency = (valor: number | null) =>
+  valor === null || valor === undefined
+    ? '—'
+    : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor);
+
+const formatPct = (valor: number | null) =>
+  valor === null || valor === undefined ? '—' : `${Number(valor).toFixed(1)}%`;
+
+const formatNumero = (valor: number) => new Intl.NumberFormat('pt-BR').format(valor);
+
+// Margem negativa em vermelho; o resto em cinza. Verde só onde a margem é boa de verdade,
+// senão a cor deixa de significar algo.
+const corDaMargem = (valor: number | null) => {
+  if (valor === null || valor === undefined) return 'text-stone-400';
+  if (valor < 0) return 'text-red-600 font-semibold';
+  if (valor < 10) return 'text-amber-600';
+  return 'text-stone-700';
 };
 
 export default function ProdutosPage() {
-  const [produtos, setProdutos] = useState<Produto[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [formData, setFormData] = useState(initialFormData);
-  const [imagemFile, setImagemFile] = useState<File | null>(null);
+  const [franquias, setFranquias] = useState<Franquia[]>([]);
+  const [franquiaSelecionada, setFranquiaSelecionada] = useState('');
+  const [podeVerVarias, setPodeVerVarias] = useState(false);
+  const [mes, setMes] = useState(mesAtualBrasilia());
 
-  const fetchProdutos = async () => {
-    try {
-      setIsLoading(true);
-      const { data, error } = await supabase.from('produtos').select('*').order('nome', { ascending: true });
-      if (error) throw error;
-      setProdutos(data || []);
-    } catch (error) {
-      console.error('Erro ao buscar produtos:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const [categorias, setCategorias] = useState<CategoriaLinha[]>([]);
+  const [categoriaAberta, setCategoriaAberta] = useState<string | null>(null);
+  const [produtos, setProdutos] = useState<ProdutoLinha[]>([]);
+  const [busca, setBusca] = useState('');
+  const [lidoEm, setLidoEm] = useState<string | null>(null);
 
+  const [carregando, setCarregando] = useState(true);
+  const [carregandoProdutos, setCarregandoProdutos] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+
+  // Quem é o usuário e quais lojas ele enxerga. Lojista só vê a própria: cadastro, custo e
+  // código de produto são de cada loja, então a tela trabalha sempre com uma loja por vez.
   useEffect(() => {
-    fetchProdutos();
+    async function identificar() {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+
+        const { data: perfil } = await supabase
+          .from('profiles')
+          .select('franchise_id, roles(escopo)')
+          .eq('id', user.id)
+          .maybeSingle();
+
+        const papel = perfil?.roles as unknown as { escopo: string } | null;
+        const varias = papel?.escopo === 'todas_franquias';
+        setPodeVerVarias(varias);
+
+        if (varias) {
+          const { data } = await supabase
+            .from('franchises')
+            .select('id, name')
+            .eq('is_active', true)
+            .order('name', { ascending: true });
+          setFranquias(data || []);
+          setFranquiaSelecionada((atual) => atual || data?.[0]?.id || '');
+        } else if (perfil?.franchise_id) {
+          setFranquiaSelecionada(perfil.franchise_id);
+        }
+      } catch (falha) {
+        console.error('Erro ao identificar o usuário na tela de produtos:', falha);
+        setErro('Não foi possível identificar seu acesso.');
+      }
+    }
+    identificar();
   }, []);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmitting(true);
-
+  const carregarCategorias = useCallback(async () => {
+    if (!franquiaSelecionada) return;
+    setCarregando(true);
+    setErro(null);
     try {
-      let imagem_url: string | null = null;
+      const { inicio, fim } = intervaloDoMes(mes);
 
-      if (imagemFile) {
-        const caminho = `${crypto.randomUUID()}-${imagemFile.name}`;
-        const { error: uploadError } = await supabase.storage.from('produtos').upload(caminho, imagemFile);
-        if (uploadError) throw uploadError;
-        const { data: publicUrlData } = supabase.storage.from('produtos').getPublicUrl(caminho);
-        imagem_url = publicUrlData.publicUrl;
-      }
+      const [resumo, carimbo] = await Promise.all([
+        supabase.rpc('margem_categorias', {
+          p_franchise_id: franquiaSelecionada,
+          p_data_inicio: inicio,
+          p_data_fim: fim,
+        }),
+        supabase
+          .from('produtos')
+          .select('atualizado_em')
+          .eq('franchise_id', franquiaSelecionada)
+          .order('atualizado_em', { ascending: false, nullsFirst: false })
+          .limit(1)
+          .maybeSingle(),
+      ]);
 
-      const { error } = await supabase.from('produtos').insert([{
-        sku: formData.sku,
-        nome: formData.nome,
-        descricao: formData.descricao || null,
-        categoria: formData.categoria || null,
-        preco_custo: formData.preco_custo ? parseFloat(formData.preco_custo) : null,
-        preco_venda: formData.preco_venda ? parseFloat(formData.preco_venda) : null,
-        estoque_atual: parseFloat(formData.estoque_atual) || 0,
-        imagem_url,
-      }]);
-
-      if (error) throw error;
-
-      await fetchProdutos();
-      setIsModalOpen(false);
-      setFormData(initialFormData);
-      setImagemFile(null);
-    } catch (error) {
-      console.error('Erro ao salvar produto:', error);
-      alert('Erro ao salvar no banco. Verifique o console.');
+      if (resumo.error) throw resumo.error;
+      setCategorias((resumo.data as CategoriaLinha[]) || []);
+      setLidoEm((carimbo.data as { atualizado_em: string | null } | null)?.atualizado_em ?? null);
+      setCategoriaAberta(null);
+      setProdutos([]);
+    } catch (falha) {
+      console.error('Erro ao carregar margem por categoria:', falha);
+      // A mensagem técnica fica menor, abaixo — esconder o texto do banco já custou um
+      // ciclo inteiro de diagnóstico neste workspace.
+      setErro(falha instanceof Error ? falha.message : String(falha));
     } finally {
-      setIsSubmitting(false);
+      setCarregando(false);
     }
-  };
+  }, [franquiaSelecionada, mes]);
 
-  const handleAlternarAtivo = async (id: string, ativoAtual: boolean) => {
-    try {
-      const { error } = await supabase.from('produtos').update({ is_active: !ativoAtual }).eq('id', id);
-      if (error) throw error;
-      await fetchProdutos();
-    } catch (error) {
-      console.error('Erro ao atualizar produto:', error);
-      alert('Erro ao atualizar. Verifique o console.');
+  useEffect(() => { carregarCategorias(); }, [carregarCategorias]);
+
+  const abrirCategoria = useCallback(async (categoria: string) => {
+    if (categoriaAberta === categoria) {
+      setCategoriaAberta(null);
+      setProdutos([]);
+      return;
     }
-  };
+    setCategoriaAberta(categoria);
+    setCarregandoProdutos(true);
+    setBusca('');
+    try {
+      const { inicio, fim } = intervaloDoMes(mes);
+      const { data, error } = await supabase.rpc('margem_produtos', {
+        p_franchise_id: franquiaSelecionada,
+        p_categoria: categoria,
+        p_data_inicio: inicio,
+        p_data_fim: fim,
+        p_limite: 300,
+      });
+      if (error) throw error;
+      setProdutos((data as ProdutoLinha[]) || []);
+    } catch (falha) {
+      console.error('Erro ao carregar produtos da categoria:', falha);
+      setErro(falha instanceof Error ? falha.message : String(falha));
+    } finally {
+      setCarregandoProdutos(false);
+    }
+  }, [categoriaAberta, franquiaSelecionada, mes]);
+
+  const produtosFiltrados = useMemo(() => {
+    const termo = busca.trim().toLowerCase();
+    if (!termo) return produtos;
+    return produtos.filter(
+      (p) => p.nome.toLowerCase().includes(termo) || p.sku.includes(termo) || (p.codigo_barras || '').includes(termo)
+    );
+  }, [produtos, busca]);
+
+  const totais = useMemo(() => ({
+    produtos: categorias.reduce((soma, c) => soma + c.produtos, 0),
+    anomalias: categorias.reduce((soma, c) => soma + c.anomalias, 0),
+  }), [categorias]);
+
+  const catalogoVazio = !carregando && totais.produtos === 0;
 
   return (
-    <div className="space-y-6 relative">
+    <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold text-stone-800">Produtos</h1>
-          <p className="text-stone-500 text-sm mt-1">Cadastre e gerencie os produtos da sua franquia.</p>
+          <h1 className="text-2xl font-semibold text-stone-800">Produtos: custo, preço e margem</h1>
+          <p className="text-stone-500 text-sm mt-1">
+            Cadastro do PDV por categoria, para conferir o custo lançado.
+          </p>
         </div>
         <div className="flex items-center gap-3">
-          <button
-            disabled
-            title="Em breve"
-            className="bg-stone-100 text-stone-400 px-4 py-2 rounded-lg text-sm font-medium cursor-not-allowed"
-          >
-            Importar XML
-          </button>
-          <button
-            onClick={() => setIsModalOpen(true)}
-            className="bg-stone-900 hover:bg-stone-800 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
-          >
-            <span>+</span> Novo Produto
-          </button>
+          {podeVerVarias && (
+            <select
+              className="px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none bg-white text-stone-700 text-sm"
+              value={franquiaSelecionada}
+              onChange={(e) => setFranquiaSelecionada(e.target.value)}
+            >
+              {franquias.map((f) => (
+                <option key={f.id} value={f.id}>{f.name}</option>
+              ))}
+            </select>
+          )}
+          <input
+            type="month"
+            value={mes}
+            onChange={(e) => setMes(e.target.value)}
+            className="px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none text-stone-700"
+          />
         </div>
       </div>
 
-      <div className="bg-white border border-stone-200 rounded-xl shadow-sm overflow-hidden min-h-[300px]">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm text-stone-600">
-            <thead className="bg-stone-50 border-b border-stone-200 text-stone-500 uppercase text-xs font-medium">
-              <tr>
-                <th className="px-6 py-4"></th>
-                <th className="px-6 py-4">SKU</th>
-                <th className="px-6 py-4">Nome</th>
-                <th className="px-6 py-4">Custo</th>
-                <th className="px-6 py-4">Venda</th>
-                <th className="px-6 py-4">Estoque</th>
-                <th className="px-6 py-4">Status</th>
-                <th className="px-6 py-4">Ações</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-stone-100">
-              {isLoading ? (
-                <tr><td colSpan={8} className="px-6 py-8 text-center text-stone-400">Carregando...</td></tr>
-              ) : produtos.length === 0 ? (
-                <tr><td colSpan={8} className="px-6 py-8 text-center text-stone-400">Nenhum produto cadastrado ainda.</td></tr>
-              ) : (
-                produtos.map((p) => (
-                  <tr key={p.id} className="hover:bg-stone-50/50 transition-colors">
-                    <td className="px-6 py-4">
-                      {p.imagem_url ? (
-                        <img src={p.imagem_url} alt={p.nome} className="w-10 h-10 rounded-lg object-cover" />
-                      ) : (
-                        <div className="w-10 h-10 rounded-lg bg-stone-100 flex items-center justify-center text-stone-300 text-xs">—</div>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-stone-500">{p.sku}</td>
-                    <td className="px-6 py-4 font-medium text-stone-800">{p.nome}</td>
-                    <td className="px-6 py-4">{formatCurrency(p.preco_custo)}</td>
-                    <td className="px-6 py-4">{formatCurrency(p.preco_venda)}</td>
-                    <td className="px-6 py-4">{p.estoque_atual}</td>
-                    <td className="px-6 py-4">
-                      {p.is_active ? (
-                        <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 text-xs font-medium rounded-md">Ativo</span>
-                      ) : (
-                        <span className="px-2.5 py-1 bg-stone-100 text-stone-500 text-xs font-medium rounded-md">Inativo</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4">
-                      <button
-                        onClick={() => handleAlternarAtivo(p.id, p.is_active)}
-                        className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
-                          p.is_active ? 'text-red-600 hover:bg-red-50' : 'text-emerald-600 hover:bg-emerald-50'
-                        }`}
-                      >
-                        {p.is_active ? 'Desativar' : 'Reativar'}
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+      {/* Sem isto a tela afirma atualidade que não tem: o cadastro é carregado do PDV de
+          tempos em tempos, não a cada abertura. */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-stone-500">
+        <span>
+          Cadastro lido em{' '}
+          <strong className="text-stone-700">
+            {lidoEm ? new Date(lidoEm).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : 'nunca'}
+          </strong>
+        </span>
+        {totais.produtos > 0 && (
+          <>
+            <span>{formatNumero(totais.produtos)} produtos</span>
+            <span className={totais.anomalias > 0 ? 'text-red-600 font-semibold' : 'text-emerald-700'}>
+              {totais.anomalias > 0
+                ? `${formatNumero(totais.anomalias)} com custo a conferir`
+                : 'nenhum custo fora do padrão'}
+            </span>
+          </>
+        )}
+        <span className="text-stone-400">· margem realizada: vendas do mês escolhido</span>
       </div>
 
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/50 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center p-6 border-b border-stone-100">
-              <h2 className="text-lg font-semibold text-stone-800">Novo Produto</h2>
-              <button onClick={() => setIsModalOpen(false)} className="text-stone-400 hover:text-stone-600">✕</button>
-            </div>
-            <form onSubmit={handleSubmit} className="p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-stone-700 mb-1">SKU</label>
-                  <input
-                    type="text" required
-                    className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none"
-                    value={formData.sku}
-                    onChange={(e) => setFormData({ ...formData, sku: e.target.value })}
-                    placeholder="Ex: PERF-001"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-stone-700 mb-1">Categoria</label>
-                  <input
-                    type="text"
-                    className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none"
-                    value={formData.categoria}
-                    onChange={(e) => setFormData({ ...formData, categoria: e.target.value })}
-                    placeholder="Ex: Perfumaria"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-stone-700 mb-1">Nome</label>
-                <input
-                  type="text" required
-                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none"
-                  value={formData.nome}
-                  onChange={(e) => setFormData({ ...formData, nome: e.target.value })}
-                  placeholder="Ex: Perfume Floral 100ml"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-stone-700 mb-1">Descrição</label>
-                <textarea
-                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none"
-                  rows={2}
-                  value={formData.descricao}
-                  onChange={(e) => setFormData({ ...formData, descricao: e.target.value })}
-                />
-              </div>
-              <div className="grid grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-stone-700 mb-1">Custo (R$)</label>
-                  <input
-                    type="number" step="0.01"
-                    className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none"
-                    value={formData.preco_custo}
-                    onChange={(e) => setFormData({ ...formData, preco_custo: e.target.value })}
-                    placeholder="0.00"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-stone-700 mb-1">Venda (R$)</label>
-                  <input
-                    type="number" step="0.01"
-                    className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none"
-                    value={formData.preco_venda}
-                    onChange={(e) => setFormData({ ...formData, preco_venda: e.target.value })}
-                    placeholder="0.00"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-stone-700 mb-1">Estoque</label>
-                  <input
-                    type="number" step="1"
-                    className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-stone-400 outline-none"
-                    value={formData.estoque_atual}
-                    onChange={(e) => setFormData({ ...formData, estoque_atual: e.target.value })}
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-stone-700 mb-1">Foto</label>
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="w-full text-sm text-stone-600"
-                  onChange={(e) => setImagemFile(e.target.files?.[0] || null)}
-                />
-              </div>
-              <div className="pt-2 flex gap-3">
-                <button type="button" onClick={() => setIsModalOpen(false)} className="flex-1 px-4 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-lg font-medium transition-colors">
-                  Cancelar
-                </button>
-                <button type="submit" disabled={isSubmitting} className="flex-1 px-4 py-2 bg-stone-900 hover:bg-stone-800 text-white rounded-lg font-medium transition-colors disabled:opacity-70">
-                  {isSubmitting ? 'Salvando...' : 'Salvar'}
-                </button>
-              </div>
-            </form>
+      {erro && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+          <p className="text-sm font-semibold text-red-800">Não foi possível carregar os produtos.</p>
+          <p className="text-xs text-red-600 mt-1 font-mono break-all">{erro}</p>
+        </div>
+      )}
+
+      {carregando ? (
+        <div className="bg-white border border-stone-200 rounded-xl shadow-sm p-8 text-center text-stone-400 min-h-[300px] flex items-center justify-center">
+          Carregando...
+        </div>
+      ) : catalogoVazio ? (
+        <div className="bg-white border border-stone-200 rounded-xl shadow-sm p-8 min-h-[300px] flex flex-col items-center justify-center gap-2 text-center">
+          <p className="text-stone-500 text-sm">O cadastro desta loja ainda não foi carregado do PDV.</p>
+          <p className="text-stone-400 text-xs">Hoje a carga é feita pela equipe técnica, loja a loja.</p>
+        </div>
+      ) : (
+        <div className="bg-white border border-stone-200 rounded-xl shadow-sm overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-stone-50 border-b border-stone-200">
+                <tr className="text-stone-500 text-xs uppercase tracking-wider">
+                  <th className="text-left font-semibold px-4 py-3">Categoria</th>
+                  <th className="text-right font-semibold px-4 py-3">Produtos</th>
+                  <th className="text-right font-semibold px-4 py-3">A conferir</th>
+                  <th className="text-right font-semibold px-4 py-3">Margem cadastro</th>
+                  <th className="text-right font-semibold px-4 py-3">Vendas do mês</th>
+                  <th className="text-right font-semibold px-4 py-3">Margem realizada</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-stone-100">
+                {categorias.map((c) => (
+                  <React.Fragment key={c.categoria}>
+                    <tr
+                      onClick={() => abrirCategoria(c.categoria)}
+                      className={`cursor-pointer hover:bg-stone-50 ${categoriaAberta === c.categoria ? 'bg-stone-50' : ''}`}
+                    >
+                      <td className="px-4 py-3 font-medium text-stone-700">
+                        <span className="text-stone-400 mr-2">{categoriaAberta === c.categoria ? '▾' : '▸'}</span>
+                        {c.categoria}
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums text-stone-600">{formatNumero(c.produtos)}</td>
+                      <td className={`px-4 py-3 text-right tabular-nums ${c.anomalias > 0 ? 'text-red-600 font-semibold' : 'text-stone-400'}`}>
+                        {c.anomalias > 0 ? formatNumero(c.anomalias) : '—'}
+                      </td>
+                      <td className={`px-4 py-3 text-right tabular-nums ${corDaMargem(c.margem_cadastro_pct)}`}>
+                        {formatPct(c.margem_cadastro_pct)}
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums text-stone-600">{formatCurrency(c.receita)}</td>
+                      <td className={`px-4 py-3 text-right tabular-nums ${corDaMargem(c.margem_realizada_pct)}`}>
+                        {formatPct(c.margem_realizada_pct)}
+                      </td>
+                    </tr>
+
+                    {categoriaAberta === c.categoria && (
+                      <tr>
+                        <td colSpan={6} className="bg-stone-50 px-4 py-4">
+                          {carregandoProdutos ? (
+                            <p className="text-stone-400 text-sm py-4 text-center">Carregando produtos...</p>
+                          ) : (
+                            <>
+                              <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                                <p className="text-xs text-stone-500">
+                                  {formatNumero(produtosFiltrados.length)} de {formatNumero(produtos.length)} produtos ·
+                                  maiores margens primeiro
+                                </p>
+                                <input
+                                  type="search"
+                                  value={busca}
+                                  onChange={(e) => setBusca(e.target.value)}
+                                  placeholder="Buscar por nome, código ou código de barras"
+                                  className="px-3 py-1.5 border border-stone-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-amber-400 w-full sm:w-80"
+                                />
+                              </div>
+
+                              <div className="overflow-x-auto bg-white border border-stone-200 rounded-lg">
+                                <table className="w-full text-sm">
+                                  <thead className="bg-white border-b border-stone-200">
+                                    <tr className="text-stone-500 text-xs uppercase tracking-wider">
+                                      <th className="text-left font-semibold px-3 py-2">Produto</th>
+                                      <th className="text-right font-semibold px-3 py-2">Custo</th>
+                                      <th className="text-right font-semibold px-3 py-2">Preço</th>
+                                      <th className="text-right font-semibold px-3 py-2">Margem</th>
+                                      <th className="text-right font-semibold px-3 py-2">Vendidos</th>
+                                      <th className="text-right font-semibold px-3 py-2">Margem real</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-stone-100">
+                                    {produtosFiltrados.map((p) => (
+                                      <tr key={p.sku} className="hover:bg-stone-50">
+                                        <td className="px-3 py-2">
+                                          <p className="text-stone-700">{p.nome}</p>
+                                          <p className="text-[11px] text-stone-400">
+                                            cód. {p.sku}
+                                            {p.codigo_barras ? ` · ${p.codigo_barras}` : ''}
+                                            {p.alerta ? <span className="ml-2 text-red-600 font-semibold">⚠ {p.alerta}</span> : null}
+                                          </p>
+                                        </td>
+                                        <td className="px-3 py-2 text-right tabular-nums text-stone-600">{formatCurrency(p.preco_custo)}</td>
+                                        <td className="px-3 py-2 text-right tabular-nums text-stone-600">{formatCurrency(p.preco_venda)}</td>
+                                        <td className={`px-3 py-2 text-right tabular-nums ${corDaMargem(p.margem_cadastro_pct)}`}>
+                                          {formatPct(p.margem_cadastro_pct)}
+                                        </td>
+                                        <td className="px-3 py-2 text-right tabular-nums text-stone-600">
+                                          {p.unidades > 0 ? formatNumero(p.unidades) : '—'}
+                                        </td>
+                                        <td className={`px-3 py-2 text-right tabular-nums ${corDaMargem(p.margem_realizada_pct)}`}>
+                                          {formatPct(p.margem_realizada_pct)}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+
+                              {produtos.length >= 300 && (
+                                <p className="text-[11px] text-stone-400 mt-2">
+                                  Mostrando os 300 de maior margem desta categoria.
+                                </p>
+                              )}
+                            </>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
