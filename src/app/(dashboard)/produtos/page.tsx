@@ -76,14 +76,20 @@ const mensagemDeErro = (falha: unknown): string => {
 // categoria tem 8.621 produtos, e ordenar no navegador depois do limite mostraria o topo da
 // ordem errada.
 const ORDENS = [
+  { valor: 'alerta', rotulo: 'A conferir primeiro' },
   { valor: 'realizada', rotulo: 'Maior margem realizada' },
   { valor: 'faturamento', rotulo: 'Maior faturamento' },
   { valor: 'cadastro', rotulo: 'Maior margem de cadastro' },
 ] as const;
 
+// O que a coluna "A conferir" conta. Fica escrito na tela porque o rótulo sozinho não diz:
+// na primeira vez que alguém viu "402" na MAQUIAGEM, a pergunta foi "402 do quê?".
+const EXPLICACAO_ALERTA = 'custo maior ou igual ao preço, custo zerado ou preço zerado';
+
 type Ordem = (typeof ORDENS)[number]['valor'];
 
 const chaveDaOrdem = (ordem: Ordem) => (c: CategoriaLinha) => {
+  if (ordem === 'alerta') return c.anomalias ?? 0;
   if (ordem === 'faturamento') return c.receita ?? 0;
   if (ordem === 'cadastro') return c.margem_cadastro_pct ?? -Infinity;
   return c.margem_realizada_pct ?? -Infinity;
@@ -108,6 +114,7 @@ export default function ProdutosPage() {
   const [categoriaAberta, setCategoriaAberta] = useState<string | null>(null);
   const [produtos, setProdutos] = useState<ProdutoLinha[]>([]);
   const [ordem, setOrdem] = useState<Ordem>('realizada');
+  const [somenteAlerta, setSomenteAlerta] = useState(false);
   const [busca, setBusca] = useState('');
   const [lidoEm, setLidoEm] = useState<string | null>(null);
 
@@ -205,6 +212,7 @@ export default function ProdutosPage() {
         p_data_fim: fim,
         p_limite: 300,
         p_ordem: ordem,
+        p_somente_alerta: somenteAlerta,
       });
       if (error) throw error;
       setProdutos((data as ProdutoLinha[]) || []);
@@ -214,7 +222,7 @@ export default function ProdutosPage() {
     } finally {
       setCarregandoProdutos(false);
     }
-  }, [franquiaSelecionada, mes, ordem]);
+  }, [franquiaSelecionada, mes, ordem, somenteAlerta]);
 
   const abrirCategoria = useCallback((categoria: string) => {
     if (categoriaAberta === categoria) {
@@ -227,12 +235,13 @@ export default function ProdutosPage() {
     carregarProdutos(categoria);
   }, [categoriaAberta, carregarProdutos]);
 
-  // Trocar a ordem recarrega a categoria aberta: o corte em 300 é feito no banco, então a
-  // ordem nova precisa vir de lá, não de uma reordenação do que já está na tela.
+  // Trocar a ordem ou o filtro recarrega a categoria aberta: o corte em 300 é feito no banco,
+  // então a lista nova precisa vir de lá, não de um recorte do que já está na tela — senão o
+  // filtro mostraria só os alertas que por acaso couberam nos 300 primeiros.
   useEffect(() => {
     if (categoriaAberta) carregarProdutos(categoriaAberta);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ordem]);
+  }, [ordem, somenteAlerta]);
 
   const produtosFiltrados = useMemo(() => {
     const termo = busca.trim().toLowerCase();
@@ -308,9 +317,10 @@ export default function ProdutosPage() {
             <span>{formatNumero(totais.produtos)} produtos</span>
             <span className={totais.anomalias > 0 ? 'text-red-600 font-semibold' : 'text-emerald-700'}>
               {totais.anomalias > 0
-                ? `${formatNumero(totais.anomalias)} com custo a conferir`
+                ? `${formatNumero(totais.anomalias)} a conferir`
                 : 'nenhum custo fora do padrão'}
             </span>
+            <span className="text-stone-400">({EXPLICACAO_ALERTA})</span>
           </>
         )}
         <span className="text-stone-400">· margem realizada: vendas do mês escolhido</span>
@@ -340,7 +350,9 @@ export default function ProdutosPage() {
                 <tr className="text-stone-500 text-xs uppercase tracking-wider">
                   <th className="text-left font-semibold px-4 py-3">Categoria</th>
                   <th className="text-right font-semibold px-4 py-3">Produtos</th>
-                  <th className="text-right font-semibold px-4 py-3">A conferir</th>
+                  <th className="text-right font-semibold px-4 py-3" title={`A conferir: ${EXPLICACAO_ALERTA}`}>
+                    A conferir
+                  </th>
                   <th className="text-right font-semibold px-4 py-3">Margem cadastro</th>
                   <th className="text-right font-semibold px-4 py-3">Vendas do mês</th>
                   <th className="text-right font-semibold px-4 py-3">Margem realizada</th>
@@ -402,13 +414,27 @@ export default function ProdutosPage() {
                                   {formatNumero(produtosFiltrados.length)} de {formatNumero(produtos.length)} produtos ·
                                   {' '}{ORDENS.find((o) => o.valor === ordem)?.rotulo.toLowerCase()} primeiro
                                 </p>
-                                <input
-                                  type="search"
-                                  value={busca}
-                                  onChange={(e) => setBusca(e.target.value)}
-                                  placeholder="Buscar por nome, código ou código de barras"
-                                  className="px-3 py-1.5 border border-stone-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-amber-400 w-full sm:w-80"
-                                />
+                                <div className="flex flex-wrap items-center gap-3">
+                                  {/* O filtro vai ao banco, não recorta o que está na tela:
+                                      a categoria pode ter 402 a conferir e nenhum deles entre
+                                      os 300 primeiros da ordem escolhida. */}
+                                  <label className="flex items-center gap-2 text-xs text-stone-700 cursor-pointer select-none">
+                                    <input
+                                      type="checkbox"
+                                      checked={somenteAlerta}
+                                      onChange={(e) => setSomenteAlerta(e.target.checked)}
+                                      className="rounded border-stone-300 text-stone-800 focus:ring-amber-400"
+                                    />
+                                    Só os que precisam de ajuste
+                                  </label>
+                                  <input
+                                    type="search"
+                                    value={busca}
+                                    onChange={(e) => setBusca(e.target.value)}
+                                    placeholder="Buscar por nome, código ou código de barras"
+                                    className="px-3 py-1.5 border border-stone-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-amber-400 w-full sm:w-80"
+                                  />
+                                </div>
                               </div>
 
                               <div className="overflow-x-auto bg-white border border-stone-200 rounded-lg">
