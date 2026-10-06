@@ -33,6 +33,11 @@ StackBlitz → GitHub → deploy automático. Multi-tenant via `franchise_id` + 
   sobe um nível.
 - Função `calcular_resultado_dre` roda `security invoker` — RLS já filtra, nunca usar
   `service_role` nessa função.
+- **Função usada em policy de RLS tem de ser `stable`.** Sem marcação, o Postgres assume
+  `volatile` e a executa uma vez POR LINHA avaliada — `get_current_franchise_id()` estava assim
+  e fazia uma consulta a `profiles` por linha de `vendas_itens` (06/10/2026). Sintoma: rápido
+  com `service_role` (que não passa pela RLS) e 57014 no navegador, inclusive em consulta que
+  devolve 19 linhas. Ver `docs/sql/get-current-franchise-id-stable.sql`.
 - **Índice só é usado se a expressão do filtro bater EXATAMENTE com a do índice.** Filtro
   `coalesce(produto_linha, 'SEM CATEGORIA') = x` ignora índice sobre `produto_linha` puro — já
   foi criado, "ignorado" e apagado por isso (17/09/2026), com a lentidão atribuída por engano a
