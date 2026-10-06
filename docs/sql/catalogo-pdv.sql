@@ -229,12 +229,19 @@ $$;
 -- Uma categoria por vez, de propósito: o filtro em vendas_itens é escrito EXATAMENTE como a
 -- expressão do índice `idx_vendas_itens_linha_coalesce_data`, e é isso que mantém a consulta
 -- abaixo de um segundo. Mudar a expressão aqui volta a varrer o período inteiro.
+-- `p_ordem` decide o que vai no topo, e isso TEM de ser decidido aqui: a maior categoria tem
+-- 8.621 produtos, então ordenar no navegador depois do limite mostraria o topo da ordem
+-- errada. Ordem padrão: margem realizada — foi o que a tela mostrava antes, ordenada pela
+-- margem de cadastro, que jogava para cima produto que nunca vendeu e tinha preço digitado
+-- errado (05/10/2026: "Necessaire 6", custo R$ 6,39 e preço R$ 5.405,00, no primeiro lugar).
+drop function if exists margem_produtos(uuid, text, date, date, int);
 create or replace function margem_produtos(
   p_franchise_id uuid,
   p_categoria text,
   p_data_inicio date default null,
   p_data_fim date default null,
-  p_limite int default 200
+  p_limite int default 200,
+  p_ordem text default 'realizada'
 )
 returns table (
   sku text,
@@ -289,12 +296,20 @@ as $$
   left join vendido v on v.sku = p.sku
   where p.franchise_id = p_franchise_id
     and coalesce(nullif(btrim(p.categoria), ''), 'SEM CATEGORIA') = p_categoria
-  order by margem_cadastro_pct desc nulls last, p.nome
+  order by
+    -- Só um dos três critérios fica valendo; os outros viram NULL em todas as linhas e não
+    -- mexem na ordem. Produto sem venda cai para o fim nos dois primeiros modos.
+    case when p_ordem = 'faturamento' then coalesce(v.receita, 0) end desc nulls last,
+    case when p_ordem = 'realizada' and coalesce(v.receita, 0) > 0
+         then (v.receita - v.cmv) / v.receita end desc nulls last,
+    case when p_ordem = 'cadastro' and coalesce(p.preco_venda, 0) > 0
+         then (p.preco_venda - coalesce(p.preco_custo, 0)) / p.preco_venda end desc nulls last,
+    p.nome
   limit p_limite;
 $$;
 
 grant execute on function margem_categorias(uuid, date, date) to authenticated;
-grant execute on function margem_produtos(uuid, text, date, date, int) to authenticated;
+grant execute on function margem_produtos(uuid, text, date, date, int, text) to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- 6. Conferência

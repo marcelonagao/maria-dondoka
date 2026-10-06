@@ -58,6 +58,23 @@ const formatPct = (valor: number | null) =>
 
 const formatNumero = (valor: number) => new Intl.NumberFormat('pt-BR').format(valor);
 
+// O que vai no topo das duas tabelas. A ordem dos produtos é decidida no banco: a maior
+// categoria tem 8.621 produtos, e ordenar no navegador depois do limite mostraria o topo da
+// ordem errada.
+const ORDENS = [
+  { valor: 'realizada', rotulo: 'Maior margem realizada' },
+  { valor: 'faturamento', rotulo: 'Maior faturamento' },
+  { valor: 'cadastro', rotulo: 'Maior margem de cadastro' },
+] as const;
+
+type Ordem = (typeof ORDENS)[number]['valor'];
+
+const chaveDaOrdem = (ordem: Ordem) => (c: CategoriaLinha) => {
+  if (ordem === 'faturamento') return c.receita ?? 0;
+  if (ordem === 'cadastro') return c.margem_cadastro_pct ?? -Infinity;
+  return c.margem_realizada_pct ?? -Infinity;
+};
+
 // Margem negativa em vermelho; o resto em cinza. Verde só onde a margem é boa de verdade,
 // senão a cor deixa de significar algo.
 const corDaMargem = (valor: number | null) => {
@@ -76,6 +93,7 @@ export default function ProdutosPage() {
   const [categorias, setCategorias] = useState<CategoriaLinha[]>([]);
   const [categoriaAberta, setCategoriaAberta] = useState<string | null>(null);
   const [produtos, setProdutos] = useState<ProdutoLinha[]>([]);
+  const [ordem, setOrdem] = useState<Ordem>('realizada');
   const [busca, setBusca] = useState('');
   const [lidoEm, setLidoEm] = useState<string | null>(null);
 
@@ -159,15 +177,8 @@ export default function ProdutosPage() {
 
   useEffect(() => { carregarCategorias(); }, [carregarCategorias]);
 
-  const abrirCategoria = useCallback(async (categoria: string) => {
-    if (categoriaAberta === categoria) {
-      setCategoriaAberta(null);
-      setProdutos([]);
-      return;
-    }
-    setCategoriaAberta(categoria);
+  const carregarProdutos = useCallback(async (categoria: string) => {
     setCarregandoProdutos(true);
-    setBusca('');
     try {
       const { inicio, fim } = intervaloDoMes(mes);
       const { data, error } = await supabase.rpc('margem_produtos', {
@@ -176,6 +187,7 @@ export default function ProdutosPage() {
         p_data_inicio: inicio,
         p_data_fim: fim,
         p_limite: 300,
+        p_ordem: ordem,
       });
       if (error) throw error;
       setProdutos((data as ProdutoLinha[]) || []);
@@ -185,7 +197,25 @@ export default function ProdutosPage() {
     } finally {
       setCarregandoProdutos(false);
     }
-  }, [categoriaAberta, franquiaSelecionada, mes]);
+  }, [franquiaSelecionada, mes, ordem]);
+
+  const abrirCategoria = useCallback((categoria: string) => {
+    if (categoriaAberta === categoria) {
+      setCategoriaAberta(null);
+      setProdutos([]);
+      return;
+    }
+    setCategoriaAberta(categoria);
+    setBusca('');
+    carregarProdutos(categoria);
+  }, [categoriaAberta, carregarProdutos]);
+
+  // Trocar a ordem recarrega a categoria aberta: o corte em 300 é feito no banco, então a
+  // ordem nova precisa vir de lá, não de uma reordenação do que já está na tela.
+  useEffect(() => {
+    if (categoriaAberta) carregarProdutos(categoriaAberta);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ordem]);
 
   const produtosFiltrados = useMemo(() => {
     const termo = busca.trim().toLowerCase();
@@ -194,6 +224,12 @@ export default function ProdutosPage() {
       (p) => p.nome.toLowerCase().includes(termo) || p.sku.includes(termo) || (p.codigo_barras || '').includes(termo)
     );
   }, [produtos, busca]);
+
+  // As 37 categorias cabem todas na tela, então a ordem delas é só uma reordenação aqui.
+  const categoriasOrdenadas = useMemo(() => {
+    const chave = chaveDaOrdem(ordem);
+    return [...categorias].sort((a, b) => chave(b) - chave(a));
+  }, [categorias, ordem]);
 
   const totais = useMemo(() => ({
     produtos: categorias.reduce((soma, c) => soma + c.produtos, 0),
@@ -223,6 +259,15 @@ export default function ProdutosPage() {
               ))}
             </select>
           )}
+          <select
+            className="px-4 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-amber-400 outline-none bg-white text-stone-700 text-sm"
+            value={ordem}
+            onChange={(e) => setOrdem(e.target.value as Ordem)}
+          >
+            {ORDENS.map((o) => (
+              <option key={o.valor} value={o.valor}>{o.rotulo}</option>
+            ))}
+          </select>
           <input
             type="month"
             value={mes}
@@ -285,7 +330,7 @@ export default function ProdutosPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100">
-                {categorias.map((c) => (
+                {categoriasOrdenadas.map((c) => (
                   <React.Fragment key={c.categoria}>
                     <tr
                       onClick={() => abrirCategoria(c.categoria)}
@@ -318,7 +363,7 @@ export default function ProdutosPage() {
                               <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
                                 <p className="text-xs text-stone-500">
                                   {formatNumero(produtosFiltrados.length)} de {formatNumero(produtos.length)} produtos ·
-                                  maiores margens primeiro
+                                  {' '}{ORDENS.find((o) => o.valor === ordem)?.rotulo.toLowerCase()} primeiro
                                 </p>
                                 <input
                                   type="search"
@@ -336,9 +381,10 @@ export default function ProdutosPage() {
                                       <th className="text-left font-semibold px-3 py-2">Produto</th>
                                       <th className="text-right font-semibold px-3 py-2">Custo</th>
                                       <th className="text-right font-semibold px-3 py-2">Preço</th>
-                                      <th className="text-right font-semibold px-3 py-2">Margem</th>
+                                      <th className="text-right font-semibold px-3 py-2">Margem cadastro</th>
                                       <th className="text-right font-semibold px-3 py-2">Vendidos</th>
-                                      <th className="text-right font-semibold px-3 py-2">Margem real</th>
+                                      <th className="text-right font-semibold px-3 py-2">Faturamento</th>
+                                      <th className="text-right font-semibold px-3 py-2">Margem realizada</th>
                                     </tr>
                                   </thead>
                                   <tbody className="divide-y divide-stone-100">
@@ -360,6 +406,9 @@ export default function ProdutosPage() {
                                         <td className="px-3 py-2 text-right tabular-nums text-stone-600">
                                           {p.unidades > 0 ? formatNumero(p.unidades) : '—'}
                                         </td>
+                                        <td className="px-3 py-2 text-right tabular-nums text-stone-600">
+                                          {p.receita > 0 ? formatCurrency(p.receita) : '—'}
+                                        </td>
                                         <td className={`px-3 py-2 text-right tabular-nums ${corDaMargem(p.margem_realizada_pct)}`}>
                                           {formatPct(p.margem_realizada_pct)}
                                         </td>
@@ -371,7 +420,7 @@ export default function ProdutosPage() {
 
                               {produtos.length >= 300 && (
                                 <p className="text-[11px] text-stone-400 mt-2">
-                                  Mostrando os 300 de maior margem desta categoria.
+                                  Mostrando os 300 primeiros desta categoria, na ordem escolhida.
                                 </p>
                               )}
                             </>
