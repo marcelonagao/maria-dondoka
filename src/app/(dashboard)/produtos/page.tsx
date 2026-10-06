@@ -58,6 +58,20 @@ const formatPct = (valor: number | null) =>
 
 const formatNumero = (valor: number) => new Intl.NumberFormat('pt-BR').format(valor);
 
+// O erro do Supabase não é um `Error`: é um objeto com message, code, details e hint. Jogado
+// em String() vira "[object Object]" na tela — foi o que apareceu no timeout de 05/10/2026,
+// escondendo justamente o código (57014) que dizia o que tinha acontecido.
+const mensagemDeErro = (falha: unknown): string => {
+  if (falha instanceof Error) return falha.message;
+  if (falha && typeof falha === 'object') {
+    const e = falha as { message?: string; details?: string; hint?: string; code?: string };
+    const partes = [e.message, e.details, e.hint].filter(Boolean);
+    const texto = partes.length > 0 ? partes.join(' · ') : JSON.stringify(falha);
+    return e.code ? `${texto} (código ${e.code})` : texto;
+  }
+  return String(falha);
+};
+
 // O que vai no topo das duas tabelas. A ordem dos produtos é decidida no banco: a maior
 // categoria tem 8.621 produtos, e ordenar no navegador depois do limite mostraria o topo da
 // ordem errada.
@@ -169,7 +183,7 @@ export default function ProdutosPage() {
       console.error('Erro ao carregar margem por categoria:', falha);
       // A mensagem técnica fica menor, abaixo — esconder o texto do banco já custou um
       // ciclo inteiro de diagnóstico neste workspace.
-      setErro(falha instanceof Error ? falha.message : String(falha));
+      setErro(mensagemDeErro(falha));
     } finally {
       setCarregando(false);
     }
@@ -179,6 +193,9 @@ export default function ProdutosPage() {
 
   const carregarProdutos = useCallback(async (categoria: string) => {
     setCarregandoProdutos(true);
+    // Limpa o erro da tentativa anterior: sem isto, o aviso de uma categoria que falhou
+    // ficava na tela enquanto outra categoria carregava bem ao lado.
+    setErro(null);
     try {
       const { inicio, fim } = intervaloDoMes(mes);
       const { data, error } = await supabase.rpc('margem_produtos', {
@@ -193,7 +210,7 @@ export default function ProdutosPage() {
       setProdutos((data as ProdutoLinha[]) || []);
     } catch (falha) {
       console.error('Erro ao carregar produtos da categoria:', falha);
-      setErro(falha instanceof Error ? falha.message : String(falha));
+      setErro(mensagemDeErro(falha));
     } finally {
       setCarregandoProdutos(false);
     }
@@ -330,38 +347,58 @@ export default function ProdutosPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100">
-                {categoriasOrdenadas.map((c) => (
+                {categoriasOrdenadas.map((c) => {
+                  const aberta = categoriaAberta === c.categoria;
+                  return (
                   <React.Fragment key={c.categoria}>
+                    {/* Linha aberta: fundo escuro, texto forte e uma barra na lateral que
+                        desce pelo bloco de detalhe. É o que diz, de relance, que o que vem
+                        abaixo pertence a ela. */}
                     <tr
                       onClick={() => abrirCategoria(c.categoria)}
-                      className={`cursor-pointer hover:bg-stone-50 ${categoriaAberta === c.categoria ? 'bg-stone-50' : ''}`}
+                      aria-expanded={aberta}
+                      className={`cursor-pointer transition-colors ${
+                        aberta
+                          ? 'bg-stone-800 text-white hover:bg-stone-800'
+                          : 'hover:bg-stone-50'
+                      }`}
                     >
-                      <td className="px-4 py-3 font-medium text-stone-700">
-                        <span className="text-stone-400 mr-2">{categoriaAberta === c.categoria ? '▾' : '▸'}</span>
+                      <td className={`px-4 py-3 font-medium ${aberta ? 'text-white font-bold' : 'text-stone-700'}`}>
+                        <span className={`mr-2 ${aberta ? 'text-amber-300' : 'text-stone-400'}`}>
+                          {aberta ? '▾' : '▸'}
+                        </span>
                         {c.categoria}
                       </td>
-                      <td className="px-4 py-3 text-right tabular-nums text-stone-600">{formatNumero(c.produtos)}</td>
-                      <td className={`px-4 py-3 text-right tabular-nums ${c.anomalias > 0 ? 'text-red-600 font-semibold' : 'text-stone-400'}`}>
+                      <td className={`px-4 py-3 text-right tabular-nums ${aberta ? 'text-stone-200' : 'text-stone-600'}`}>{formatNumero(c.produtos)}</td>
+                      <td className={`px-4 py-3 text-right tabular-nums ${
+                        c.anomalias > 0
+                          ? (aberta ? 'text-red-300 font-semibold' : 'text-red-600 font-semibold')
+                          : (aberta ? 'text-stone-400' : 'text-stone-400')
+                      }`}>
                         {c.anomalias > 0 ? formatNumero(c.anomalias) : '—'}
                       </td>
-                      <td className={`px-4 py-3 text-right tabular-nums ${corDaMargem(c.margem_cadastro_pct)}`}>
+                      <td className={`px-4 py-3 text-right tabular-nums ${aberta ? 'text-stone-100' : corDaMargem(c.margem_cadastro_pct)}`}>
                         {formatPct(c.margem_cadastro_pct)}
                       </td>
-                      <td className="px-4 py-3 text-right tabular-nums text-stone-600">{formatCurrency(c.receita)}</td>
-                      <td className={`px-4 py-3 text-right tabular-nums ${corDaMargem(c.margem_realizada_pct)}`}>
+                      <td className={`px-4 py-3 text-right tabular-nums ${aberta ? 'text-stone-200' : 'text-stone-600'}`}>{formatCurrency(c.receita)}</td>
+                      <td className={`px-4 py-3 text-right tabular-nums ${aberta ? 'text-stone-100' : corDaMargem(c.margem_realizada_pct)}`}>
                         {formatPct(c.margem_realizada_pct)}
                       </td>
                     </tr>
 
-                    {categoriaAberta === c.categoria && (
+                    {aberta && (
                       <tr>
-                        <td colSpan={6} className="bg-stone-50 px-4 py-4">
+                        {/* Sem padding na célula: quem desenha é a div de dentro, para a barra
+                            lateral encostar na borda e amarrar o detalhe à linha de cima. */}
+                        <td colSpan={6} className="p-0">
+                          <div className="border-l-4 border-stone-800 bg-stone-100 px-4 py-4">
                           {carregandoProdutos ? (
                             <p className="text-stone-400 text-sm py-4 text-center">Carregando produtos...</p>
                           ) : (
                             <>
                               <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-                                <p className="text-xs text-stone-500">
+                                <p className="text-xs text-stone-600">
+                                  <span className="font-bold text-stone-800">{c.categoria}</span>{' · '}
                                   {formatNumero(produtosFiltrados.length)} de {formatNumero(produtos.length)} produtos ·
                                   {' '}{ORDENS.find((o) => o.valor === ordem)?.rotulo.toLowerCase()} primeiro
                                 </p>
@@ -376,8 +413,10 @@ export default function ProdutosPage() {
 
                               <div className="overflow-x-auto bg-white border border-stone-200 rounded-lg">
                                 <table className="w-full text-sm">
-                                  <thead className="bg-white border-b border-stone-200">
-                                    <tr className="text-stone-500 text-xs uppercase tracking-wider">
+                                  {/* Cabeçalho do detalhe em cinza claro e letra menor: ele é
+                                      subordinado ao de cima, não um segundo cabeçalho igual. */}
+                                  <thead className="bg-stone-50 border-b border-stone-200">
+                                    <tr className="text-stone-500 text-[11px] uppercase tracking-wider">
                                       <th className="text-left font-semibold px-3 py-2">Produto</th>
                                       <th className="text-right font-semibold px-3 py-2">Custo</th>
                                       <th className="text-right font-semibold px-3 py-2">Preço</th>
@@ -425,11 +464,13 @@ export default function ProdutosPage() {
                               )}
                             </>
                           )}
+                          </div>
                         </td>
                       </tr>
                     )}
                   </React.Fragment>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
