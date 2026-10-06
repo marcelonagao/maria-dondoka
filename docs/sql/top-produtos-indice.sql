@@ -17,6 +17,10 @@
 -- Rode às madrugadas ou com as lojas fechadas: criar o índice trava gravações em
 -- vendas_itens por alguns segundos.
 
+-- SUBSTITUÍDO em 05/10/2026 por `idx_vendas_itens_linha_data_franquia`, em
+-- `catalogo-pdv.sql`: as mesmas duas colunas, mais `franchise_id` no fim. A consulta desta
+-- página usa o prefixo e continua igual; a tela de produtos, que também filtra por loja,
+-- precisava da terceira. Não recriar o de duas colunas: redundante, e custa escrita.
 create index if not exists idx_vendas_itens_linha_coalesce_data
   on public.vendas_itens ((coalesce(produto_linha, 'SEM CATEGORIA')), data_venda);
 

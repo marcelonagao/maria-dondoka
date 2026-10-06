@@ -41,9 +41,13 @@ comment on column public.produtos.sku is
 comment on column public.produtos.codigo_barras is
   'referencia do PDV (EAN). Pode repetir entre produtos da mesma loja.';
 
--- A tela filtra por loja e categoria; sem isto, cada abertura varre o cadastro inteiro.
+-- A tela filtra por loja e categoria. O índice tem de ser sobre a MESMA expressão do filtro
+-- (coalesce + nullif + btrim), senão o Postgres o ignora: com o índice só em (franchise_id,
+-- categoria), a consulta lia 6.243 produtos da loja para descartar 5.943 — 390 ms (05/10/2026).
 create index if not exists idx_produtos_franquia_categoria
   on public.produtos (franchise_id, categoria);
+create index if not exists idx_produtos_franquia_categoria_norm
+  on public.produtos (franchise_id, (coalesce(nullif(btrim(categoria), ''), 'SEM CATEGORIA')));
 
 -- ---------------------------------------------------------------------------
 -- 2. RLS: faltava o dono enxergar as outras lojas
@@ -227,8 +231,18 @@ $$;
 -- 5. Produtos de uma categoria
 -- ---------------------------------------------------------------------------
 -- Uma categoria por vez, de propósito: o filtro em vendas_itens é escrito EXATAMENTE como a
--- expressão do índice `idx_vendas_itens_linha_coalesce_data`, e é isso que mantém a consulta
+-- expressão do índice `idx_vendas_itens_linha_data_franquia`, e é isso que mantém a consulta
 -- abaixo de um segundo. Mudar a expressão aqui volta a varrer o período inteiro.
+--
+-- O índice precisa das TRÊS colunas na ordem (categoria, data, franquia). Com apenas
+-- (categoria, data) — como era até 05/10/2026 — o planejador cruzava aquele índice com o de
+-- franquia, e o segundo trazia as 183 mil linhas da loja inteira: 2,8 s na consulta crua e
+-- 57014 (timeout) na tela. Com a franquia dentro do mesmo índice, 270 a 770 ms.
+create index if not exists idx_vendas_itens_linha_data_franquia
+  on public.vendas_itens ((coalesce(produto_linha, 'SEM CATEGORIA')), data_venda, franchise_id);
+
+-- O antigo é prefixo do novo, então sai: índice redundante custa espaço e escrita.
+drop index if exists idx_vendas_itens_linha_coalesce_data;
 -- `p_ordem` decide o que vai no topo, e isso TEM de ser decidido aqui: a maior categoria tem
 -- 8.621 produtos, então ordenar no navegador depois do limite mostraria o topo da ordem
 -- errada. Ordem padrão: margem realizada — foi o que a tela mostrava antes, ordenada pela
