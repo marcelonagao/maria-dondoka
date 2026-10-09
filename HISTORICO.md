@@ -5,13 +5,17 @@ for resolvido — remova daqui, não deixe acumular.
 
 ## Franquias
 
-8 lojas reais (Caraguatatuba ×2, Taubaté ×3, Pindamonhangaba, Jacareí, Lorena) + 1 franquia de
+9 lojas reais (Caraguatatuba ×2, Taubaté ×3, Pindamonhangaba, Jacareí, Lorena, Paraibuna) + 1 franquia de
 teste antiga, marcada `[TESTE - NÃO USAR]` no nome — não apagada por risco de cascade em tabelas
 relacionadas, mas não deve receber dado novo.
 
 ## Resolvido — não redescobrir
 
-- Sync de PDV das 8 lojas testado e funcionando (2 caminhos, ver `CLAUDE.md`).
+- Sync de PDV das 8 primeiras lojas testado e funcionando (2 caminhos, ver `CLAUDE.md`).
+- Loja9 (Paraibuna) incluída em 09/10/2026 no script `sync-7-lojas.php` (substitui o
+  `sync-6-lojas.php`); webhook respondeu 200. Inaugura em 10/10/2026 — conferir
+  `vendas_itens` depois da primeira venda (hoje 0 linhas, esperado) e cancelar no PDV
+  eventual venda de teste anterior à abertura.
 - Backfill histórico de `vendas_itens` (jan–set) rodado — cobertura real varia por loja (algumas
   só têm dado a partir de quando o sistema A7 Pharma foi adotado naquela unidade, não desde
   janeiro).

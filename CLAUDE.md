@@ -1,6 +1,6 @@
 # maria-dondoka — Regras do Projeto
 
-Sistema de gestão financeira multi-franquia (perfumaria, 8 lojas). Este arquivo carrega junto
+Sistema de gestão financeira multi-franquia (perfumaria, 9 lojas). Este arquivo carrega junto
 com o `CLAUDE.md` do workspace quando você trabalha nesta pasta.
 
 Histórico de decisões e pendências: @HISTORICO.md
@@ -63,9 +63,10 @@ checar.
   - Loja1: `{1:dinheiro, 8:débito, 9:crédito, 10:venda_internet, 11:depósito, 12:pix}`
   - Loja4: `{1:dinheiro, 8:crédito, 9:débito, 10:pix, 11:depósito, 12:venda_internet}`
     (venda_internet existe, só troca de código com pix — não "some")
-  - As outras 6 lojas usam script PHP fora deste repositório — **não verificável a partir do
+  - As outras 7 lojas usam script PHP fora deste repositório — **não verificável a partir do
     código aqui**; se alguém disse que seguem um dos dois padrões acima, tratar como hipótese
-    a confirmar com `SELECT * FROM contas`, não como fato estabelecido.
+    a confirmar com `SELECT * FROM contas`, não como fato estabelecido. Loja9 (Paraibuna)
+    confirmada em 09/10/2026 por `SELECT * FROM contas`: segue o padrão da Loja1.
   - **Sempre rodar `SELECT * FROM contas` na loja específica antes de escrever/reaproveitar
     mapeamento.** Já causou inversão real de débito/crédito quando pulado (Loja4).
   - `src/lib/gerarScriptPhp.ts` (`gerarScriptPhpPorUsuario`, usado no fluxo de onboarding em
@@ -106,7 +107,7 @@ checar.
   (`sincronizarLoja()` em `src/lib/lojasDiretas.ts`), disparado por `/api/pdv/trigger-sync`
   (autenticado por sessão) e agendado via **GitHub Actions** (Vercel Hobby só permite cron
   diário nativo).
-- **As outras 6 lojas** (Locaweb DBaaS, bloqueio de IP confirmado, sem solução por fora): script
+- **As outras 7 lojas** (Locaweb DBaaS, bloqueio de IP confirmado, sem solução por fora): script
   PHP hospedado em ambiente compartilhado externo ao repositório (não existe `.php` aqui —
   mudanças nesse caminho são feitas manualmente, fora do fluxo de PR). Agendado via cron-job.org
   (serviço externo).
