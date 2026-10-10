@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { z } from 'zod';
 import { getPerfilAutenticado } from '../../../lib/server-auth';
 
 const supabaseAdmin = createClient(
@@ -36,4 +37,48 @@ export async function GET() {
       criado_em: a.criado_em,
     })),
   });
+}
+
+const ResolverAlertaSchema = z.object({
+  id: z.union([z.string().min(1), z.number()]),
+});
+
+// Marca um alerta como resolvido. Só mexe em `resolvido`: quem confere o dado (DRE, caixa) é
+// o gestor, e o alerta some da tela mas continua na tabela para consulta.
+export async function PATCH(request: Request) {
+  const perfil = await getPerfilAutenticado();
+  if (!perfil) return NextResponse.json({ error: 'NAO_AUTORIZADO' }, { status: 401 });
+
+  // Mesmo escopo da leitura acima: quem não vê os alertas também não os resolve.
+  if (perfil.escopo !== 'todas_franquias') {
+    return NextResponse.json({ error: 'NAO_AUTORIZADO' }, { status: 403 });
+  }
+
+  let corpo: unknown;
+  try {
+    corpo = await request.json();
+  } catch {
+    return NextResponse.json({ error: 'DADOS_INVALIDOS' }, { status: 400 });
+  }
+  const parsed = ResolverAlertaSchema.safeParse(corpo);
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'DADOS_INVALIDOS', detalhe: parsed.error.flatten() }, { status: 400 });
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from('alertas_sistema')
+    .update({ resolvido: true })
+    .eq('id', parsed.data.id)
+    .eq('resolvido', false)
+    .select('id');
+
+  if (error) {
+    console.error('Falha ao resolver alerta:', error.message, { alertaId: parsed.data.id });
+    return NextResponse.json({ error: 'ERRO_INTERNO', detalhe: error.message }, { status: 500 });
+  }
+  if (!data || data.length === 0) {
+    return NextResponse.json({ error: 'ALERTA_NAO_ENCONTRADO' }, { status: 404 });
+  }
+
+  return NextResponse.json({ ok: true });
 }
