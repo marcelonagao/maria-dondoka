@@ -40,12 +40,20 @@ export interface AcompanhamentoLoja {
   necessarioPorDiaSuper: number | null;
   // Realizado até ontem ÷ (meta proporcional aos dias completos). >1 = adiantado.
   ritmo: number | null;
+  // Fechamento se o resto do mês seguir o passo médio dos dias completos deste mês. Segunda
+  // opinião para a projeção de 30 dias: quando as duas discordam, a tela avisa.
+  passoMes: number | null;
+  projecoesDivergem: boolean;
   status: StatusMeta;
 }
 
 // Abaixo disso o histórico é curto demais para a média de 30 dias valer como estimativa.
 export const MIN_DIAS_ESTIMATIVA = 14;
 const DIAS_JANELA = 30;
+// Dias completos do mês necessários para o "passo do mês" valer (dia atual > este número).
+const MIN_DIAS_PASSO = 3;
+// Diferença relativa entre as duas projeções a partir da qual a tela avisa.
+const LIMITE_DIVERGENCIA = 0.2;
 
 const num = (v: number | string | null): number => (v === null ? 0 : Number(v));
 
@@ -97,6 +105,17 @@ export function calcularLoja(linha: LinhaMetaCrua, mes: string, hoje: string): A
     ritmo = esperado > 0 ? (realizado - realizadoHoje) / esperado : null;
   }
 
+  // Precisa de alguns dias completos no mês, senão um dia isolado vira "passo".
+  let passoMes: number | null = null;
+  if (fase === 'corrente' && diaAtual > MIN_DIAS_PASSO) {
+    const ateOntem = realizado - realizadoHoje;
+    const mediaMes = ateOntem / (diaAtual - 1);
+    passoMes = ateOntem + Math.max(realizadoHoje, mediaMes) + mediaMes * diasRestantes;
+  }
+  const maior = Math.max(projecao || 0, passoMes || 0);
+  const projecoesDivergem =
+    projecao !== null && passoMes !== null && maior > 0 && Math.abs(projecao - passoMes) / maior > LIMITE_DIVERGENCIA;
+
   // Mês fechado julga pelo realizado; mês corrente, pela projeção. Projeção igual à meta
   // conta como meta batida.
   const base = fase === 'fechado' ? realizado : projecao;
@@ -124,6 +143,8 @@ export function calcularLoja(linha: LinhaMetaCrua, mes: string, hoje: string): A
     necessarioPorDiaMeta: porDia(faltaMeta),
     necessarioPorDiaSuper: porDia(faltaSuperMeta),
     ritmo,
+    passoMes,
+    projecoesDivergem,
     status,
   };
 }

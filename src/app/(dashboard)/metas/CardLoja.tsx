@@ -130,6 +130,11 @@ export default function CardLoja({ loja }: { loja: AcompanhamentoLoja }) {
             {projecao !== null && <>Projeção = {formatarPercentual(projecao / (meta as number))} da meta e {formatarPercentual(projecao / (superMeta as number))} da super</>}
             {loja.ritmo !== null && <> · Ritmo {formatarPercentual(loja.ritmo)}</>}
           </p>
+          {loja.passoMes !== null && (
+            <p className="text-xs text-stone-600 tabular-nums">
+              No passo deste mês: <strong>{formatarMoeda(loja.passoMes)}</strong> ({formatarPercentual(loja.passoMes / (meta as number))} da meta)
+            </p>
+          )}
         </>
       )}
 
@@ -138,12 +143,22 @@ export default function CardLoja({ loja }: { loja: AcompanhamentoLoja }) {
       )}
 
       {/* Altura reservada: só algumas lojas têm o aviso e a fileira não pode desalinhar. */}
-      <p className="min-h-[2.25rem] text-xs text-orange-800">
-        {loja.estimativaFraca &&
-          (loja.diasJanela === 0
-            ? '⚠ Sem histórico de vendas: a projeção ainda não tem base.'
-            : `⚠ Estimativa com poucos dados: média de ${loja.diasJanela} dia(s) de venda.`)}
-      </p>
+      <div className="min-h-[3.5rem] text-xs text-orange-800 space-y-1">
+        {loja.estimativaFraca && (
+          <p>
+            {loja.diasJanela === 0
+              ? '⚠ Sem histórico de vendas: a projeção ainda não tem base.'
+              : `⚠ Estimativa com poucos dados: média de ${loja.diasJanela} dia(s) de venda.`}
+          </p>
+        )}
+        {loja.projecoesDivergem && (
+          <p>
+            ⚠ A projeção (média dos últimos 30 dias) e o passo deste mês divergem. O mês atual está{' '}
+            {(loja.passoMes as number) > (loja.projecao as number) ? 'mais forte' : 'mais fraco'} que os 30 dias
+            anteriores — confira antes de decidir.
+          </p>
+        )}
+      </div>
     </article>
   );
 }

@@ -138,6 +138,9 @@ checar.
   corridos antes de hoje ÷ dias da janela (loja nova divide pelos dias que tem; < 14 dias = aviso).
   Meta batida quando a projeção é ≥ meta (igual conta). Regra em `src/lib/metas.ts` (função pura,
   conferida por `scratch/conferir-metas.mjs`); a RPC `acompanhamento_metas` só devolve números crus.
+- **Passo do mês** (segunda opinião): mesma fórmula, com a média dos dias completos deste mês no
+  lugar da de 30 dias (só a partir do 4º dia). Se as duas diferem mais de 20%, o card avisa.
+  A projeção de 30 dias continua sendo a que define o status.
 - "Hoje" vai por parâmetro (Brasília); `current_date` do banco é UTC.
 
 ## Identidade visual
