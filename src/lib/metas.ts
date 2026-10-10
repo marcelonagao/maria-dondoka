@@ -1,4 +1,4 @@
-import { intervaloDoMes } from './date';
+import { adicionarDias, intervaloDoMes } from './date';
 
 // Regra de negócio da tela /metas. Fica fora da tela para ser conferida sem navegador
 // (ver scratch/conferir-metas.mjs). A tela só desenha o que estas funções decidiram.
@@ -13,6 +13,8 @@ export interface LinhaMetaCrua {
   realizado_hoje: number | string;
   soma_janela: number | string;
   primeira_venda: string | null;
+  // Vendas das 8 semanas anteriores a hoje, por dia da semana (índice 0 = domingo).
+  soma_por_dia_semana: (number | string)[] | null;
 }
 
 export type FaseMes = 'corrente' | 'fechado' | 'futuro';
@@ -44,12 +46,19 @@ export interface AcompanhamentoLoja {
   // opinião para a projeção de 30 dias: quando as duas discordam, a tela avisa.
   passoMes: number | null;
   projecoesDivergem: boolean;
+  // true quando a projeção usou o formato da semana da loja (senão, todos os dias valem igual).
+  usaDiaSemana: boolean;
   status: StatusMeta;
 }
 
 // Abaixo disso o histórico é curto demais para a média de 30 dias valer como estimativa.
 export const MIN_DIAS_ESTIMATIVA = 14;
 const DIAS_JANELA = 30;
+// O formato da semana vem de 8 semanas; com menos que isso (ou dia da semana com menos de 4
+// amostras) a loja cai na projeção plana em vez de inventar um perfil.
+const DIAS_PERFIL = 56;
+const MIN_DIAS_PERFIL = 28;
+const MIN_AMOSTRAS_POR_DIA = 4;
 // Dias completos do mês necessários para o "passo do mês" valer (dia atual > este número).
 const MIN_DIAS_PASSO = 3;
 // Diferença relativa entre as duas projeções a partir da qual a tela avisa.
@@ -61,6 +70,37 @@ function diasEntre(deISO: string, ateISO: string): number {
   const a = Date.UTC(+deISO.slice(0, 4), +deISO.slice(5, 7) - 1, +deISO.slice(8, 10));
   const b = Date.UTC(+ateISO.slice(0, 4), +ateISO.slice(5, 7) - 1, +ateISO.slice(8, 10));
   return Math.round((b - a) / 86400000);
+}
+
+const diaDaSemana = (dataISO: string): number => new Date(dataISO + 'T00:00:00Z').getUTCDay();
+
+// Fator de cada dia da semana (0 = domingo) = média daquele dia ÷ média das 7 médias, então a
+// média dos fatores é exatamente 1: o perfil só redistribui, não muda o nível. null = sem base.
+export function fatoresDiaSemana(
+  soma: (number | string)[] | null,
+  primeiraVenda: string | null,
+  hoje: string
+): number[] | null {
+  if (!soma || soma.length !== 7 || !primeiraVenda) return null;
+  const desdePerfil = adicionarDias(hoje, -DIAS_PERFIL);
+  const inicio = primeiraVenda > desdePerfil ? primeiraVenda : desdePerfil;
+  const total = diasEntre(inicio, hoje);
+  if (total < MIN_DIAS_PERFIL) return null;
+  const contagem = [0, 0, 0, 0, 0, 0, 0];
+  for (let i = 0; i < total; i++) contagem[diaDaSemana(adicionarDias(inicio, i))]++;
+  if (contagem.some((c) => c < MIN_AMOSTRAS_POR_DIA)) return null;
+  const medias = contagem.map((c, d) => num(soma[d]) / c);
+  const media = medias.reduce((a, b) => a + b, 0) / 7;
+  return media > 0 ? medias.map((m) => m / media) : null;
+}
+
+// Soma dos fatores dos dias [de, ate). Sem fatores, cada dia vale 1.
+function somaFatores(f: number[] | null, de: string, ate: string): number {
+  const dias = Math.max(0, diasEntre(de, ate));
+  if (!f) return dias;
+  let t = 0;
+  for (let i = 0; i < dias; i++) t += f[diaDaSemana(adicionarDias(de, i))];
+  return t;
 }
 
 export function calcularLoja(linha: LinhaMetaCrua, mes: string, hoje: string): AcompanhamentoLoja {
@@ -79,6 +119,15 @@ export function calcularLoja(linha: LinhaMetaCrua, mes: string, hoje: string): A
     ? Math.max(0, Math.min(DIAS_JANELA, diasEntre(linha.primeira_venda, hoje)))
     : 0;
   const mediaDiaria = diasJanela > 0 ? num(linha.soma_janela) / diasJanela : 0;
+  const fatores = fatoresDiaSemana(linha.soma_por_dia_semana, linha.primeira_venda, hoje);
+  const fator = (dataISO: string) => (fatores ? fatores[diaDaSemana(dataISO)] : 1);
+  // Nível = média diária "de um dia comum": a janela é dividida pela soma dos fatores dos dias
+  // que ela cobre (e não pelo número de dias), para uma janela com mais fins de semana não inflar.
+  const nivelJanela = (() => {
+    if (diasJanela === 0) return 0;
+    const soma = somaFatores(fatores, adicionarDias(hoje, -diasJanela), hoje);
+    return soma > 0 ? num(linha.soma_janela) / soma : 0;
+  })();
 
   const diaAtual = fase === 'corrente' ? Number(hoje.slice(8, 10)) : 0;
   const diasRestantes = fase === 'corrente' ? diasNoMes - diaAtual : 0;
@@ -88,7 +137,8 @@ export function calcularLoja(linha: LinhaMetaCrua, mes: string, hoje: string): A
     // Hoje conta pelo maior entre o que já vendeu e a média: dia parcial não derruba a
     // projeção, e dia que já passou da média não é jogado fora.
     const ateOntem = realizado - realizadoHoje;
-    projecao = ateOntem + Math.max(realizadoHoje, mediaDiaria) + mediaDiaria * diasRestantes;
+    projecao = ateOntem + Math.max(realizadoHoje, nivelJanela * fator(hoje));
+    for (let i = 1; i <= diasRestantes; i++) projecao += nivelJanela * fator(adicionarDias(hoje, i));
   } else {
     projecao = fase === 'fechado' ? realizado : null;
   }
@@ -109,8 +159,10 @@ export function calcularLoja(linha: LinhaMetaCrua, mes: string, hoje: string): A
   let passoMes: number | null = null;
   if (fase === 'corrente' && diaAtual > MIN_DIAS_PASSO) {
     const ateOntem = realizado - realizadoHoje;
-    const mediaMes = ateOntem / (diaAtual - 1);
-    passoMes = ateOntem + Math.max(realizadoHoje, mediaMes) + mediaMes * diasRestantes;
+    const somaCompletos = somaFatores(fatores, inicio, hoje);
+    const nivelMes = somaCompletos > 0 ? ateOntem / somaCompletos : 0;
+    passoMes = ateOntem + Math.max(realizadoHoje, nivelMes * fator(hoje));
+    for (let i = 1; i <= diasRestantes; i++) passoMes += nivelMes * fator(adicionarDias(hoje, i));
   }
   const maior = Math.max(projecao || 0, passoMes || 0);
   const projecoesDivergem =
@@ -145,6 +197,7 @@ export function calcularLoja(linha: LinhaMetaCrua, mes: string, hoje: string): A
     ritmo,
     passoMes,
     projecoesDivergem,
+    usaDiaSemana: fase === 'corrente' && fatores !== null,
     status,
   };
 }

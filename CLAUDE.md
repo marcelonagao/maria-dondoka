@@ -138,6 +138,11 @@ checar.
   corridos antes de hoje ÷ dias da janela (loja nova divide pelos dias que tem; < 14 dias = aviso).
   Meta batida quando a projeção é ≥ meta (igual conta). Regra em `src/lib/metas.ts` (função pura,
   conferida por `scratch/conferir-metas.mjs`); a RPC `acompanhamento_metas` só devolve números crus.
+- **Dia da semana** (`docs/sql/metas-dia-semana.sql`): o fator de cada dia = média daquele dia nas
+  8 semanas anteriores ÷ média das 7 médias (média dos fatores = 1). Cada dia restante vale
+  `nível × fator`, e o nível é a janela de 30 dias ÷ soma dos fatores dos dias dela. Só vale com
+  ≥ 28 dias de histórico e ≥ 4 amostras por dia da semana; senão a loja usa a média plana e o
+  card não diz "considera o dia da semana". O passo do mês usa os mesmos fatores.
 - **Passo do mês** (segunda opinião): mesma fórmula, com a média dos dias completos deste mês no
   lugar da de 30 dias (só a partir do 4º dia). Se as duas diferem mais de 20%, o card avisa.
   A projeção de 30 dias continua sendo a que define o status.

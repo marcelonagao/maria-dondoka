@@ -129,6 +129,7 @@ export default function CardLoja({ loja }: { loja: AcompanhamentoLoja }) {
           <p className="text-xs text-stone-600 tabular-nums">
             {projecao !== null && <>Projeção = {formatarPercentual(projecao / (meta as number))} da meta e {formatarPercentual(projecao / (superMeta as number))} da super</>}
             {loja.ritmo !== null && <> · Ritmo {formatarPercentual(loja.ritmo)}</>}
+            {loja.usaDiaSemana && <> · considera o dia da semana</>}
           </p>
           {loja.passoMes !== null && (
             <p className="text-xs text-stone-600 tabular-nums">
