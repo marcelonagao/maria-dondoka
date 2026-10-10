@@ -129,6 +129,17 @@ checar.
   física não sabe quem estava logado). Suporta múltiplas fitas por dia (loja com mais de um
   caixa/maquininha).
 
+## Metas (/metas)
+
+- Meta e super meta: uma por loja por mês (`metas_vendas_mes`, migration `docs/sql/metas-vendas.sql`).
+  Só sócio grava, pela RPC `salvar_metas_mes`; gerente lê só a própria loja (RLS).
+- Realizado = Σ `vendas_resumo_dia.vendas_brutas` (igual ao Painel de Vendas). **Projeção** =
+  realizado até ontem + `max(vendido hoje, média)` + média × dias após hoje; **média** = 30 dias
+  corridos antes de hoje ÷ dias da janela (loja nova divide pelos dias que tem; < 14 dias = aviso).
+  Meta batida quando a projeção é ≥ meta (igual conta). Regra em `src/lib/metas.ts` (função pura,
+  conferida por `scratch/conferir-metas.mjs`); a RPC `acompanhamento_metas` só devolve números crus.
+- "Hoje" vai por parâmetro (Brasília); `current_date` do banco é UTC.
+
 ## Identidade visual
 
 Cor de marca real: `#EC008C` (rosa-magenta, extraída da logo oficial). Uso **restrito**: só na

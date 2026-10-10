@@ -20,6 +20,7 @@ const ITENS_PRIMARIOS: ItemNav[] = [
 ];
 
 const ITENS_SECUNDARIOS: ItemNav[] = [
+  { name: 'Metas', tela: 'metas', path: TELA_PARA_ROTA.metas, icon: '🎯' },
   { name: 'Produtos', tela: 'produtos', path: TELA_PARA_ROTA.produtos, icon: '📦' },
   { name: 'DRE', tela: 'dre', path: TELA_PARA_ROTA.dre, icon: '📈' },
   { name: 'Configurações', tela: 'configuracoes', path: TELA_PARA_ROTA.configuracoes, icon: '⚙️' },

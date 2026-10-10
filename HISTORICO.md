@@ -56,6 +56,10 @@ relacionadas, mas não deve receber dado novo.
   ~47 mil linhas da janela. Agora conta no banco — função `auditar_duplicidade_vendas_itens`
   (~0,8s, índice `idx_vendas_itens_data_franquia`).
 
+- **Tela /metas (10/2026):** meta e super meta por loja/mês, com realizado, projeção e deltas
+  ("faltam R$ X"). Código pronto; para entrar no ar: rodar `docs/sql/metas-vendas.sql`, depois o
+  `update roles` do fim do arquivo (libera a tela `metas`). Fórmulas em `CLAUDE.md` → "Metas".
+
 ## Pendente
 
 - Resposta do fornecedor sobre como "Vendas Convênio" (compra de funcionário descontada em
