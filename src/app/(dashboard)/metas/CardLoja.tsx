@@ -55,9 +55,11 @@ export default function CardLoja({ loja }: { loja: AcompanhamentoLoja }) {
   const pProj = projecao !== null ? pct(projecao) : pReal;
   const pMeta = temMeta ? pct(meta as number) : 0;
   const pSuper = temMeta ? pct(superMeta as number) : 0;
-  // Meta e super muito juntas: o rótulo da super desce para a linha de baixo.
-  const superEmbaixo = Math.abs(pSuper - pMeta) < 14;
-  const ancora = (p: number) => ({ left: `${Math.min(94, Math.max(6, p))}%` });
+  // Meta fica sempre em cima e super sempre embaixo: em linhas separadas os rótulos nunca se
+  // sobrepõem, por mais perto que as marcas estejam. Do meio da barra em diante o texto termina
+  // na marca (cresce para a esquerda); antes disso, começa nela. Assim nada passa da borda do card.
+  const posicao = (p: number) =>
+    p > 50 ? { right: `${100 - p}%`, paddingRight: 4 } : { left: `${p}%`, paddingLeft: 4 };
 
   return (
     <article className="bg-white rounded-xl border border-stone-200 shadow-sm p-4 space-y-3">
@@ -99,18 +101,16 @@ export default function CardLoja({ loja }: { loja: AcompanhamentoLoja }) {
               )}
               <div className="absolute inset-y-0 left-0 rounded-full bg-stone-800" style={{ width: `${pReal}%` }} />
               <span className="absolute -top-1 -bottom-1 w-0.5 bg-stone-900" style={{ left: `${pMeta}%` }} />
-              <span className="absolute -top-1 -bottom-1 w-0.5 bg-[#EC008C]" style={{ left: `${pSuper}%` }} />
+              <span className="absolute -top-1 -bottom-1 w-0.5 bg-stone-500" style={{ left: `${pSuper}%` }} />
               <span
-                className="absolute -top-5 -translate-x-1/2 text-[11px] font-medium text-stone-800 whitespace-nowrap"
-                style={ancora(pMeta)}
+                className="absolute -top-5 text-[11px] font-medium text-stone-800 whitespace-nowrap"
+                style={posicao(pMeta)}
               >
                 Meta {formatarMoeda(meta as number)}
               </span>
               <span
-                className={`absolute -translate-x-1/2 text-[11px] font-medium text-stone-800 whitespace-nowrap ${
-                  superEmbaixo ? 'top-4' : '-top-5'
-                }`}
-                style={ancora(pSuper)}
+                className="absolute top-4 text-[11px] font-medium text-stone-800 whitespace-nowrap"
+                style={posicao(pSuper)}
               >
                 Super {formatarMoeda(superMeta as number)}
               </span>
