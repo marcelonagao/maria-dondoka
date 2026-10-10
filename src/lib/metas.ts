@@ -254,3 +254,107 @@ export function formatarMoeda(valor: number): string {
 export function formatarPercentual(razao: number): string {
   return `${Math.round(razao * 100)}%`;
 }
+
+// ---------------------------------------------------------------------------
+// Histórico (meses fechados). Mês corrente fica de fora: medição parcial não é resultado.
+// ---------------------------------------------------------------------------
+
+// Linha crua da RPC historico_metas. `mes` chega como 'YYYY-MM-01'.
+export interface LinhaHistoricoCrua {
+  franchise_id: string;
+  franchise_nome: string;
+  mes: string;
+  meta: number | string | null;
+  super_meta: number | string | null;
+  realizado: number | string;
+}
+
+export interface CelulaHistorico {
+  mes: string; // 'YYYY-MM'
+  meta: number | null;
+  superMeta: number | null;
+  realizado: number;
+  // realizado ÷ meta; null quando não havia meta no mês.
+  razao: number | null;
+  status: 'super' | 'meta' | 'abaixo' | 'sem_meta';
+}
+
+export interface LojaHistorico {
+  franchiseId: string;
+  nome: string;
+  celulas: CelulaHistorico[];
+  mesesComMeta: number;
+  mesesBatidos: number;
+}
+
+export interface ResumoHistorico {
+  meses: string[];
+  lojas: LojaHistorico[];
+  // Por mês: só as lojas que tinham meta naquele mês entram na conta.
+  totais: CelulaHistorico[];
+}
+
+function celulaHistorico(mes: string, meta: number | null, superMeta: number | null, realizado: number): CelulaHistorico {
+  if (meta === null || superMeta === null || meta <= 0) {
+    return { mes, meta: null, superMeta: null, realizado, razao: null, status: 'sem_meta' };
+  }
+  const status = realizado >= superMeta ? 'super' : realizado >= meta ? 'meta' : 'abaixo';
+  return { mes, meta, superMeta, realizado, razao: realizado / meta, status };
+}
+
+export function resumirHistorico(linhas: LinhaHistoricoCrua[]): ResumoHistorico {
+  const meses = Array.from(new Set(linhas.map((l) => l.mes.slice(0, 7)))).sort();
+  const porLoja = new Map<string, LojaHistorico>();
+
+  linhas.forEach((l) => {
+    const mes = l.mes.slice(0, 7);
+    const meta = l.meta === null ? null : Number(l.meta);
+    const superMeta = l.super_meta === null ? null : Number(l.super_meta);
+    let loja = porLoja.get(l.franchise_id);
+    if (!loja) {
+      loja = { franchiseId: l.franchise_id, nome: l.franchise_nome, celulas: [], mesesComMeta: 0, mesesBatidos: 0 };
+      porLoja.set(l.franchise_id, loja);
+    }
+    loja.celulas.push(celulaHistorico(mes, meta, superMeta, num(l.realizado)));
+  });
+
+  const lojas = Array.from(porLoja.values()).map((loja) => {
+    const celulas = [...loja.celulas].sort((a, b) => a.mes.localeCompare(b.mes));
+    return {
+      ...loja,
+      celulas,
+      mesesComMeta: celulas.filter((c) => c.status !== 'sem_meta').length,
+      mesesBatidos: celulas.filter((c) => c.status === 'meta' || c.status === 'super').length,
+    };
+  }).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+
+  const totais = meses.map((mes) => {
+    const comMeta = lojas
+      .map((l) => l.celulas.find((c) => c.mes === mes))
+      .filter((c): c is CelulaHistorico => !!c && c.status !== 'sem_meta');
+    return celulaHistorico(
+      mes,
+      comMeta.length ? comMeta.reduce((s, c) => s + (c.meta || 0), 0) : null,
+      comMeta.length ? comMeta.reduce((s, c) => s + (c.superMeta || 0), 0) : null,
+      comMeta.reduce((s, c) => s + c.realizado, 0)
+    );
+  });
+
+  return { meses, lojas, totais };
+}
+
+// Resumo para o alerta do Dashboard: lojas com meta cuja projeção fica abaixo dela. Loja com
+// pouco histórico fica fora da contagem (a projeção dela ainda não tem base para alarmar).
+export function lojasAbaixoDaMeta(lojas: AcompanhamentoLoja[]): {
+  abaixo: AcompanhamentoLoja[];
+  comMeta: number;
+  poucosDados: number;
+} {
+  const avaliaveis = lojas.filter((l) => l.fase === 'corrente' && l.status !== 'sem_meta');
+  const confiaveis = avaliaveis.filter((l) => !l.estimativaFraca);
+  return {
+    abaixo: confiaveis.filter((l) => l.status === 'abaixo'),
+    comMeta: confiaveis.length,
+    poucosDados: avaliaveis.length - confiaveis.length,
+  };
+}

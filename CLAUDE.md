@@ -146,6 +146,11 @@ checar.
 - **Passo do mês** (segunda opinião): mesma fórmula, com a média dos dias completos deste mês no
   lugar da de 30 dias (só a partir do 4º dia). Se as duas diferem mais de 20%, o card avisa.
   A projeção de 30 dias continua sendo a que define o status.
+- **Histórico** (`docs/sql/metas-historico.sql`, RPC `historico_metas`): grade de 6 meses
+  FECHADOS (mês corrente fora: medição parcial não é resultado). Total do mês só soma lojas que
+  tinham meta nele. **Alerta do Dashboard** (`AlertaMetas.tsx`): conta lojas com projeção abaixo
+  da meta; loja com poucos dados (< 14 dias) fica fora da contagem; sem lojas abaixo, mostra a
+  boa notícia em verde. Falha de carga só vai ao console: o alerta é extra, não derruba o painel.
 - "Hoje" vai por parâmetro (Brasília); `current_date` do banco é UTC.
 
 ## Identidade visual

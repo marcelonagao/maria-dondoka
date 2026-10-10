@@ -12,6 +12,7 @@ import {
 import ResumoMetas from './ResumoMetas';
 import CardLoja from './CardLoja';
 import EditorMetas from './EditorMetas';
+import HistoricoMetas from './HistoricoMetas';
 
 const MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
 const rotuloMes = (mes: string) => `${MESES[Number(mes.slice(5, 7)) - 1]} de ${mes.slice(0, 4)}`;
@@ -170,6 +171,8 @@ export default function MetasPage() {
           </div>
         </>
       )}
+
+      {hoje && <HistoricoMetas mesCorrente={hoje.slice(0, 7)} versao={versao} />}
     </div>
   );
 }

@@ -6,6 +6,7 @@ import { hojeBrasilia, adicionarDias } from '../../../lib/date';
 import PainelVendas from './PainelVendas';
 import VendasPorLinha from './VendasPorLinha';
 import AlertasSistema, { Alerta } from './AlertasSistema';
+import AlertaMetas from './AlertaMetas';
 
 interface Franquia {
   id: string;
@@ -163,6 +164,9 @@ export default function DashboardPage() {
         alertas={alertas}
         onResolvido={(id) => setAlertas((atuais) => atuais.filter((a) => a.id !== id))}
       />
+
+      {/* Só quem enxerga a tela de metas; os demais não teriam para onde seguir o link. */}
+      {isSocio && <AlertaMetas />}
 
       <PainelVendas
         franchiseId={isSocio ? (franquiaSelecionada || undefined) : undefined}
