@@ -2,11 +2,15 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-  AreaChart, Area, XAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  AreaChart, Area, BarChart, Bar, Cell, XAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
 import { supabase } from '../../../lib/supabase';
 import { formatCurrency } from '../../../lib/format';
 import { hojeBrasilia, adicionarDias } from '../../../lib/date';
+import {
+  Bucket, Granularidade, PontoDia, agruparSerie, diffDias, granularidadePadrao, variacaoPct,
+} from '../../../lib/serieVendas';
+import TabelaMensal, { HACHURA_PARCIAL } from './TabelaMensal';
 
 type PeriodoPreset = 'hoje' | '7d' | '15d' | '30d' | 'custom';
 
@@ -21,7 +25,15 @@ interface ResumoVendas {
     cmv: number;
     impostos: number;
   };
-  serie_diaria: { data: string; faturamento: number }[];
+  // Campos além de faturamento: docs/sql/serie-diaria-completa.sql. Ausentes na versão antiga.
+  serie_diaria: {
+    data: string;
+    faturamento: number;
+    quantidade_vendas?: number;
+    cmv?: number;
+    impostos?: number;
+    lojas?: number;
+  }[];
   por_franquia: {
     franchise_id: string;
     vendas_brutas: number;
@@ -47,12 +59,6 @@ interface Franquia {
 const TOTAIS_VAZIOS: Totais = {
   vendasBrutas: 0, unidades: 0, quantidadeVendas: 0, precoMedioUnidade: 0, ticketMedio: 0, margemBrutaPct: 0,
 };
-
-function diffDias(inicio: string, fim: string): number {
-  const a = new Date(inicio + 'T00:00:00Z').getTime();
-  const b = new Date(fim + 'T00:00:00Z').getTime();
-  return Math.round((b - a) / 86400000) + 1;
-}
 
 // Período de comparação: mesma duração, imediatamente anterior ao selecionado (não a
 // "semana passada" do calendário).
@@ -82,12 +88,6 @@ function totaisDoResumo(totais: ResumoVendas['totais'] | undefined): Totais {
   };
 }
 
-// null = sem base de comparação significativa (período anterior zerado, atual não-zero).
-function variacaoPct(atual: number, anterior: number): number | null {
-  if (anterior === 0) return atual === 0 ? 0 : null;
-  return ((atual - anterior) / Math.abs(anterior)) * 100;
-}
-
 function VariacaoBadge({ pct }: { pct: number | null }) {
   if (pct === null) return <span className="text-stone-400 text-xs">novo</span>;
   const cor = pct >= 0 ? 'text-emerald-600' : 'text-rose-600';
@@ -101,6 +101,36 @@ function VariacaoBadge({ pct }: { pct: number | null }) {
 
 const formatDataCurta = (isoDate: string) =>
   new Date(isoDate + 'T00:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+
+const GRANULARIDADES: { valor: Granularidade; rotulo: string }[] = [
+  { valor: 'dia', rotulo: 'Dia' },
+  { valor: 'semana', rotulo: 'Semana' },
+  { valor: 'mes', rotulo: 'Mês' },
+];
+
+function TooltipBucket({ bucket, granularidade, mostrarLojas }: { bucket?: Bucket; granularidade: Granularidade; mostrarLojas: boolean }) {
+  if (!bucket) return null;
+  const titulo = granularidade === 'semana' ? `${formatDataCurta(bucket.inicio)} a ${formatDataCurta(bucket.fim)}` : bucket.rotulo;
+  const v = bucket.variacaoMediaDia;
+  return (
+    <div className="bg-white border border-stone-200 rounded-lg px-3 py-2 text-xs text-stone-700 shadow-sm tabular-nums space-y-0.5">
+      <p className="font-medium text-stone-800">{titulo}</p>
+      <p className="font-semibold text-stone-800">{formatCurrency(bucket.faturamento)}</p>
+      <p>{formatCurrency(bucket.mediaDia)} por dia</p>
+      {v !== undefined && (
+        <p className={v === null ? 'text-stone-600' : v >= 0 ? 'text-green-800' : 'text-orange-800'}>
+          {v === null ? 'sem base anterior' : `${v >= 0 ? '▲' : '▼'} ${Math.abs(v).toFixed(1)}% na média/dia`}
+        </p>
+      )}
+      {bucket.parcial && (
+        <p className="text-stone-600">
+          parcial · {bucket.diasCobertos} de {bucket.diasNoBucket} dias
+        </p>
+      )}
+      {mostrarLojas && bucket.lojasMax !== null && <p className="text-stone-600">{bucket.lojasMax} lojas com venda</p>}
+    </div>
+  );
+}
 
 export default function PainelVendas({
   franchiseId,
@@ -201,6 +231,28 @@ export default function PainelVendas({
       })),
     [resumoAtual]
   );
+
+  // Escolha manual vale enquanto o período não muda; trocou o período, volta ao automático.
+  const [granularidadeEscolhida, setGranularidadeEscolhida] = useState<Granularidade | null>(null);
+  useEffect(() => {
+    setGranularidadeEscolhida(null);
+  }, [inicio, fim]);
+  const granularidade = granularidadeEscolhida ?? granularidadePadrao(inicio, fim);
+
+  const buckets = useMemo(() => {
+    if (granularidade === 'dia') return [];
+    const pontos: PontoDia[] = (resumoAtual?.serie_diaria || []).map((p) => ({
+      data: p.data,
+      faturamento: Number(p.faturamento) || 0,
+      quantidadeVendas: p.quantidade_vendas === undefined ? undefined : Number(p.quantidade_vendas) || 0,
+      cmv: p.cmv === undefined ? undefined : Number(p.cmv) || 0,
+      impostos: p.impostos === undefined ? undefined : Number(p.impostos) || 0,
+      lojas: p.lojas === undefined ? undefined : Number(p.lojas) || 0,
+    }));
+    return agruparSerie(pontos, granularidade, inicio, fim, hojeBrasilia());
+  }, [resumoAtual, granularidade, inicio, fim]);
+  const temParcial = buckets.some((b) => b.parcial);
+  const mostrarLojas = !franchiseId;
 
   const franquiasOrdenadas = useMemo(() => {
     const porId = new Map((resumoAtual?.por_franquia || []).map((f) => [f.franchise_id, f]));
@@ -319,6 +371,28 @@ export default function PainelVendas({
           {/* Sem eixo Y: num card de ~340px no celular ele comia quase 1/3 da largura útil.
               A escala vem do tooltip e do KPI "Vendas Brutas" logo acima. */}
           <div className="py-4 pr-3 pl-0 sm:p-6 [&_.recharts-surface]:outline-none">
+            {mostrarGrafico && (
+              <div className="flex items-center justify-between gap-2 pl-4 sm:pl-0 mb-3">
+                <span className="text-xs text-stone-600">
+                  {granularidade === 'dia' ? 'Por dia' : granularidade === 'semana' ? 'Por semana (seg–dom)' : 'Por mês'}
+                </span>
+                <div role="group" aria-label="Agrupar gráfico por" className="inline-grid grid-flow-col rounded-lg border border-stone-300 overflow-hidden">
+                  {GRANULARIDADES.map((g) => (
+                    <button
+                      key={g.valor}
+                      type="button"
+                      aria-pressed={granularidade === g.valor}
+                      onClick={() => setGranularidadeEscolhida(g.valor)}
+                      className={`px-3 py-1.5 text-xs font-medium border-r border-stone-200 last:border-r-0 transition-colors ${
+                        granularidade === g.valor ? 'bg-stone-800 text-white' : 'bg-white text-stone-600'
+                      }`}
+                    >
+                      {g.rotulo}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             {isLoading ? (
               <div className="min-h-[220px] flex items-center justify-center text-stone-400 text-sm">Carregando...</div>
             ) : !mostrarGrafico ? (
@@ -328,6 +402,47 @@ export default function PainelVendas({
               </p>
             ) : pontosDiarios.length === 0 ? (
               <p className="text-stone-400 text-xs text-center py-8 px-4">Nenhuma venda registrada nesse período.</p>
+            ) : granularidade !== 'dia' ? (
+              <>
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={buckets} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
+                    <defs>
+                      <pattern id="hachuraParcial" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)">
+                        <rect width="6" height="6" fill="#d1fae5" />
+                        <line x1="0" y1="0" x2="0" y2="6" stroke="#059669" strokeWidth="3" />
+                      </pattern>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" vertical={false} />
+                    <XAxis dataKey="rotulo" stroke="#a8a29e" fontSize={11} tickLine={false} minTickGap={8} />
+                    <Tooltip
+                      cursor={{ fill: '#f5f5f4' }}
+                      content={({ active, payload }) => (
+                        <TooltipBucket
+                          bucket={active ? (payload?.[0]?.payload as Bucket | undefined) : undefined}
+                          granularidade={granularidade}
+                          mostrarLojas={mostrarLojas}
+                        />
+                      )}
+                    />
+                    <Bar dataKey="faturamento" name="Faturamento" radius={[4, 4, 0, 0]} maxBarSize={56}>
+                      {buckets.map((b) => (
+                        <Cell
+                          key={b.chave}
+                          fill={b.parcial ? 'url(#hachuraParcial)' : '#059669'}
+                          stroke={b.parcial ? '#059669' : undefined}
+                        />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+                {temParcial && (
+                  <p className="flex items-center gap-1.5 pl-4 sm:pl-0 mt-2 text-[11px] text-stone-600">
+                    <span aria-hidden className="inline-block w-3 h-3 rounded-sm" style={{ backgroundImage: HACHURA_PARCIAL }} />
+                    parcial — o período não cobre {granularidade === 'mes' ? 'o mês' : 'a semana'} inteiro; compare pela
+                    média por dia
+                  </p>
+                )}
+              </>
             ) : (
               <ResponsiveContainer width="100%" height={220}>
                 <AreaChart data={pontosDiarios} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
@@ -356,6 +471,10 @@ export default function PainelVendas({
               </ResponsiveContainer>
             )}
           </div>
+
+          {!isLoading && mostrarGrafico && granularidade === 'mes' && buckets.length > 0 && (
+            <TabelaMensal buckets={buckets} mostrarLojas={mostrarLojas} />
+          )}
 
           {/* Comparativo por loja em linhas, não tabela de 4 colunas: no celular a tabela
               antiga só cabia com scroll horizontal. */}
