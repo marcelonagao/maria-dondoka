@@ -7,6 +7,7 @@ import PainelVendas from './PainelVendas';
 import VendasPorLinha from './VendasPorLinha';
 import AlertasSistema, { Alerta } from './AlertasSistema';
 import AlertaMetas from './AlertaMetas';
+import SincronizarTodas from './SincronizarTodas';
 
 interface Franquia {
   id: string;
@@ -136,20 +137,24 @@ export default function DashboardPage() {
               ))}
             </select>
           )}
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-start">
             <button
               onClick={atualizar}
               className="flex-1 sm:flex-none px-3 py-2 border border-stone-300 rounded-lg text-sm font-medium text-stone-700 hover:bg-stone-50"
             >
               Atualizar
             </button>
-            <button
-              onClick={sincronizarPdv}
-              disabled={isSincronizando}
-              className="flex-1 sm:flex-none px-3 py-2 rounded-lg text-sm font-medium bg-stone-800 text-white hover:bg-stone-700 disabled:opacity-50"
-            >
-              {isSincronizando ? 'Sincronizando...' : 'Sincronizar PDV'}
-            </button>
+            {isSocio ? (
+              <SincronizarTodas onAtualizar={atualizar} />
+            ) : (
+              <button
+                onClick={sincronizarPdv}
+                disabled={isSincronizando}
+                className="flex-1 sm:flex-none px-3 py-2 rounded-lg text-sm font-medium bg-stone-800 text-white hover:bg-stone-700 disabled:opacity-50"
+              >
+                {isSincronizando ? 'Sincronizando...' : 'Sincronizar PDV'}
+              </button>
+            )}
           </div>
         </div>
       </div>

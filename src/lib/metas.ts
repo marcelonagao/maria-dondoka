@@ -18,7 +18,7 @@ export interface LinhaMetaCrua {
 }
 
 export type FaseMes = 'corrente' | 'fechado' | 'futuro';
-export type StatusMeta = 'super' | 'meta' | 'abaixo' | 'sem_meta' | 'futuro';
+export type StatusMeta = 'super' | 'meta' | 'abaixo' | 'sem_meta' | 'sem_base' | 'futuro';
 
 export interface AcompanhamentoLoja {
   franchiseId: string;
@@ -53,6 +53,9 @@ export interface AcompanhamentoLoja {
 
 // Abaixo disso o histórico é curto demais para a média de 30 dias valer como estimativa.
 export const MIN_DIAS_ESTIMATIVA = 14;
+// Com menos dias completos que isso não há média: a "projeção" seria só o realizado do dia, e
+// uma loja recém-aberta pareceria fechar o mês com o faturamento de um dia.
+export const MIN_DIAS_PROJECAO = 3;
 const DIAS_JANELA = 30;
 // O formato da semana vem de 8 semanas; com menos que isso (ou dia da semana com menos de 4
 // amostras) a loja cai na projeção plana em vez de inventar um perfil.
@@ -132,8 +135,12 @@ export function calcularLoja(linha: LinhaMetaCrua, mes: string, hoje: string): A
   const diaAtual = fase === 'corrente' ? Number(hoje.slice(8, 10)) : 0;
   const diasRestantes = fase === 'corrente' ? diasNoMes - diaAtual : 0;
 
+  const semBase = fase === 'corrente' && diasJanela < MIN_DIAS_PROJECAO;
+
   let projecao: number | null;
-  if (fase === 'corrente') {
+  if (semBase) {
+    projecao = null;
+  } else if (fase === 'corrente') {
     // Hoje conta pelo maior entre o que já vendeu e a média: dia parcial não derruba a
     // projeção, e dia que já passou da média não é jogado fora.
     const ateOntem = realizado - realizadoHoje;
@@ -173,6 +180,7 @@ export function calcularLoja(linha: LinhaMetaCrua, mes: string, hoje: string): A
   const base = fase === 'fechado' ? realizado : projecao;
   let status: StatusMeta;
   if (meta === null || superMeta === null) status = 'sem_meta';
+  else if (semBase) status = 'sem_base';
   else if (base === null) status = 'futuro';
   else if (base >= superMeta) status = 'super';
   else if (base >= meta) status = 'meta';
@@ -210,6 +218,9 @@ export interface ConsolidadoMetas {
   lojasSemMeta: number;
   realizado: number;
   projecao: number | null;
+  // Meta só das lojas que entram na projeção: é contra ela que a projeção se compara.
+  metaDaProjecao: number;
+  lojasSemProjecao: number;
   meta: number;
   superMeta: number;
   lojasBatendoMeta: number;
@@ -217,20 +228,24 @@ export interface ConsolidadoMetas {
 
 export function consolidar(lojas: AcompanhamentoLoja[]): ConsolidadoMetas {
   const comMeta = lojas.filter((l) => l.meta !== null && l.superMeta !== null);
-  const semProjecao = comMeta.some((l) => l.projecao === null);
+  // Loja sem projeção (recém-aberta) sai da soma da projeção E da meta usada para compará-la,
+  // senão a projeção do grupo apareceria artificialmente baixa.
+  const comProjecao = comMeta.filter((l) => l.projecao !== null);
   return {
     realizadoGeral: lojas.reduce((s, l) => s + l.realizado, 0),
     lojasComMeta: comMeta.length,
     lojasSemMeta: lojas.length - comMeta.length,
     realizado: comMeta.reduce((s, l) => s + l.realizado, 0),
-    projecao: comMeta.length === 0 || semProjecao ? null : comMeta.reduce((s, l) => s + (l.projecao || 0), 0),
+    projecao: comProjecao.length === 0 ? null : comProjecao.reduce((s, l) => s + (l.projecao || 0), 0),
+    metaDaProjecao: comProjecao.reduce((s, l) => s + (l.meta || 0), 0),
+    lojasSemProjecao: comMeta.length - comProjecao.length,
     meta: comMeta.reduce((s, l) => s + (l.meta || 0), 0),
     superMeta: comMeta.reduce((s, l) => s + (l.superMeta || 0), 0),
     lojasBatendoMeta: comMeta.filter((l) => l.status === 'meta' || l.status === 'super').length,
   };
 }
 
-const PESO_STATUS: Record<StatusMeta, number> = { abaixo: 0, meta: 1, super: 2, futuro: 3, sem_meta: 4 };
+const PESO_STATUS: Record<StatusMeta, number> = { abaixo: 0, meta: 1, super: 2, sem_base: 3, futuro: 4, sem_meta: 5 };
 
 // Quem precisa de atenção primeiro: abaixo da meta (pior projeção/meta no topo), depois
 // quem está no ritmo; loja sem meta vai para o fim.

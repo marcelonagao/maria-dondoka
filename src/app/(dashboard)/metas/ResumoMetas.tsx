@@ -31,8 +31,11 @@ export default function ResumoMetas({ resumo }: { resumo: ConsolidadoMetas }) {
         {lojasComMeta > 0 ? (
           <>
             {resumo.lojasBatendoMeta} de {lojasComMeta} loja(s) com meta no ritmo ou acima
-            {resumo.projecao !== null && resumo.meta > 0 && (
-              <> · projeção = {formatarPercentual(resumo.projecao / resumo.meta)} da meta</>
+            {resumo.projecao !== null && resumo.metaDaProjecao > 0 && (
+              <> · projeção = {formatarPercentual(resumo.projecao / resumo.metaDaProjecao)} da meta</>
+            )}
+            {resumo.lojasSemProjecao > 0 && (
+              <> · {resumo.lojasSemProjecao} loja(s) recém-aberta(s) ficaram fora da projeção</>
             )}
           </>
         ) : (

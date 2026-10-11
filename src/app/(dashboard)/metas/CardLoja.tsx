@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { AcompanhamentoLoja, formatarMoeda, formatarPercentual } from '../../../lib/metas';
+import { AcompanhamentoLoja, MIN_DIAS_PROJECAO, formatarMoeda, formatarPercentual } from '../../../lib/metas';
 
 // Cores com contraste AA em fundo branco (orange-700 ≈ 5,2:1, green-800 ≈ 7:1). O estado
 // nunca depende só da cor: sempre há ícone e texto.
@@ -10,6 +10,7 @@ const ESTILO_STATUS = {
   meta: 'text-green-800 bg-green-50 border-green-200',
   abaixo: 'text-orange-800 bg-orange-50 border-orange-200',
   sem_meta: 'text-stone-700 bg-stone-100 border-stone-200',
+  sem_base: 'text-stone-700 bg-stone-100 border-stone-200',
   futuro: 'text-stone-700 bg-stone-100 border-stone-200',
 } as const;
 
@@ -19,6 +20,7 @@ function rotuloStatus(l: AcompanhamentoLoja): string {
     case 'super': return fechado ? '✓ Super meta batida' : '✓ No ritmo da super meta';
     case 'meta': return fechado ? '✓ Meta batida' : '✓ No ritmo da meta';
     case 'abaixo': return fechado ? '▼ Meta não batida' : '▼ Abaixo da meta';
+    case 'sem_base': return 'Projeção em breve';
     case 'futuro': return 'Mês ainda não começou';
     default: return 'Sem meta cadastrada';
   }
@@ -80,6 +82,9 @@ export default function CardLoja({ loja }: { loja: AcompanhamentoLoja }) {
           <dd className="text-lg font-semibold text-stone-900 tabular-nums">
             {projecao !== null ? formatarMoeda(projecao) : '—'}
           </dd>
+          {loja.status === 'sem_base' && (
+            <p className="text-[11px] text-stone-600">Disponível após {MIN_DIAS_PROJECAO} dias de vendas</p>
+          )}
         </div>
       </dl>
 

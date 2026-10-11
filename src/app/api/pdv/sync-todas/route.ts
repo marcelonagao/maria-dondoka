@@ -16,6 +16,9 @@ const supabaseAdmin = createClient(
 const ORCAMENTO_MS = 7_000;
 
 export async function POST(request: Request) {
+  // Marco para a tela: loja só conta como atualizada se o último envio for posterior a isto.
+  // Vem do servidor para não depender do relógio do navegador.
+  const iniciadoEm = new Date().toISOString();
   const perfil = await getPerfilAutenticado();
   if (!perfil) return NextResponse.json({ error: 'NAO_AUTORIZADO' }, { status: 401 });
   if (perfil.escopo !== 'todas_franquias') {
@@ -72,5 +75,37 @@ export async function POST(request: Request) {
     r.status === 'fulfilled' ? r.value : { loja: '?', status: 'falhou' as const }
   );
 
-  return NextResponse.json({ ok: true, resultados });
+  return NextResponse.json({ ok: true, iniciadoEm, resultados });
+}
+
+// Estado da sincronização para a tela acompanhar: último envio aceito pelo webhook de cada loja
+// ativa (pdv_devices.last_sync_at, gravado a cada chamada aceita, mesmo vazia). Fica neste
+// arquivo e não numa rota nova porque o plano Hobby da Vercel limita a 12 funções.
+export async function GET() {
+  const perfil = await getPerfilAutenticado();
+  if (!perfil) return NextResponse.json({ error: 'NAO_AUTORIZADO' }, { status: 401 });
+  if (perfil.escopo !== 'todas_franquias') {
+    return NextResponse.json({ error: 'NAO_AUTORIZADO' }, { status: 403 });
+  }
+
+  const [franquias, dispositivos] = await Promise.all([
+    supabaseAdmin.from('franchises').select('id, name').eq('is_active', true).order('name'),
+    supabaseAdmin.from('pdv_devices').select('franchise_id, last_sync_at').eq('is_active', true),
+  ]);
+  if (franquias.error || dispositivos.error) {
+    console.error('Erro ao ler estado da sincronização:', franquias.error || dispositivos.error);
+    return NextResponse.json({ error: 'ERRO_INTERNO' }, { status: 500 });
+  }
+
+  // Uma franquia pode ter mais de um dispositivo ativo; vale o envio mais recente.
+  const ultimo = new Map<string, string>();
+  (dispositivos.data || []).forEach((d) => {
+    if (!d.last_sync_at) return;
+    const atual = ultimo.get(d.franchise_id);
+    if (!atual || d.last_sync_at > atual) ultimo.set(d.franchise_id, d.last_sync_at);
+  });
+
+  return NextResponse.json({
+    lojas: (franquias.data || []).map((f) => ({ id: f.id, nome: f.name, ultimoEnvio: ultimo.get(f.id) ?? null })),
+  });
 }
