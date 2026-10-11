@@ -16,6 +16,15 @@ relacionadas, mas não deve receber dado novo.
   `sync-6-lojas.php`); webhook respondeu 200. Inaugura em 10/10/2026 — conferir
   `vendas_itens` depois da primeira venda (hoje 0 linhas, esperado) e cancelar no PDV
   eventual venda de teste anterior à abertura.
+- **Loja9 sem faturamento (10/10/2026) — resolvido.** `last_sync_at` nulo e 0 itens, sem erro
+  no log. Causa: o `pdvToken` do script não era o do dispositivo ativo (hash diferente), então o
+  webhook respondia 401 e nada entrava. Conserto: dispositivo novo da Loja9 em `/configuracoes`,
+  token/secret trocados só na entrada dela no script, dispositivo antigo desativado. Validado:
+  1.954 itens = 1.954 `origem_id` distintos (sem duplicação), R$ 16.600,78 no resumo de 10/10.
+  Diagnóstico para repetir: comparar `left(token_hash, 12)` de `pdv_devices` com o sha256 do
+  token do script, e olhar `pdv_devices.last_sync_at` (gravado a cada chamada aceita, mesmo
+  vazia). Também: o agendador desiste em 30 s e o laço de 7 lojas passa disso; o script ganhou
+  `ignore_user_abort(true)` e `set_time_limit(300)` para a última loja não ser cortada.
 - Backfill histórico de `vendas_itens` (jan–set) rodado — cobertura real varia por loja (algumas
   só têm dado a partir de quando o sistema A7 Pharma foi adotado naquela unidade, não desde
   janeiro).
