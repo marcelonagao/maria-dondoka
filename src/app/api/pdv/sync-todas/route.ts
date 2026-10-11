@@ -36,6 +36,37 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'ERRO_INTERNO' }, { status: 500 });
   }
 
+  // As 7 lojas do script PHP compartilham UMA URL (o script percorre todas). Chamada uma vez só
+  // por clique, não uma por loja: 7 cópias do script em paralelo martelariam os 7 bancos.
+  // A URL leva a chave do script, então fica em variável de ambiente, nunca na tabela
+  // franchises (que o navegador do sócio lê).
+  const loteUrl = process.env.PDV_SYNC_LOTE_URL;
+  const disparos = new Map<string, Promise<{ status: 'sincronizada' | 'em_andamento' | 'falhou'; detalhe?: string }>>();
+  const disparar = (url: string) => {
+    let p = disparos.get(url);
+    if (!p) {
+      p = (async () => {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), ORCAMENTO_MS);
+        try {
+          const res = await fetch(url, { signal: controller.signal });
+          return res.ok
+            ? { status: 'sincronizada' as const }
+            : { status: 'falhou' as const, detalhe: `HTTP ${res.status}` };
+        } catch (err: any) {
+          // Abort é o caso normal de script lento, não erro — o PHP segue rodando lá.
+          if (err?.name === 'AbortError') return { status: 'em_andamento' as const };
+          console.error('Erro ao disparar script de sincronização:', err?.message);
+          return { status: 'falhou' as const, detalhe: 'Não foi possível contatar o script da loja.' };
+        } finally {
+          clearTimeout(timeoutId);
+        }
+      })();
+      disparos.set(url, p);
+    }
+    return p;
+  };
+
   const tarefas = (franquias || []).map(async (franquia) => {
     const direta = LOJAS_DIRETAS.find((l) => l.franchiseId === franquia.id);
 
@@ -49,26 +80,11 @@ export async function POST(request: Request) {
       }
     }
 
-    if (!franquia.sync_url) {
+    const url = franquia.sync_url || loteUrl;
+    if (!url) {
       return { loja: franquia.name, status: 'sem_url' as const };
     }
-
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), ORCAMENTO_MS);
-      const res = await fetch(franquia.sync_url, { signal: controller.signal });
-      clearTimeout(timeoutId);
-      return res.ok
-        ? { loja: franquia.name, status: 'sincronizada' as const }
-        : { loja: franquia.name, status: 'falhou' as const, detalhe: `HTTP ${res.status}` };
-    } catch (err: any) {
-      // Abort é o caso normal de loja lenta, não erro — o PHP segue rodando lá.
-      if (err?.name === 'AbortError') {
-        return { loja: franquia.name, status: 'em_andamento' as const };
-      }
-      console.error(`Erro ao disparar sync de ${franquia.name}:`, err);
-      return { loja: franquia.name, status: 'falhou' as const, detalhe: 'Não foi possível contatar a loja.' };
-    }
+    return { loja: franquia.name, ...(await disparar(url)) };
   });
 
   const resultados = (await Promise.allSettled(tarefas)).map((r) =>

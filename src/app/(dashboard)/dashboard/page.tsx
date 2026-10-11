@@ -7,7 +7,7 @@ import PainelVendas from './PainelVendas';
 import VendasPorLinha from './VendasPorLinha';
 import AlertasSistema, { Alerta } from './AlertasSistema';
 import AlertaMetas from './AlertaMetas';
-import SincronizarTodas from './SincronizarTodas';
+import { StatusSincronizacao, useSincronizarTodas } from './SincronizarTodas';
 
 interface Franquia {
   id: string;
@@ -33,6 +33,7 @@ export default function DashboardPage() {
   // "Atualizar" só refaz a consulta do dashboard — o dado já está no Supabase, não precisa
   // falar com o PDV. É instantâneo e é o que resolve 90% dos casos.
   const atualizar = () => setRefreshKey((k) => k + 1);
+  const syncTodas = useSincronizarTodas(atualizar);
 
   // "Sincronizar PDV" vai buscar dado novo nas lojas. Loja1/Loja4 respondem na hora; as
   // outras 6 rodam um script PHP que pode passar do orçamento de tempo da rota — nesse
@@ -137,7 +138,7 @@ export default function DashboardPage() {
               ))}
             </select>
           )}
-          <div className="flex gap-2 items-start">
+          <div className="flex gap-2">
             <button
               onClick={atualizar}
               className="flex-1 sm:flex-none px-3 py-2 border border-stone-300 rounded-lg text-sm font-medium text-stone-700 hover:bg-stone-50"
@@ -145,7 +146,13 @@ export default function DashboardPage() {
               Atualizar
             </button>
             {isSocio ? (
-              <SincronizarTodas onAtualizar={atualizar} />
+              <button
+                onClick={syncTodas.sincronizar}
+                disabled={syncTodas.rodando}
+                className="flex-1 sm:flex-none px-3 py-2 rounded-lg text-sm font-medium bg-stone-800 text-white hover:bg-stone-700 disabled:opacity-50"
+              >
+                {syncTodas.rodando ? 'Sincronizando...' : 'Sincronizar PDV'}
+              </button>
             ) : (
               <button
                 onClick={sincronizarPdv}
@@ -158,6 +165,8 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {isSocio && <StatusSincronizacao estado={syncTodas} />}
 
       {statusSync && (
         <p className="text-xs text-stone-500 bg-stone-50 border border-stone-200 rounded-lg px-3 py-2">

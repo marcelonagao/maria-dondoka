@@ -8,34 +8,45 @@ interface LojaSync {
   ultimoEnvio: string | null;
 }
 
-type EstadoLoja = 'aguardando' | 'ok' | 'falhou';
-
 interface Progresso {
   iniciadoEm: string;
   lojas: LojaSync[];
-  // Falhas já confirmadas pelo disparo (HTTP de erro, loja sem URL): não adianta esperar.
+  // Falhas já confirmadas pelo disparo (HTTP de erro, loja sem endereço): não adianta esperar.
   falhas: Record<string, string>;
   terminou: boolean;
+  concluidoEm?: string;
 }
 
+// O script das 7 lojas percorre uma por vez e passa de 30 s; 90 s dá folga sem deixar o
+// sócio esperando indefinidamente.
 const INTERVALO_MS = 4_000;
-const LIMITE_MS = 60_000;
+const LIMITE_MS = 90_000;
 
-const hora = (iso: string) =>
+const horaMinuto = (iso: string) =>
+  new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' });
+const diaHora = (iso: string) =>
   new Date(iso).toLocaleString('pt-BR', {
     day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo',
   });
 
-function estadoDe(l: LojaSync, p: Progresso): EstadoLoja {
-  if (p.falhas[l.nome]) return 'falhou';
+function atualizada(l: LojaSync, p: Progresso): boolean {
+  if (p.falhas[l.nome]) return false;
   // Date em vez de comparar texto: o banco devolve "+00:00" e o servidor "Z".
-  return l.ultimoEnvio && new Date(l.ultimoEnvio).getTime() >= new Date(p.iniciadoEm).getTime() ? 'ok' : 'aguardando';
+  return !!l.ultimoEnvio && new Date(l.ultimoEnvio).getTime() >= new Date(p.iniciadoEm).getTime();
 }
 
-// O botão só dispara; quem diz se a loja atualizou é o último envio dela gravado no banco. Antes
-// a mensagem contava só as lojas diretas (as que respondem na hora) e o sócio entendia que as
-// outras não tinham sido atualizadas. Aqui a tela acompanha cada loja até o fim.
-export default function SincronizarTodas({ onAtualizar }: { onAtualizar: () => void }) {
+export interface EstadoSincronizacao {
+  sincronizar: () => void;
+  rodando: boolean;
+  progresso: Progresso | null;
+  erro: string | null;
+  fechar: () => void;
+}
+
+// O botão só dispara; quem diz se a loja atualizou é o último envio dela gravado no banco
+// (pdv_devices.last_sync_at). Hook separado do texto para o botão ficar no cabeçalho e o
+// resultado numa linha própria, sem empurrar o título.
+export function useSincronizarTodas(onAtualizar: () => void): EstadoSincronizacao {
   const [rodando, setRodando] = useState(false);
   const [progresso, setProgresso] = useState<Progresso | null>(null);
   const [erro, setErro] = useState<string | null>(null);
@@ -75,7 +86,7 @@ export default function SincronizarTodas({ onAtualizar }: { onAtualizar: () => v
       const falhas: Record<string, string> = {};
       (json.resultados || []).forEach((r: { loja: string; status: string; detalhe?: string }) => {
         if (r.status === 'falhou') falhas[r.loja] = r.detalhe || 'falhou ao sincronizar';
-        if (r.status === 'sem_url') falhas[r.loja] = 'sem endereço de sincronização cadastrado';
+        if (r.status === 'sem_url') falhas[r.loja] = 'sem endereço de sincronização';
       });
 
       const acompanhar = async () => {
@@ -90,8 +101,9 @@ export default function SincronizarTodas({ onAtualizar }: { onAtualizar: () => v
         if (!ativo.current) return;
 
         const atual: Progresso = { iniciadoEm: json.iniciadoEm, lojas, falhas, terminou: false };
-        const pendentes = lojas.filter((l) => estadoDe(l, atual) === 'aguardando');
-        atual.terminou = (lojas.length > 0 && pendentes.length === 0) || Date.now() - inicioLocal >= LIMITE_MS;
+        const aguardando = lojas.filter((l) => !atualizada(l, atual) && !falhas[l.nome]);
+        atual.terminou = (lojas.length > 0 && aguardando.length === 0) || Date.now() - inicioLocal >= LIMITE_MS;
+        if (atual.terminou) atual.concluidoEm = new Date().toISOString();
         setProgresso(atual);
 
         if (atual.terminou) {
@@ -109,46 +121,74 @@ export default function SincronizarTodas({ onAtualizar }: { onAtualizar: () => v
     }
   };
 
-  const total = progresso?.lojas.length ?? 0;
-  const estados = progresso ? progresso.lojas.map((l) => ({ l, e: estadoDe(l, progresso) })) : [];
-  const ok = estados.filter((x) => x.e === 'ok').length;
-  const naoAtualizadas = estados.filter((x) => x.e !== 'ok');
+  const fechar = () => {
+    setProgresso(null);
+    setErro(null);
+  };
+
+  return { sincronizar, rodando, progresso, erro, fechar };
+}
+
+// Uma linha só. O detalhe por loja fica recolhido: quem quer saber quais abre, o resto do
+// painel não é empurrado para baixo.
+export function StatusSincronizacao({ estado }: { estado: EstadoSincronizacao }) {
+  const { progresso, erro, rodando, fechar } = estado;
+  if (!progresso && !erro) return null;
+
+  if (erro) {
+    return (
+      <p className="text-xs text-red-800 bg-red-50 border border-red-200 rounded-lg px-3 py-2" role="alert">
+        {erro}
+      </p>
+    );
+  }
+  const p = progresso as Progresso;
+  const total = p.lojas.length;
+  const ok = p.lojas.filter((l) => atualizada(l, p));
+  const pendentes = p.lojas.filter((l) => !atualizada(l, p));
+
+  if (rodando || !p.terminou) {
+    return (
+      <p className="text-xs text-stone-700 bg-stone-50 border border-stone-200 rounded-lg px-3 py-2 tabular-nums" aria-live="polite">
+        Sincronizando… {ok.length} de {total} lojas atualizadas
+      </p>
+    );
+  }
+
+  const botaoFechar = (
+    <button type="button" onClick={fechar} aria-label="Fechar aviso" className="ml-auto px-1 font-medium">
+      ×
+    </button>
+  );
+
+  if (pendentes.length === 0) {
+    return (
+      <div className="flex items-center gap-2 text-xs text-green-800 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+        <span>✓ Todas as {total} lojas atualizadas às {horaMinuto(p.concluidoEm || p.iniciadoEm)}</span>
+        {botaoFechar}
+      </div>
+    );
+  }
 
   return (
-    <div className="flex flex-col gap-2 sm:items-end">
-      <button
-        type="button"
-        onClick={sincronizar}
-        disabled={rodando}
-        className="flex-1 sm:flex-none px-3 py-2 rounded-lg text-sm font-medium bg-stone-800 text-white hover:bg-stone-700 disabled:opacity-50"
-      >
-        {rodando ? 'Sincronizando...' : 'Sincronizar PDV'}
-      </button>
-
-      <div className="sm:text-right text-xs min-h-[1.25rem]" aria-live="polite">
-        {erro && <p className="text-red-800">{erro}</p>}
-        {progresso && !progresso.terminou && (
-          <p className="text-stone-700 tabular-nums">Sincronizando… {ok} de {total} lojas atualizadas</p>
-        )}
-        {progresso?.terminou && naoAtualizadas.length === 0 && (
-          <p className="text-green-800 font-medium">✓ Todas as {total} lojas atualizadas</p>
-        )}
-        {progresso?.terminou && naoAtualizadas.length > 0 && (
-          <div className="text-orange-800">
-            <p className="font-medium">▼ {ok} de {total} lojas atualizadas. Sem resposta:</p>
-            <ul>
-              {naoAtualizadas.map(({ l, e }) => (
-                <li key={l.id}>
-                  {l.nome}
-                  {e === 'falhou' && progresso.falhas[l.nome] ? ` — ${progresso.falhas[l.nome]}` : ''}
-                  {' — '}
-                  {l.ultimoEnvio ? `última atualização em ${hora(l.ultimoEnvio)}` : 'nunca atualizou'}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </div>
-    </div>
+    <details className="text-xs text-orange-800 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2">
+      <summary className="flex items-center gap-2 cursor-pointer list-none">
+        <span>
+          ▼ {ok.length} de {total} lojas atualizadas · {pendentes.length} sem resposta{' '}
+          <span className="underline">ver quais</span>
+        </span>
+        {botaoFechar}
+      </summary>
+      <ul className="mt-2 space-y-0.5 tabular-nums">
+        {pendentes.map((l) => (
+          <li key={l.id}>
+            {l.nome}
+            {p.falhas[l.nome] ? ` — ${p.falhas[l.nome]}` : ''}
+            {' — '}
+            {l.ultimoEnvio ? `última atualização ${diaHora(l.ultimoEnvio)}` : 'nunca atualizou'}
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }
