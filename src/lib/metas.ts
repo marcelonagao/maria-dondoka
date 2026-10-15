@@ -399,15 +399,16 @@ const MEDALHAS: Medalha[] = ['ouro', 'prata', 'bronze'];
 // Ranking de quem está mais perto da meta: projeção ÷ meta (mês fechado: realizado ÷ meta), maior
 // primeiro. A razão é sobre a meta, não sobre a super ou a dos sonhos: é o único alvo que toda loja
 // com meta tem, então as lojas ficam comparáveis. Loja com estimativa fraca entra (o card avisa).
+const baseDoRanking = (l: AcompanhamentoLoja) => (l.fase === 'fechado' ? l.realizado : l.projecao);
+const avaliavelNoRanking = (l: AcompanhamentoLoja) =>
+  l.meta !== null && l.meta > 0 && l.superMeta !== null && l.status !== 'sem_base' && baseDoRanking(l) !== null;
+
 export function ranquearLojas(lojas: AcompanhamentoLoja[]): LojaRanqueada[] {
-  const base = (l: AcompanhamentoLoja) => (l.fase === 'fechado' ? l.realizado : l.projecao);
-  const avaliavel = (l: AcompanhamentoLoja) =>
-    l.meta !== null && l.meta > 0 && l.superMeta !== null && l.status !== 'sem_base' && base(l) !== null;
-  const razao = (l: AcompanhamentoLoja) => (base(l) as number) / (l.meta as number);
+  const razao = (l: AcompanhamentoLoja) => (baseDoRanking(l) as number) / (l.meta as number);
   const porNome = (a: AcompanhamentoLoja, b: AcompanhamentoLoja) => a.nome.localeCompare(b.nome, 'pt-BR');
 
-  const noRanking = lojas.filter(avaliavel).sort((a, b) => razao(b) - razao(a) || porNome(a, b));
-  const fora = lojas.filter((l) => !avaliavel(l)).sort(porNome);
+  const noRanking = lojas.filter(avaliavelNoRanking).sort((a, b) => razao(b) - razao(a) || porNome(a, b));
+  const fora = lojas.filter((l) => !avaliavelNoRanking(l)).sort(porNome);
   // Uma loja só (gerente vê a própria) não tem com quem disputar: "1º" e ouro seriam mérito falso.
   if (noRanking.length < 2) {
     return [...noRanking, ...fora].map((loja) => ({ loja, posicao: null, medalha: null }));
@@ -418,12 +419,98 @@ export function ranquearLojas(lojas: AcompanhamentoLoja[]): LojaRanqueada[] {
   ];
 }
 
+export interface RaiaCorrida {
+  franchiseId: string;
+  nome: string;
+  posicao: number | null;
+  medalha: Medalha | null;
+  status: StatusMeta;
+  fase: FaseMes;
+  // base ÷ meta, sem teto (é o número escrito). null = fora do ranking (sem meta ou sem projeção).
+  razao: number | null;
+  // R$ da base (projeção; mês fechado: realizado), para o rótulo.
+  base: number | null;
+  // Posições 0..100 na escala comum da pista. Tudo é relativo à meta da própria loja.
+  pctRealizado: number;
+  pctBase: number | null;
+  pctSuper: number | null;
+  pctSonhos: number | null;
+  // Base além do teto: a raia encosta no fim e a tela avisa; a razão escrita continua real.
+  passouDoTeto: boolean;
+  // Alvos que existem mas não cabem na escala: a tela diz em vez de sumir com a marca.
+  alvosForaDaEscala: ('super' | 'sonhos')[];
+}
+
+export interface Corrida {
+  // Fim da pista em múltiplos da meta (1,5 = 150% da meta).
+  escala: number;
+  // Linha de chegada (a meta) em 0..100 — a mesma coluna em todas as raias.
+  pctChegada: number;
+  raias: RaiaCorrida[];
+  // Lojas com pista (meta e base). Com menos de 2 não há corrida: a tela não mostra a seção.
+  emDisputa: number;
+}
+
+const ESCALA_MIN = 1.1;
+const ESCALA_TETO = 2;
+
+// Pista do ranking: tudo em % da meta de cada loja, não em R$. O ranking é por base ÷ meta; em R$
+// a loja grande pareceria na frente da pequena que está mais perto da meta, e a pista contradiria
+// a ordem. Escala comum, com teto, para uma loja muito acima não espremer as outras.
+export function montarCorrida(ranking: LojaRanqueada[]): Corrida {
+  const razoes: number[] = [];
+  for (const { loja } of ranking) {
+    if (!avaliavelNoRanking(loja)) continue;
+    const meta = loja.meta as number;
+    razoes.push((baseDoRanking(loja) as number) / meta, (loja.superMeta as number) / meta);
+    if (loja.metaSonhos !== null) razoes.push(loja.metaSonhos / meta);
+  }
+  const maior = razoes.length > 0 ? Math.max(...razoes) : 0;
+  const escala = Math.min(ESCALA_TETO, Math.max(ESCALA_MIN, maior * 1.05));
+  const pct = (r: number) => Math.min(100, Math.max(0, (r / escala) * 100));
+
+  const raias = ranking.map(({ loja, posicao, medalha }): RaiaCorrida => {
+    const comum = {
+      franchiseId: loja.franchiseId, nome: loja.nome, posicao, medalha, status: loja.status, fase: loja.fase,
+    };
+    if (!avaliavelNoRanking(loja)) {
+      return {
+        ...comum, razao: null, base: baseDoRanking(loja), pctRealizado: 0, pctBase: null,
+        pctSuper: null, pctSonhos: null, passouDoTeto: false, alvosForaDaEscala: [],
+      };
+    }
+    const meta = loja.meta as number;
+    const base = baseDoRanking(loja) as number;
+    const razao = base / meta;
+    const rSuper = (loja.superMeta as number) / meta;
+    const rSonhos = loja.metaSonhos !== null ? loja.metaSonhos / meta : null;
+    const alvosForaDaEscala: ('super' | 'sonhos')[] = [];
+    if (rSuper > escala) alvosForaDaEscala.push('super');
+    if (rSonhos !== null && rSonhos > escala) alvosForaDaEscala.push('sonhos');
+    return {
+      ...comum,
+      razao,
+      base,
+      pctRealizado: pct(loja.realizado / meta),
+      pctBase: pct(razao),
+      pctSuper: rSuper > escala ? null : pct(rSuper),
+      pctSonhos: rSonhos === null || rSonhos > escala ? null : pct(rSonhos),
+      passouDoTeto: razao > escala,
+      alvosForaDaEscala,
+    };
+  });
+
+  return { escala, pctChegada: pct(1), raias, emDisputa: raias.filter((r) => r.razao !== null).length };
+}
+
 export function formatarMoeda(valor: number): string {
   return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
 }
 
 export function formatarPercentual(razao: number): string {
-  return `${Math.round(razao * 100)}%`;
+  const p = Math.round(razao * 100);
+  // 99,6% arredondado viraria "100%" numa loja abaixo da meta, ao lado de outra que bateu.
+  return razao < 1 && p >= 100 ? '99%' : `${p}%`;
 }
 
 // ---------------------------------------------------------------------------

@@ -1,16 +1,18 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../../../lib/supabase';
 import { adicionarMeses, hojeBrasilia, mesAtualBrasilia } from '../../../lib/date';
 import {
   LinhaMetaCrua,
   calcularLoja,
   consolidar,
+  montarCorrida,
   ranquearLojas,
 } from '../../../lib/metas';
 import ResumoMetas from './ResumoMetas';
 import CardLoja from './CardLoja';
+import CorridaMetas from './CorridaMetas';
 import EditorMetas from './EditorMetas';
 import HistoricoMetas from './HistoricoMetas';
 
@@ -28,6 +30,8 @@ export default function MetasPage() {
   const [erro, setErro] = useState<{ texto: string; detalhe?: string } | null>(null);
   const [editando, setEditando] = useState(false);
   const [versao, setVersao] = useState(0);
+  const [destaque, setDestaque] = useState<string | null>(null);
+  const timerDestaque = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     setMes(mesAtualBrasilia());
@@ -75,9 +79,29 @@ export default function MetasPage() {
     [linhas, mes, hoje]
   );
   const resumo = useMemo(() => consolidar(ranking.map((r) => r.loja)), [ranking]);
+  const corrida = useMemo(() => montarCorrida(ranking), [ranking]);
+
+  useEffect(() => () => {
+    if (timerDestaque.current) clearTimeout(timerDestaque.current);
+  }, []);
+
+  // Toque numa raia da corrida: rola até o card da loja, leva o foco (leitor de tela) e realça por 1,5 s.
+  const irParaLoja = useCallback((id: string) => {
+    const el = document.getElementById(`loja-${id}`);
+    if (!el) return;
+    const reduzMovimento = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    el.scrollIntoView({ behavior: reduzMovimento ? 'auto' : 'smooth', block: 'start' });
+    el.focus({ preventScroll: true });
+    setDestaque(id);
+    if (timerDestaque.current) clearTimeout(timerDestaque.current);
+    timerDestaque.current = setTimeout(() => setDestaque(null), 1500);
+  }, []);
 
   const trocarMes = (delta: number) => {
     setEditando(false);
+    // Realce pendente não pode cair no card da mesma loja no outro mês.
+    if (timerDestaque.current) clearTimeout(timerDestaque.current);
+    setDestaque(null);
     setMes((m) => adicionarMeses(m, delta));
   };
 
@@ -153,6 +177,8 @@ export default function MetasPage() {
         <>
           {/* Gerente vê só a própria loja: o consolidado dele seria a loja repetida. */}
           {ranking.length > 1 && <ResumoMetas resumo={resumo} />}
+          {/* Corrida de uma loja só (gerente, mês futuro, quase ninguém com meta) é ruído no topo. */}
+          {corrida.emDisputa >= 2 && <CorridaMetas corrida={corrida} onIr={irParaLoja} />}
 
           {isSocio && editando && (
             <EditorMetas
@@ -166,7 +192,13 @@ export default function MetasPage() {
 
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {ranking.map((r) => (
-              <CardLoja key={r.loja.franchiseId} loja={r.loja} posicao={r.posicao} medalha={r.medalha} />
+              <CardLoja
+                key={r.loja.franchiseId}
+                loja={r.loja}
+                posicao={r.posicao}
+                medalha={r.medalha}
+                destacado={destaque === r.loja.franchiseId}
+              />
             ))}
           </div>
         </>

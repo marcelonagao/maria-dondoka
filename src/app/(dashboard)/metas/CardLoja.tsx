@@ -5,31 +5,7 @@ import {
   AcompanhamentoLoja, Medalha, MIN_DIAS_PROJECAO, descreverDiasAbertos, formatarMoeda, formatarPercentual, nomeDiaSemana,
 } from '../../../lib/metas';
 import Trofeu from './Trofeu';
-
-// Cores com contraste AA em fundo branco (orange-700 ≈ 5,2:1, green-800 ≈ 7:1). O estado
-// nunca depende só da cor: sempre há ícone e texto.
-const ESTILO_STATUS = {
-  sonho: 'text-amber-900 bg-amber-50 border-amber-200',
-  super: 'text-green-800 bg-green-50 border-green-200',
-  meta: 'text-green-800 bg-green-50 border-green-200',
-  abaixo: 'text-orange-800 bg-orange-50 border-orange-200',
-  sem_meta: 'text-stone-700 bg-stone-100 border-stone-200',
-  sem_base: 'text-stone-700 bg-stone-100 border-stone-200',
-  futuro: 'text-stone-700 bg-stone-100 border-stone-200',
-} as const;
-
-function rotuloStatus(l: AcompanhamentoLoja): string {
-  const fechado = l.fase === 'fechado';
-  switch (l.status) {
-    case 'sonho': return fechado ? '★ Meta dos sonhos batida' : '★ No ritmo da meta dos sonhos';
-    case 'super': return fechado ? '✓ Super meta batida' : '✓ No ritmo da super meta';
-    case 'meta': return fechado ? '✓ Meta batida' : '✓ No ritmo da meta';
-    case 'abaixo': return fechado ? '▼ Meta não batida' : '▼ Abaixo da meta';
-    case 'sem_base': return 'Projeção em breve';
-    case 'futuro': return 'Mês ainda não começou';
-    default: return 'Sem meta cadastrada';
-  }
-}
+import { ESTILO_STATUS, rotuloStatus } from './estilos';
 
 function LinhaFalta({ alvo, falta, media, diasAbertos, comHoje, realizado, valor }: {
   alvo: string; falta: number; media: number | null; diasAbertos: number; comHoje: boolean; realizado: number; valor: number;
@@ -79,10 +55,12 @@ function LinhaMetaHoje({ rotulo, alvoHoje, realizadoHoje }: {
   );
 }
 
-export default function CardLoja({ loja, posicao: posicaoRanking, medalha }: {
+export default function CardLoja({ loja, posicao: posicaoRanking, medalha, destacado = false }: {
   loja: AcompanhamentoLoja;
   posicao: number | null;
   medalha: Medalha | null;
+  // Realce curto depois que a corrida leva até este card.
+  destacado?: boolean;
 }) {
   const { meta, superMeta, metaSonhos, realizado, projecao } = loja;
   const temMeta = meta !== null && superMeta !== null;
@@ -102,7 +80,11 @@ export default function CardLoja({ loja, posicao: posicaoRanking, medalha }: {
     p > 50 ? { right: `${100 - p}%`, paddingRight: 4 } : { left: `${p}%`, paddingLeft: 4 };
 
   return (
-    <article className="bg-white rounded-xl border border-stone-200 shadow-sm p-4 space-y-3">
+    <article
+      id={`loja-${loja.franchiseId}`}
+      tabIndex={-1}
+      className={`bg-white rounded-xl border border-stone-200 shadow-sm p-4 space-y-3 scroll-mt-4 focus:outline-none${destacado ? ' ring-2 ring-stone-900 transition-shadow' : ''}`}
+    >
       <header className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-1.5 min-w-0">
           {medalha ? (

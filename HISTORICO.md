@@ -77,6 +77,9 @@ relacionadas, mas não deve receber dado novo.
   `docs/sql/metas-dias-abertos.sql` ANTES do deploy (traz também o revoke de anon que faltava em
   `historico_metas`). Regras em `CLAUDE.md` → "Metas".
 
+- **/metas: corrida da meta (15/10/2026):** pista com o ranking das lojas em % da meta no topo da
+  tela; toque leva ao card. Sem SQL. Regras em `CLAUDE.md` → "Metas".
+
 ## Pendente
 
 - Resposta do fornecedor sobre como "Vendas Convênio" (compra de funcionário descontada em

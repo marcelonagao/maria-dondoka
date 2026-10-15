@@ -161,6 +161,12 @@ checar.
   maior primeiro, empate por nome; troféu ouro/prata/bronze nas 3 primeiras. A razão é sobre a
   **meta**, não super/sonhos: é o alvo que toda loja com meta tem. Sem meta, sem base ou mês
   futuro: fim da lista, sem posição. Com uma loja só avaliável (gerente), ninguém tem posição. Substituiu a ordem "pior primeiro" (15/10/2026).
+- **Corrida da meta** (`montarCorrida` + `CorridaMetas.tsx`, topo da tela com ≥ 2 lojas): o ranking
+  como pista, uma raia por loja, **em % da meta de cada loja, não em R$** (em R$ a loja grande
+  pareceria na frente da pequena mais perto da meta). Chegada = meta, na mesma coluna em todas as
+  raias; escala comum de 110% a 200% (teto). Acima do teto a raia encosta no fim e diz "fora da
+  escala"; o % escrito é sempre o real. Toque na raia rola até o card. Desenhada em HTML, não
+  `recharts`, por exceção consciente: cada raia é botão ≥ 44px focável, e não há eixo nem série.
 - **Passo do mês** (segunda opinião): mesma fórmula, com a média dos dias completos deste mês no
   lugar da de 30 dias (só a partir do 4º dia). Se as duas diferem mais de 20%, o card avisa.
   A projeção de 30 dias continua sendo a que define o status.
