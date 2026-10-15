@@ -363,6 +363,9 @@ export interface ConsolidadoMetas {
   lojasSemProjecao: number;
   meta: number;
   superMeta: number;
+  // Só das lojas que têm meta dos sonhos (é opcional): a tela diz "em N de M lojas" quando parcial.
+  metaSonhos: number;
+  lojasComSonhos: number;
   lojasBatendoMeta: number;
 }
 
@@ -381,6 +384,8 @@ export function consolidar(lojas: AcompanhamentoLoja[]): ConsolidadoMetas {
     lojasSemProjecao: comMeta.length - comProjecao.length,
     meta: comMeta.reduce((s, l) => s + (l.meta || 0), 0),
     superMeta: comMeta.reduce((s, l) => s + (l.superMeta || 0), 0),
+    metaSonhos: comMeta.reduce((s, l) => s + (l.metaSonhos || 0), 0),
+    lojasComSonhos: comMeta.filter((l) => l.metaSonhos !== null).length,
     lojasBatendoMeta: comMeta.filter((l) => l.status === 'meta' || l.status === 'super' || l.status === 'sonho').length,
   };
 }

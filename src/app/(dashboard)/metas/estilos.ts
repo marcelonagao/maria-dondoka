@@ -3,7 +3,7 @@ import { AcompanhamentoLoja } from '../../../lib/metas';
 // Cores com contraste AA em fundo branco (orange-700 ≈ 5,2:1, green-800 ≈ 7:1). O estado
 // nunca depende só da cor: sempre há ícone e texto.
 export const ESTILO_STATUS = {
-  sonho: 'text-amber-900 bg-amber-50 border-amber-200',
+  sonho: 'text-pink-800 bg-pink-50 border-pink-200',
   super: 'text-green-800 bg-green-50 border-green-200',
   meta: 'text-green-800 bg-green-50 border-green-200',
   abaixo: 'text-orange-800 bg-orange-50 border-orange-200',
@@ -14,7 +14,7 @@ export const ESTILO_STATUS = {
 
 // Só a classe de texto, para quem não desenha o selo (a corrida escreve o percentual na cor do estado).
 export const COR_TEXTO_STATUS = {
-  sonho: 'text-amber-900',
+  sonho: 'text-pink-800',
   super: 'text-green-800',
   meta: 'text-green-800',
   abaixo: 'text-orange-800',

@@ -169,9 +169,9 @@ export default function CardLoja({ loja, posicao: posicaoRanking, medalha, desta
               )}
               <div className="absolute inset-y-0 left-0 rounded-full bg-stone-800" style={{ width: `${pReal}%` }} />
               <span className="absolute -top-1 -bottom-1 w-0.5 bg-stone-900" style={{ left: `${pMeta}%` }} />
-              <span className="absolute -top-1 -bottom-1 w-0.5 bg-[#EC008C]" style={{ left: `${pSuper}%` }} />
+              <span className="absolute -top-1 -bottom-1 w-0.5 bg-amber-700" style={{ left: `${pSuper}%` }} />
               {pSonhos !== null && (
-                <span className="absolute -top-1 -bottom-1 w-0.5 bg-amber-700" style={{ left: `${pSonhos}%` }} />
+                <span className="absolute -top-1 -bottom-1 w-0.5 bg-[#EC008C]" style={{ left: `${pSonhos}%` }} />
               )}
               <span
                 className="absolute -top-5 text-[11px] font-medium text-stone-800 whitespace-nowrap"

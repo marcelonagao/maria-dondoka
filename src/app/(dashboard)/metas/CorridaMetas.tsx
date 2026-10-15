@@ -101,10 +101,10 @@ function Raia({ raia, escala, pctChegada, onIr }: {
               <div className="absolute inset-y-0 left-0 rounded-full bg-stone-800" style={{ width: `${raia.pctRealizado}%` }} />
               <Chegada left={pctChegada} />
               {raia.pctSuper !== null && (
-                <span className="absolute -top-1 -bottom-1 w-0.5 bg-[#EC008C]" style={{ left: `${raia.pctSuper}%` }} />
+                <span className="absolute -top-1 -bottom-1 w-0.5 bg-amber-700" style={{ left: `${raia.pctSuper}%` }} />
               )}
               {raia.pctSonhos !== null && (
-                <span className="absolute -top-1 -bottom-1 w-0.5 bg-amber-700" style={{ left: `${raia.pctSonhos}%` }} />
+                <span className="absolute -top-1 -bottom-1 w-0.5 bg-[#EC008C]" style={{ left: `${raia.pctSonhos}%` }} />
               )}
               {raia.passouDoTeto ? (
                 <span className="absolute right-0 top-1/2 -translate-y-1/2 text-stone-800 text-xs leading-none">▶</span>
@@ -165,12 +165,12 @@ export default function CorridaMetas({ corrida, onIr }: { corrida: Corrida; onIr
           chegada = meta
         </span>
         <span className="inline-flex items-center gap-1">
-          <span className="inline-block h-3.5 w-0.5 bg-[#EC008C]" aria-hidden="true" />
+          <span className="inline-block h-3.5 w-0.5 bg-amber-700" aria-hidden="true" />
           super
         </span>
         {temSonhos && (
           <span className="inline-flex items-center gap-1">
-            <span className="inline-block h-3.5 w-0.5 bg-amber-700" aria-hidden="true" />
+            <span className="inline-block h-3.5 w-0.5 bg-[#EC008C]" aria-hidden="true" />
             sonhos
           </span>
         )}

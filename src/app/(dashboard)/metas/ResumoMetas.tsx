@@ -3,7 +3,7 @@
 import React from 'react';
 import { ConsolidadoMetas, formatarMoeda, formatarPercentual } from '../../../lib/metas';
 
-function Indicador({ rotulo, valor, destaque }: { rotulo: string; valor: string; destaque?: boolean }) {
+function Indicador({ rotulo, valor, destaque, nota }: { rotulo: string; valor: string; destaque?: boolean; nota?: string }) {
   return (
     <div>
       <dt className="text-xs text-stone-600">{rotulo}</dt>
@@ -12,6 +12,7 @@ function Indicador({ rotulo, valor, destaque }: { rotulo: string; valor: string;
       >
         {valor}
       </dd>
+      {nota && <dd className="text-[11px] text-stone-600">{nota}</dd>}
     </div>
   );
 }
@@ -21,11 +22,19 @@ export default function ResumoMetas({ resumo }: { resumo: ConsolidadoMetas }) {
   return (
     <section className="bg-white rounded-xl border border-stone-200 shadow-sm p-4 space-y-3">
       <h2 className="font-semibold text-stone-800">Todas as lojas</h2>
-      <dl className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-3">
+      <dl className={`grid grid-cols-2 gap-x-4 gap-y-3 ${resumo.lojasComSonhos > 0 ? 'sm:grid-cols-3 lg:grid-cols-5' : 'sm:grid-cols-4'}`}>
         <Indicador rotulo="Realizado (todas as lojas)" valor={formatarMoeda(resumo.realizadoGeral)} destaque />
         <Indicador rotulo="Projeção do mês" valor={resumo.projecao !== null ? formatarMoeda(resumo.projecao) : '—'} />
         <Indicador rotulo="Meta" valor={lojasComMeta > 0 ? formatarMoeda(resumo.meta) : '—'} />
         <Indicador rotulo="Super meta" valor={lojasComMeta > 0 ? formatarMoeda(resumo.superMeta) : '—'} />
+        {/* Opcional por loja: a soma é só de quem tem, e isso fica escrito. */}
+        {resumo.lojasComSonhos > 0 && (
+          <Indicador
+            rotulo="Meta dos sonhos"
+            valor={formatarMoeda(resumo.metaSonhos)}
+            nota={resumo.lojasComSonhos < lojasComMeta ? `em ${resumo.lojasComSonhos} de ${lojasComMeta} lojas` : undefined}
+          />
+        )}
       </dl>
       <p className="text-xs text-stone-600 tabular-nums">
         {lojasComMeta > 0 ? (
