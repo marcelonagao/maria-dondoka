@@ -143,6 +143,24 @@ checar.
   `nível × fator`, e o nível é a janela de 30 dias ÷ soma dos fatores dos dias dela. Só vale com
   ≥ 28 dias de histórico e ≥ 4 amostras por dia da semana; senão a loja usa a média plana e o
   card não diz "considera o dia da semana". O passo do mês usa os mesmos fatores.
+- **Dias abertos** (`docs/sql/metas-dias-abertos.sql`, 15/10/2026): dia da semana aberto = teve
+  venda em ≥ metade das vezes nas 8 semanas (dia ainda não visto = aberto). Dia fechado pesa 0
+  na projeção, no ritmo e no plano do dia; sem perfil, dia aberto pesa 1 e o nível divide pelos
+  dias **abertos** da janela. Ajuste do mês (`metas_vendas_mes.dias_abertos`, null = pelas vendas)
+  vale por cima; dia aberto pelo ajuste sem histórico pesa um dia aberto médio. "Copiar do mês
+  anterior" não copia o ajuste (dezembro não vai para janeiro). Feriado não entra (decisão).
+- **Meta de hoje** = (alvo − vendido até ontem) × peso de hoje ÷ Σ pesos de hoje ao fim do mês;
+  parte do até ontem para não mudar a cada venda. **Média** = o que falta agora ÷ dias abertos de
+  hoje (se aberto) ao fim — mesma base da linha "Faltam", para as duas fecharem. Origem
+  `presumido` = algum dia da semana sem amostra (loja nova): a tela não diz "pelas vendas". **Ritmo** = até ontem ÷ (meta × peso dos dias completos ÷ peso do mês).
+- **Meta dos sonhos** (`docs/sql/metas-sonhos.sql`, coluna `meta_sonhos`): 3º alvo, opcional,
+  `meta ≤ super ≤ sonhos` (constraint + validação na `salvar_metas_mes`). Projeção ≥ sonhos =
+  status `sonho`, que conta como meta batida. Item salvo **sem a chave** `meta_sonhos` mantém o
+  valor gravado (app antigo aberto não apaga); chave com vazio/nulo apaga.
+- **Ordem dos cards = ranking** (`ranquearLojas`): projeção ÷ meta (fechado: realizado ÷ meta),
+  maior primeiro, empate por nome; troféu ouro/prata/bronze nas 3 primeiras. A razão é sobre a
+  **meta**, não super/sonhos: é o alvo que toda loja com meta tem. Sem meta, sem base ou mês
+  futuro: fim da lista, sem posição. Com uma loja só avaliável (gerente), ninguém tem posição. Substituiu a ordem "pior primeiro" (15/10/2026).
 - **Passo do mês** (segunda opinião): mesma fórmula, com a média dos dias completos deste mês no
   lugar da de 30 dias (só a partir do 4º dia). Se as duas diferem mais de 20%, o card avisa.
   A projeção de 30 dias continua sendo a que define o status.

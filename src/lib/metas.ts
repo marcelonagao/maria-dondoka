@@ -9,16 +9,23 @@ export interface LinhaMetaCrua {
   franchise_nome: string;
   meta: number | string | null;
   super_meta: number | string | null;
+  // Opcional: banco anterior a docs/sql/metas-sonhos.sql não devolve a coluna.
+  meta_sonhos?: number | string | null;
   realizado_mes: number | string;
   realizado_hoje: number | string;
   soma_janela: number | string;
   primeira_venda: string | null;
   // Vendas das 8 semanas anteriores a hoje, por dia da semana (índice 0 = domingo).
   soma_por_dia_semana: (number | string)[] | null;
+  // Mesma janela: quantos dias de cada dia da semana tiveram venda. É o que diz se a loja abre
+  // naquele dia. Opcional: banco anterior a docs/sql/metas-dias-abertos.sql não devolve.
+  dias_com_venda_por_dia_semana?: (number | string)[] | null;
+  // Ajuste do mês (0 = domingo): dias em que a loja abre. null/vazio = deduzir pelas vendas.
+  dias_abertos?: (number | string)[] | null;
 }
 
 export type FaseMes = 'corrente' | 'fechado' | 'futuro';
-export type StatusMeta = 'super' | 'meta' | 'abaixo' | 'sem_meta' | 'sem_base' | 'futuro';
+export type StatusMeta = 'sonho' | 'super' | 'meta' | 'abaixo' | 'sem_meta' | 'sem_base' | 'futuro';
 
 export interface AcompanhamentoLoja {
   franchiseId: string;
@@ -26,6 +33,8 @@ export interface AcompanhamentoLoja {
   fase: FaseMes;
   meta: number | null;
   superMeta: number | null;
+  // Terceiro alvo, opcional (≥ super meta). null = loja sem meta dos sonhos no mês.
+  metaSonhos: number | null;
   realizado: number;
   // null em mês futuro (não há o que projetar).
   projecao: number | null;
@@ -34,13 +43,33 @@ export interface AcompanhamentoLoja {
   // Projeção apoiada em pouco histórico: aviso na tela, não bloqueio.
   estimativaFraca: boolean;
   diasRestantes: number;
+  realizadoHoje: number;
   faltaMeta: number | null;
   faltaSuperMeta: number | null;
-  // Quanto precisa vender por dia nos dias que restam depois de hoje. null quando não há dia
-  // restante ou o alvo já foi batido.
-  necessarioPorDiaMeta: number | null;
-  necessarioPorDiaSuper: number | null;
-  // Realizado até ontem ÷ (meta proporcional aos dias completos). >1 = adiantado.
+  faltaMetaSonhos: number | null;
+  // Dias da semana em que a loja abre neste mês (0 = domingo) e de onde isso veio.
+  diasAbertos: boolean[];
+  // 'presumido' = algum dia da semana ainda não apareceu nas vendas (ou o banco não manda a
+  // contagem) e foi contado como aberto sem medição.
+  origemDiasAbertos: 'vendas' | 'ajuste' | 'presumido';
+  hojeAberto: boolean;
+  // Dia da semana de hoje (0 = domingo); null fora do mês corrente.
+  hojeDiaSemana: number | null;
+  // Dias abertos de hoje (inclusive) até o fim do mês. 0 fora do mês corrente.
+  diasAbertosAteFim: number;
+  // Plano do dia, calculado sobre o vendido ATÉ ONTEM, então não muda ao longo do dia:
+  // (alvo − até ontem) × peso de hoje ÷ soma dos pesos de hoje ao fim do mês. 0 = hoje a loja não
+  // abre. null = sem o alvo, alvo já batido até ontem, fora do mês corrente ou sem dia aberto.
+  metaHojeMeta: number | null;
+  metaHojeSuper: number | null;
+  metaHojeSonhos: number | null;
+  // O que falta agora ÷ dias abertos de hoje (se aberto) ao fim do mês. null = sem o alvo, alvo
+  // batido, fora do mês corrente ou sem dia aberto.
+  mediaDiaAbertoMeta: number | null;
+  mediaDiaAbertoSuper: number | null;
+  mediaDiaAbertoSonhos: number | null;
+  // Realizado até ontem ÷ parte da meta esperada até ontem (pesada por dia da semana e dias
+  // abertos). >1 = adiantado.
   ritmo: number | null;
   // Fechamento se o resto do mês seguir o passo médio dos dias completos deste mês. Segunda
   // opinião para a projeção de 30 dias: quando as duas discordam, a tela avisa.
@@ -89,21 +118,85 @@ export function fatoresDiaSemana(
   const inicio = primeiraVenda > desdePerfil ? primeiraVenda : desdePerfil;
   const total = diasEntre(inicio, hoje);
   if (total < MIN_DIAS_PERFIL) return null;
-  const contagem = [0, 0, 0, 0, 0, 0, 0];
-  for (let i = 0; i < total; i++) contagem[diaDaSemana(adicionarDias(inicio, i))]++;
+  const contagem = amostrasPorDiaSemana(primeiraVenda, hoje);
   if (contagem.some((c) => c < MIN_AMOSTRAS_POR_DIA)) return null;
   const medias = contagem.map((c, d) => num(soma[d]) / c);
   const media = medias.reduce((a, b) => a + b, 0) / 7;
   return media > 0 ? medias.map((m) => m / media) : null;
 }
 
-// Soma dos fatores dos dias [de, ate). Sem fatores, cada dia vale 1.
-function somaFatores(f: number[] | null, de: string, ate: string): number {
+// Quantas vezes cada dia da semana apareceu entre a primeira venda (ou 8 semanas atrás) e ontem.
+function amostrasPorDiaSemana(primeiraVenda: string, hoje: string): number[] {
+  const desdePerfil = adicionarDias(hoje, -DIAS_PERFIL);
+  const inicio = primeiraVenda > desdePerfil ? primeiraVenda : desdePerfil;
+  const total = Math.max(0, diasEntre(inicio, hoje));
+  const contagem = [0, 0, 0, 0, 0, 0, 0];
+  for (let i = 0; i < total; i++) contagem[diaDaSemana(adicionarDias(inicio, i))]++;
+  return contagem;
+}
+
+const TODOS_ABERTOS = [true, true, true, true, true, true, true];
+
+// Dia da semana aberto = teve venda em pelo menos metade das vezes que apareceu nas 8 semanas.
+// Dia que ainda não apareceu (loja nova) conta como aberto: na dúvida, não se tira dia da conta.
+// Sem a contagem (banco antigo), todos abertos — o comportamento de antes.
+export function diasAbertosPelasVendas(
+  diasComVenda: (number | string)[] | null | undefined,
+  primeiraVenda: string | null,
+  hoje: string
+): boolean[] {
+  if (!diasComVenda || diasComVenda.length !== 7 || !primeiraVenda) return TODOS_ABERTOS.slice();
+  return amostrasPorDiaSemana(primeiraVenda, hoje).map((a, d) => a === 0 || num(diasComVenda[d]) * 2 >= a);
+}
+
+// true quando a dedução não mediu todos os dias da semana (loja nova ou banco sem a contagem).
+export function diasAbertosPresumidos(
+  diasComVenda: (number | string)[] | null | undefined,
+  primeiraVenda: string | null,
+  hoje: string
+): boolean {
+  if (!diasComVenda || diasComVenda.length !== 7 || !primeiraVenda) return true;
+  return amostrasPorDiaSemana(primeiraVenda, hoje).some((a) => a === 0);
+}
+
+// Ajuste do mês gravado na meta. null quando não há ajuste válido (vale a dedução pelas vendas).
+export function diasAbertosDoAjuste(v: (number | string)[] | null | undefined): boolean[] | null {
+  if (!v || v.length === 0) return null;
+  const abertos = [false, false, false, false, false, false, false];
+  v.forEach((x) => {
+    const d = Number(x);
+    if (Number.isInteger(d) && d >= 0 && d <= 6) abertos[d] = true;
+  });
+  return abertos.some(Boolean) ? abertos : null;
+}
+
+export const NOMES_DIA = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+const NOMES_DIA_EXTENSO = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado'];
+export const nomeDiaSemana = (d: number): string => NOMES_DIA_EXTENSO[d];
+// Semana começando na segunda, que é como a loja pensa ("seg a sáb").
+export const ORDEM_SEMANA = [1, 2, 3, 4, 5, 6, 0];
+
+// "todos os dias", "seg a sáb", "seg, qua, sex".
+export function descreverDiasAbertos(abertos: boolean[]): string {
+  const dias = ORDEM_SEMANA.filter((d) => abertos[d]);
+  if (dias.length === 7) return 'todos os dias';
+  if (dias.length === 0) return 'nenhum dia';
+  const primeiro = ORDEM_SEMANA.indexOf(dias[0]);
+  const continuo = dias.every((d, i) => ORDEM_SEMANA[primeiro + i] === d);
+  if (continuo && dias.length >= 3) return `${NOMES_DIA[dias[0]]} a ${NOMES_DIA[dias[dias.length - 1]]}`;
+  return dias.map((d) => NOMES_DIA[d]).join(', ');
+}
+
+// Soma dos pesos (por dia da semana) dos dias [de, ate).
+function somaPesos(p: number[], de: string, ate: string): number {
   const dias = Math.max(0, diasEntre(de, ate));
-  if (!f) return dias;
   let t = 0;
-  for (let i = 0; i < dias; i++) t += f[diaDaSemana(adicionarDias(de, i))];
+  for (let i = 0; i < dias; i++) t += p[diaDaSemana(adicionarDias(de, i))];
   return t;
+}
+
+function contarAbertos(abertos: boolean[], de: string, ate: string): number {
+  return somaPesos(abertos.map((a) => (a ? 1 : 0)), de, ate);
 }
 
 export function calcularLoja(linha: LinhaMetaCrua, mes: string, hoje: string): AcompanhamentoLoja {
@@ -113,6 +206,7 @@ export function calcularLoja(linha: LinhaMetaCrua, mes: string, hoje: string): A
 
   const meta = linha.meta === null ? null : Number(linha.meta);
   const superMeta = linha.super_meta === null ? null : Number(linha.super_meta);
+  const metaSonhos = linha.meta_sonhos === null || linha.meta_sonhos === undefined ? null : Number(linha.meta_sonhos);
   const realizado = num(linha.realizado_mes);
   const realizadoHoje = num(linha.realizado_hoje);
 
@@ -123,53 +217,82 @@ export function calcularLoja(linha: LinhaMetaCrua, mes: string, hoje: string): A
     : 0;
   const mediaDiaria = diasJanela > 0 ? num(linha.soma_janela) / diasJanela : 0;
   const fatores = fatoresDiaSemana(linha.soma_por_dia_semana, linha.primeira_venda, hoje);
-  const fator = (dataISO: string) => (fatores ? fatores[diaDaSemana(dataISO)] : 1);
-  // Nível = média diária "de um dia comum": a janela é dividida pela soma dos fatores dos dias
-  // que ela cobre (e não pelo número de dias), para uma janela com mais fins de semana não inflar.
+  // Peso de cada dia da semana. Histórico: fator do perfil (ou 1, sem perfil) nos dias em que a
+  // loja abriu, 0 nos que ficou fechada. Mês: o mesmo, com o ajuste do mês por cima — dia fechado
+  // pelo ajuste vale 0; dia aberto pelo ajuste sem histórico (domingo de dezembro) vale um dia
+  // aberto médio, porque o perfil não tem como saber quanto ele vende.
+  const abertosVendas = diasAbertosPelasVendas(linha.dias_com_venda_por_dia_semana, linha.primeira_venda, hoje);
+  const ajuste = diasAbertosDoAjuste(linha.dias_abertos);
+  const diasAbertos = ajuste || abertosVendas;
+  const pesoHist = abertosVendas.map((a, d) => (a ? (fatores ? fatores[d] : 1) : 0));
+  const abertosHist = pesoHist.filter((_, d) => abertosVendas[d]);
+  const pesoMedioAberto = abertosHist.length > 0 ? abertosHist.reduce((a, b) => a + b, 0) / abertosHist.length : 1;
+  const pesoMes = diasAbertos.map((a, d) => (!a ? 0 : abertosVendas[d] ? pesoHist[d] : pesoMedioAberto));
+  const peso = (dataISO: string) => pesoMes[diaDaSemana(dataISO)];
+  // Nível = venda de "um dia comum": a janela é dividida pela soma dos pesos dos dias que ela
+  // cobre (e não pelo número de dias), para uma janela com mais fins de semana não inflar e dia
+  // fechado não puxar a média para baixo.
   const nivelJanela = (() => {
     if (diasJanela === 0) return 0;
-    const soma = somaFatores(fatores, adicionarDias(hoje, -diasJanela), hoje);
+    const soma = somaPesos(pesoHist, adicionarDias(hoje, -diasJanela), hoje);
     return soma > 0 ? num(linha.soma_janela) / soma : 0;
   })();
 
   const diaAtual = fase === 'corrente' ? Number(hoje.slice(8, 10)) : 0;
   const diasRestantes = fase === 'corrente' ? diasNoMes - diaAtual : 0;
+  const amanha = adicionarDias(fim, 1);
 
   const semBase = fase === 'corrente' && diasJanela < MIN_DIAS_PROJECAO;
 
+  const ateOntem = realizado - realizadoHoje;
   let projecao: number | null;
   if (semBase) {
     projecao = null;
   } else if (fase === 'corrente') {
     // Hoje conta pelo maior entre o que já vendeu e a média: dia parcial não derruba a
     // projeção, e dia que já passou da média não é jogado fora.
-    const ateOntem = realizado - realizadoHoje;
-    projecao = ateOntem + Math.max(realizadoHoje, nivelJanela * fator(hoje));
-    for (let i = 1; i <= diasRestantes; i++) projecao += nivelJanela * fator(adicionarDias(hoje, i));
+    projecao = ateOntem + Math.max(realizadoHoje, nivelJanela * peso(hoje));
+    for (let i = 1; i <= diasRestantes; i++) projecao += nivelJanela * peso(adicionarDias(hoje, i));
   } else {
     projecao = fase === 'fechado' ? realizado : null;
   }
 
   const faltaMeta = meta === null ? null : Math.max(0, meta - realizado);
   const faltaSuperMeta = superMeta === null ? null : Math.max(0, superMeta - realizado);
-  const porDia = (falta: number | null): number | null =>
-    falta !== null && falta > 0 && diasRestantes > 0 ? falta / diasRestantes : null;
+  const faltaMetaSonhos = metaSonhos === null ? null : Math.max(0, metaSonhos - realizado);
 
+  // Plano do dia: parte do que faltava ao abrir a loja hoje (até ontem), para o número não
+  // mudar a cada venda. Dia de peso maior (sábado) recebe parte maior; dia fechado, nenhuma.
+  const corrente = fase === 'corrente';
+  const hojeAberto = corrente && pesoMes[diaDaSemana(hoje)] > 0;
+  const diasAbertosAteFim = corrente ? contarAbertos(diasAbertos, hoje, amanha) : 0;
+  const pesoAteFim = corrente ? somaPesos(pesoMes, hoje, amanha) : 0;
+  const faltaAoAbrir = (alvo: number | null): number | null =>
+    !corrente || alvo === null || alvo - ateOntem <= 0 || pesoAteFim <= 0 ? null : alvo - ateOntem;
+  const metaHoje = (alvo: number | null): number | null => {
+    const f = faltaAoAbrir(alvo);
+    return f === null ? null : (f * peso(hoje)) / pesoAteFim;
+  };
+  // A média divide o que falta AGORA (o mesmo número da linha "Faltam"), para as duas fecharem.
+  const mediaDiaAberto = (falta: number | null): number | null =>
+    !corrente || falta === null || falta <= 0 || diasAbertosAteFim === 0 ? null : falta / diasAbertosAteFim;
+
+  // Esperado até ontem = meta × peso dos dias completos ÷ peso do mês inteiro: um começo de mês
+  // com mais domingos fechados não parece atraso.
   let ritmo: number | null = null;
-  if (fase === 'corrente' && meta !== null && diaAtual > 1) {
-    const completos = diaAtual - 1;
-    const esperado = (meta * completos) / diasNoMes;
-    ritmo = esperado > 0 ? (realizado - realizadoHoje) / esperado : null;
+  if (corrente && meta !== null && diaAtual > 1) {
+    const pesoTotal = somaPesos(pesoMes, inicio, amanha);
+    const esperado = pesoTotal > 0 ? (meta * somaPesos(pesoMes, inicio, hoje)) / pesoTotal : 0;
+    ritmo = esperado > 0 ? ateOntem / esperado : null;
   }
 
   // Precisa de alguns dias completos no mês, senão um dia isolado vira "passo".
   let passoMes: number | null = null;
-  if (fase === 'corrente' && diaAtual > MIN_DIAS_PASSO) {
-    const ateOntem = realizado - realizadoHoje;
-    const somaCompletos = somaFatores(fatores, inicio, hoje);
+  if (corrente && diaAtual > MIN_DIAS_PASSO) {
+    const somaCompletos = somaPesos(pesoMes, inicio, hoje);
     const nivelMes = somaCompletos > 0 ? ateOntem / somaCompletos : 0;
-    passoMes = ateOntem + Math.max(realizadoHoje, nivelMes * fator(hoje));
-    for (let i = 1; i <= diasRestantes; i++) passoMes += nivelMes * fator(adicionarDias(hoje, i));
+    passoMes = ateOntem + Math.max(realizadoHoje, nivelMes * peso(hoje));
+    for (let i = 1; i <= diasRestantes; i++) passoMes += nivelMes * peso(adicionarDias(hoje, i));
   }
   const maior = Math.max(projecao || 0, passoMes || 0);
   const projecoesDivergem =
@@ -182,6 +305,7 @@ export function calcularLoja(linha: LinhaMetaCrua, mes: string, hoje: string): A
   if (meta === null || superMeta === null) status = 'sem_meta';
   else if (semBase) status = 'sem_base';
   else if (base === null) status = 'futuro';
+  else if (metaSonhos !== null && base >= metaSonhos) status = 'sonho';
   else if (base >= superMeta) status = 'super';
   else if (base >= meta) status = 'meta';
   else status = 'abaixo';
@@ -192,16 +316,32 @@ export function calcularLoja(linha: LinhaMetaCrua, mes: string, hoje: string): A
     fase,
     meta,
     superMeta,
+    metaSonhos,
     realizado,
     projecao,
     mediaDiaria,
     diasJanela,
     estimativaFraca: fase === 'corrente' && diasJanela < MIN_DIAS_ESTIMATIVA,
     diasRestantes,
+    realizadoHoje,
     faltaMeta,
     faltaSuperMeta,
-    necessarioPorDiaMeta: porDia(faltaMeta),
-    necessarioPorDiaSuper: porDia(faltaSuperMeta),
+    faltaMetaSonhos,
+    diasAbertos,
+    origemDiasAbertos: ajuste
+      ? 'ajuste'
+      : diasAbertosPresumidos(linha.dias_com_venda_por_dia_semana, linha.primeira_venda, hoje)
+        ? 'presumido'
+        : 'vendas',
+    hojeAberto,
+    hojeDiaSemana: corrente ? diaDaSemana(hoje) : null,
+    diasAbertosAteFim,
+    metaHojeMeta: metaHoje(meta),
+    metaHojeSuper: metaHoje(superMeta),
+    metaHojeSonhos: metaHoje(metaSonhos),
+    mediaDiaAbertoMeta: mediaDiaAberto(faltaMeta),
+    mediaDiaAbertoSuper: mediaDiaAberto(faltaSuperMeta),
+    mediaDiaAbertoSonhos: mediaDiaAberto(faltaMetaSonhos),
     ritmo,
     passoMes,
     projecoesDivergem,
@@ -241,25 +381,41 @@ export function consolidar(lojas: AcompanhamentoLoja[]): ConsolidadoMetas {
     lojasSemProjecao: comMeta.length - comProjecao.length,
     meta: comMeta.reduce((s, l) => s + (l.meta || 0), 0),
     superMeta: comMeta.reduce((s, l) => s + (l.superMeta || 0), 0),
-    lojasBatendoMeta: comMeta.filter((l) => l.status === 'meta' || l.status === 'super').length,
+    lojasBatendoMeta: comMeta.filter((l) => l.status === 'meta' || l.status === 'super' || l.status === 'sonho').length,
   };
 }
 
-const PESO_STATUS: Record<StatusMeta, number> = { abaixo: 0, meta: 1, super: 2, sem_base: 3, futuro: 4, sem_meta: 5 };
+export type Medalha = 'ouro' | 'prata' | 'bronze';
 
-// Quem precisa de atenção primeiro: abaixo da meta (pior projeção/meta no topo), depois
-// quem está no ritmo; loja sem meta vai para o fim.
-export function ordenarPorAtencao(lojas: AcompanhamentoLoja[]): AcompanhamentoLoja[] {
-  const razao = (l: AcompanhamentoLoja) =>
-    l.meta && (l.fase === 'fechado' ? l.realizado : l.projecao) !== null
-      ? ((l.fase === 'fechado' ? l.realizado : l.projecao) as number) / l.meta
-      : 0;
-  return [...lojas].sort(
-    (a, b) =>
-      PESO_STATUS[a.status] - PESO_STATUS[b.status] ||
-      razao(a) - razao(b) ||
-      a.nome.localeCompare(b.nome, 'pt-BR')
-  );
+export interface LojaRanqueada {
+  loja: AcompanhamentoLoja;
+  // 1 = mais perto da meta. null = fora do ranking (sem meta ou sem projeção).
+  posicao: number | null;
+  medalha: Medalha | null;
+}
+
+const MEDALHAS: Medalha[] = ['ouro', 'prata', 'bronze'];
+
+// Ranking de quem está mais perto da meta: projeção ÷ meta (mês fechado: realizado ÷ meta), maior
+// primeiro. A razão é sobre a meta, não sobre a super ou a dos sonhos: é o único alvo que toda loja
+// com meta tem, então as lojas ficam comparáveis. Loja com estimativa fraca entra (o card avisa).
+export function ranquearLojas(lojas: AcompanhamentoLoja[]): LojaRanqueada[] {
+  const base = (l: AcompanhamentoLoja) => (l.fase === 'fechado' ? l.realizado : l.projecao);
+  const avaliavel = (l: AcompanhamentoLoja) =>
+    l.meta !== null && l.meta > 0 && l.superMeta !== null && l.status !== 'sem_base' && base(l) !== null;
+  const razao = (l: AcompanhamentoLoja) => (base(l) as number) / (l.meta as number);
+  const porNome = (a: AcompanhamentoLoja, b: AcompanhamentoLoja) => a.nome.localeCompare(b.nome, 'pt-BR');
+
+  const noRanking = lojas.filter(avaliavel).sort((a, b) => razao(b) - razao(a) || porNome(a, b));
+  const fora = lojas.filter((l) => !avaliavel(l)).sort(porNome);
+  // Uma loja só (gerente vê a própria) não tem com quem disputar: "1º" e ouro seriam mérito falso.
+  if (noRanking.length < 2) {
+    return [...noRanking, ...fora].map((loja) => ({ loja, posicao: null, medalha: null }));
+  }
+  return [
+    ...noRanking.map((loja, i) => ({ loja, posicao: i + 1, medalha: MEDALHAS[i] ?? null })),
+    ...fora.map((loja) => ({ loja, posicao: null, medalha: null })),
+  ];
 }
 
 export function formatarMoeda(valor: number): string {

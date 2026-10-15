@@ -69,6 +69,14 @@ relacionadas, mas não deve receber dado novo.
   ("faltam R$ X"). Código pronto; para entrar no ar: rodar `docs/sql/metas-vendas.sql`, depois o
   `update roles` do fim do arquivo (libera a tela `metas`). Fórmulas em `CLAUDE.md` → "Metas".
 
+- **/metas: meta dos sonhos + ranking com troféu (15/10/2026):** código pronto; entra no ar
+  rodando `docs/sql/metas-sonhos.sql` (e os selects de conferência do fim) ANTES do deploy.
+  Regras em `CLAUDE.md` → "Metas".
+
+- **/metas: dias abertos + meta de hoje (15/10/2026):** código pronto; entra no ar rodando
+  `docs/sql/metas-dias-abertos.sql` ANTES do deploy (traz também o revoke de anon que faltava em
+  `historico_metas`). Regras em `CLAUDE.md` → "Metas".
+
 ## Pendente
 
 - Resposta do fornecedor sobre como "Vendas Convênio" (compra de funcionário descontada em

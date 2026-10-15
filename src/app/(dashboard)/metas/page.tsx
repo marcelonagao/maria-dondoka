@@ -7,7 +7,7 @@ import {
   LinhaMetaCrua,
   calcularLoja,
   consolidar,
-  ordenarPorAtencao,
+  ranquearLojas,
 } from '../../../lib/metas';
 import ResumoMetas from './ResumoMetas';
 import CardLoja from './CardLoja';
@@ -70,11 +70,11 @@ export default function MetasPage() {
     carregar();
   }, [carregar, versao]);
 
-  const lojas = useMemo(
-    () => (mes && hoje ? ordenarPorAtencao(linhas.map((l) => calcularLoja(l, mes, hoje))) : []),
+  const ranking = useMemo(
+    () => (mes && hoje ? ranquearLojas(linhas.map((l) => calcularLoja(l, mes, hoje))) : []),
     [linhas, mes, hoje]
   );
-  const resumo = useMemo(() => consolidar(lojas), [lojas]);
+  const resumo = useMemo(() => consolidar(ranking.map((r) => r.loja)), [ranking]);
 
   const trocarMes = (delta: number) => {
     setEditando(false);
@@ -87,7 +87,7 @@ export default function MetasPage() {
         <div>
           <h1 className="text-2xl font-semibold text-stone-800">Metas</h1>
           <p className="text-stone-600 text-sm mt-1">
-            Realizado, projeção e quanto falta para a meta e a super meta.
+            Lojas em ordem de quem está mais perto da meta (projeção ÷ meta).
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -143,16 +143,16 @@ export default function MetasPage() {
         </div>
       )}
 
-      {!carregando && !erro && lojas.length === 0 && (
+      {!carregando && !erro && ranking.length === 0 && (
         <p className="text-sm text-stone-600 bg-white border border-stone-200 rounded-xl px-4 py-6 text-center">
           Nenhuma loja ativa encontrada para este usuário.
         </p>
       )}
 
-      {!carregando && !erro && lojas.length > 0 && (
+      {!carregando && !erro && ranking.length > 0 && (
         <>
           {/* Gerente vê só a própria loja: o consolidado dele seria a loja repetida. */}
-          {lojas.length > 1 && <ResumoMetas resumo={resumo} />}
+          {ranking.length > 1 && <ResumoMetas resumo={resumo} />}
 
           {isSocio && editando && (
             <EditorMetas
@@ -165,8 +165,8 @@ export default function MetasPage() {
           )}
 
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {lojas.map((l) => (
-              <CardLoja key={l.franchiseId} loja={l} />
+            {ranking.map((r) => (
+              <CardLoja key={r.loja.franchiseId} loja={r.loja} posicao={r.posicao} medalha={r.medalha} />
             ))}
           </div>
         </>
