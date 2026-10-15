@@ -159,8 +159,9 @@ checar.
   valor gravado (app antigo aberto não apaga); chave com vazio/nulo apaga. No Resumo, soma só
   das lojas que têm, com "em N de M lojas" quando parcial. Cores das marcas: super `amber-700`,
   sonhos rosa da marca (pedido do usuário, 15/10/2026 — exceção consciente ao uso restrito do
-  rosa: o alvo mais alto leva a cor da marca); selo `sonho` em `pink-800` (o rosa puro reprova AA
-  em texto pequeno, ~4,2:1).
+  rosa: o alvo mais alto leva a cor da marca); selo `sonho` cheio em `#D1007C` com texto branco, e
+  % da corrida em `#D1007C` — o rosa da marca um tom abaixo (5,25:1), porque o puro dá 4,25:1 e
+  reprova AA em texto pequeno; `pink-800` foi descartado por ler como vermelho de alerta.
 - **Ordem dos cards = ranking** (`ranquearLojas`): projeção ÷ meta (fechado: realizado ÷ meta),
   maior primeiro, empate por nome; troféu ouro/prata/bronze nas 3 primeiras. A razão é sobre a
   **meta**, não super/sonhos: é o alvo que toda loja com meta tem. Sem meta, sem base ou mês
